@@ -395,6 +395,11 @@ class DiscoBake(object):
             wait_for_state(instance, u'stopped', 300)
             logging.info("Creating snapshot from instance")
 
+            # This is the easiest way to accomplish this without significantly rewriting things.
+            # This attribute will be copied over the the AMI when it is created, and doesn't appear
+            # to cause any problems.
+            self.connection.modify_instance_attribute(instance.id, "sriovNetSupport", "simple")
+
             image_id = instance.create_image(image_name, no_reboot=True)
             image = keep_trying(60, self.connection.get_image, image_id)
 
