@@ -1,0 +1,2 @@
+Defaults:snapshot !requiretty
+snapshot ALL=(root) NOPASSWD:/opt/wgen/bin/take_snapshot.sh

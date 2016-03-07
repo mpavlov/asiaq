@@ -1,0 +1,124 @@
+#!/bin/bash
+
+### BEGIN INIT INFO
+# Provides: discotaginstance
+# Required-Start: $local_fs $network $syslog discoaddetchosts hostname
+# Default-Start: 1 2 3 4 5
+# Default-Stop: 0 6
+# chkconfig: - 17 85
+# Description: Tags instance with userdata
+### END INIT INFO
+
+# Note: using $(basename $0) for SCRIPT_NAME is not safe
+# because of the rc?.d/* symlinking pattern
+SCRIPT_NAME="disco-tag-instance"
+# The lock file is necessary for the stop to be run when we enter run level 0 or 6
+LOCK_FILE="/var/lock/subsys/$SCRIPT_NAME"
+
+source /opt/wgen/bin/aws-utility-functions.sh
+
+AWS_USERDATA_URL="http://169.254.169.254/latest/user-data"
+
+function fetch_userdata()
+{
+    local key=$1
+    local userdata=$(curl --silent $AWS_USERDATA_URL | grep $key \
+                                                     | cut -d "=" -f 2 \
+                                                     | tr -d '"')
+
+    echo $userdata
+}
+
+function fetch_custom_tag()
+{
+    local tag=$1
+    local file="/opt/wgen/etc/$tag"
+
+    if [ -f $file ] ; then
+        cat $file
+    else
+        echo "unknown"
+    fi
+}
+
+function append_tag()
+{
+    local instance=$1
+    local key=$2
+    local value=$3
+    local old_tags=$4
+
+    echo "Key=$key,Value=$value $old_tags"
+}
+
+function get_instance_tag()
+{
+    local instance=$1
+    local key=$2
+
+    describe_tags_ouput=$(aws ec2 describe-tags --filter "Name=resource-id,Values=$instance")
+
+    echo $describe_tags_output | sed 's/}, */},\n/g' \
+                               | grep "\"Key\": *\"$key\"" \
+                               | grep -oP '"Value":.*?,' \
+                               | cut -d ':' -f 2 \
+                               | grep -oP '".*?"'
+}
+
+wait_for_proxy() {
+    source /etc/profile.d/proxy.sh
+
+    if [[ "$HTTP_PROXY" == "" ]] ; then
+        return
+    fi
+
+    PROXY=$HTTP_PROXY
+    unset HTTP_PROXY
+    unset http_proxy
+
+    TIMEOUT=240
+    START=$(date -u +%s)
+    while ! curl -s $PROXY > /dev/null ; do
+        if [[ $(( $START + $TIMEOUT )) -lt $(date -u +%s) ]] ; then
+            echo "timed out waiting for s3proxy"
+            return
+        fi
+        sleep 1
+    done
+
+    source /etc/profile.d/proxy.sh
+}
+
+case $1 in
+    start|restart|force-reload)
+        wait_for_proxy
+
+        instance=$(get_metadata_attribute instance-id)
+        hostname=$(hostname)
+        hostclass=$(fetch_userdata hostclass)
+        owner=$(fetch_userdata owner)
+        environment=$(fetch_userdata environment_name)
+        productline=$(fetch_custom_tag productline)
+
+        tags=$(append_tag $instance hostname $hostname "")
+        tags=$(append_tag $instance hostname $hostname "$tags")
+        tags=$(append_tag $instance Name $environment-$hostclass-$hostname "$tags")
+        tags=$(append_tag $instance hostclass $hostclass "$tags")
+        tags=$(append_tag $instance owner $owner "$tags")
+        tags=$(append_tag $instance environment $environment "$tags")
+        tags=$(append_tag $instance productline $productline "$tags")
+        aws ec2 create-tags --resources $instance --tags $tags 1> /dev/null
+
+        touch $LOCK_FILE
+        ;;
+    status)
+        if [ -e $LOCK_FILE ] ; then
+           echo "$SCRIPT_NAME has run"
+        else
+           echo "$SCRIPT_NAME has NOT run"
+        fi
+        ;;
+    stop)
+        rm -f $LOCK_FILE
+        ;;
+esac

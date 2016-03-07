@@ -1,0 +1,171 @@
+## Path:        Development/Jenkins
+## Description: Configuration for the Jenkins continuous build server
+## Type:        string
+## Default:     "/var/lib/jenkins"
+## ServiceRestart: jenkins
+#
+# Directory where Jenkins store its configuration and working
+# files (checkouts, build reports, artifacts, ...).
+#
+JENKINS_HOME="/j"
+# "/j" is a bind mount of "/opt/wgen/build/jenkins" to shorten shebangs
+# This allows for longer job names before we run into the Linux limit
+# on !/ shell names (As of 2014-02-06 this is 127 characters).
+
+## Type:        string
+## Default:     ""
+## ServiceRestart: jenkins
+#
+# Java executable to run Jenkins
+# When left empty, we'll try to find the suitable Java.
+#
+JENKINS_JAVA_CMD=""
+
+## Type:        string
+## Default:     "jenkins"
+## ServiceRestart: jenkins
+#
+# Unix user account that runs the Jenkins daemon
+# Be careful when you change this, as you need to update
+# permissions of $JENKINS_HOME and /var/log/jenkins.
+#
+JENKINS_USER="jenkins"
+
+###
+### Memory options optimized for running a Disco Jenkins
+###
+#
+# increase these if you're getting out of memory errors
+JAVA_MEMORY_OPTIONS="-Xms2048m -Xmx6144m"
+#
+# default Permanent Generation heap size is too small;
+# some users suggest this could cause random hangs [1]
+JAVA_MEMORY_OPTIONS="-XX:PermSize=256m -XX:MaxPermSize=1024m $JAVA_MEMORY_OPTIONS"
+#
+# default garbage collector runs infrequently and may cause the appearance
+# of hanging when running [1]; use the concurrent collector for more frequent, shorter
+# collection pauses [2]
+JAVA_MEMORY_OPTIONS="-XX:+UseConcMarkSweepGC $JAVA_MEMORY_OPTIONS"
+#
+# references:
+# [1] http://jenkins-ci.361315.n4.nabble.com/Jenkins-is-hanging-td4636412.html
+# [2] http://www.oracle.com/technetwork/java/gc1-4-2-135950.html#4.4.%20The%20Concurrent%20Low%20Pause%20Collector|outline
+#
+# debugging:
+#  * to check java memory limits:
+#    * /opt/wgen/build/java/jdk1.6.0_45/bin/jmap -heap `pidof java`
+#  * to check stacktraces of running threads:
+#    * /opt/wgen/build/java/jdk1.6.0_45/bin/jstack -F `pidof java`
+#  * to check for entropy pool exhaustion:
+#    * cat /proc/sys/kernel/random/entropy_avail
+#    * lsof /dev/random
+
+## Type:        string
+## Default:     "-Djava.awt.headless=true"
+## ServiceRestart: jenkins
+#
+# Options to pass to java when running Jenkins.
+#
+# Relax Jenkins' CSP policy so that we can rely successfully publish HTML reports without outside references being blocked.
+# See Jenkins' page about CSP here: https://wiki.jenkins-ci.org/display/JENKINS/Configuring+Content+Security+Policy
+# And an explanation of these options: http://content-security-policy.com/
+JENKINS_JAVA_OPTIONS="-Dhudson.model.DirectoryBrowserSupport.CSP=\"sandbox allow-scripts; default-src 'self' 'unsafe-inline' https: data:;\" -Djava.awt.headless=true -Duser.timezone='US/Eastern' $JAVA_MEMORY_OPTIONS"
+
+## Type:        integer(0:65535)
+## Default:     8080
+## ServiceRestart: jenkins
+#
+# Port Jenkins is listening on.
+# Set to -1 to disable
+#
+JENKINS_PORT="8080"
+
+## Type:        string
+## Default:     ""
+## ServiceRestart: jenkins
+#
+# IP address Jenkins listens on for HTTP requests.
+# Default is all interfaces (0.0.0.0).
+#
+JENKINS_LISTEN_ADDRESS="127.0.0.1"
+
+## Type:        integer(0:65535)
+## Default:     ""
+## ServiceRestart: jenkins
+#
+# HTTPS port Jenkins is listening on.
+# Default is disabled.
+#
+JENKINS_HTTPS_PORT=""
+
+## Type:        string
+## Default:     ""
+## ServiceRestart: jenkins
+#
+# IP address Jenkins listens on for HTTPS requests.
+# Default is disabled.
+#
+JENKINS_HTTPS_LISTEN_ADDRESS="0.0.0.0"
+
+## Type:        integer(0:65535)
+## Default:     8009
+## ServiceRestart: jenkins
+#
+# Ajp13 Port Jenkins is listening on.
+# Set to -1 to disable
+#
+JENKINS_AJP_PORT="-1"
+
+## Type:        string
+## Default:     ""
+## ServiceRestart: jenkins
+#
+# IP address Jenkins listens on for Ajp13 requests.
+# Default is all interfaces (0.0.0.0).
+#
+JENKINS_AJP_LISTEN_ADDRESS=""
+
+## Type:        integer(1:9)
+## Default:     5
+## ServiceRestart: jenkins
+#
+# Debug level for logs -- the higher the value, the more verbose.
+# 5 is INFO.
+#
+JENKINS_DEBUG_LEVEL="5"
+
+## Type:        yesno
+## Default:     no
+## ServiceRestart: jenkins
+#
+# Whether to enable access logging or not.
+#
+JENKINS_ENABLE_ACCESS_LOG="no"
+
+## Type:        integer
+## Default:     100
+## ServiceRestart: jenkins
+#
+# Maximum number of HTTP worker threads.
+#
+JENKINS_HANDLER_MAX="100"
+
+## Type:        integer
+## Default:     20
+## ServiceRestart: jenkins
+#
+# Maximum number of idle HTTP worker threads.
+#
+JENKINS_HANDLER_IDLE="20"
+
+## Type:        string
+## Default:     ""
+## ServiceRestart: jenkins
+#
+# Pass arbitrary arguments to Jenkins.
+# Full option list: java -jar jenkins.war --help
+#
+JENKINS_ARGS="--prefix=/jenkins"
+
+# Pull in whatever jenkins bash will use (including PATH & ccache config)
+. /home/jenkins/.bashrc

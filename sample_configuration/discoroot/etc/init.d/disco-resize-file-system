@@ -1,0 +1,27 @@
+#! /bin/sh
+
+### BEGIN INIT INFO
+# Provides: discoresizefilesystem
+# Default-Start: 1 2 3 4 5
+# Default-Stop: 0 6
+# Required-Start: $network
+# Description: Resizes the root filesystem to use all space on our block device
+### END INIT INFO
+
+
+source "/etc/init.d/disco-storage-functions.sh"
+
+ROOT_DEV=$(find_root_volume)
+
+case $1 in
+    start|restart|force-reload)
+        #Use all the space we are paying for
+        resize2fs $ROOT_DEV
+        ;;
+    status)
+        exit 0
+        ;;
+    stop)
+        exit 0
+        ;;
+esac

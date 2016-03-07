@@ -1,0 +1,104 @@
+#! /bin/sh
+
+### BEGIN INIT INFO
+# Provides: discoawslogs
+# Default-Start: 1 2 3 4 5
+# Default-Stop: 0 6
+# chkconfig: - 20 80
+# Required-Start: $network
+# Description: This scripts set 1. region 2. retention policies for logs in deployenator cloudwatch logs
+# 3. logrotate.d for logs under http
+#
+### END INIT INFO
+
+# Note: using $(basename $0) for SCRIPT_NAME is not safe
+# because of the rc?.d/* symlinking pattern
+SCRIPT_NAME="disco-awslogs"
+# The lock file is necessary for the stop to be run when we enter run level 0 or 6
+LOCK_FILE="/var/lock/subsys/$SCRIPT_NAME"
+AWSLOG_CONF="/etc/awslogs.conf"
+AWS_CONF="/var/awslogs/etc/aws.conf"
+RETENTION_DAYS=30
+ARCHIVED_LOGS="/opt/wgen/build/logs"
+HTTP_LOGS="/var/www/html/archivedlogs"
+
+function get_logs()
+{
+    local config_file=$1
+    for i in $(grep "^\[\/.*\]$" $config_file)
+    do
+        echo $i | sed -e 's/\[//' -e 's/\]//'
+    done
+}
+
+function get_region()
+{
+    local ZONE=$(curl --silent http://169.254.169.254/latest/meta-data/placement/availability-zone)
+    local REGION=$(echo $ZONE | sed -e 's/.$//')
+    echo $REGION
+}
+
+function update_region()
+{
+    local file=$1
+    local REGION=$(get_region)
+    sed -e "s/region = .*/region = $REGION/" -i $file
+}
+
+function set_log_retention_policies()
+{
+    local logs=$(get_logs $1)
+    local days=$2
+    local region=$(get_region)
+    for log in $logs ; do
+        echo "Setting $days day policy on $log"
+        aws --region $region logs create-log-group --log-group-name $log
+        aws --region $region logs put-retention-policy --log-group-name $log --retention-in-days $days
+    done
+}
+
+function expose_archive_logs_to_apache() {
+    local symlink=$1
+    local target=$2
+    if [ ! -L "$symlink" ]
+    then
+        ln -s $target $symlink
+    fi
+}
+
+function create_ebs_log_archive_dir() {
+    local logdir=$1
+    if [ ! -d "$logdir" ]
+    then
+        mkdir -p $logdir
+    fi
+}
+
+source "/etc/profile.d/proxy.sh" # <- Make sure aws ec2 uses our proxy
+
+case $1 in
+    start|restart|force-reload)
+
+        if [[ -e "$LOCK_FILE" ]] ; then
+            echo "$SCRIPT_NAME already started!"
+            exit 1
+        fi
+        touch $LOCK_FILE
+
+        update_region $AWS_CONF
+        set_log_retention_policies $AWSLOG_CONF $RETENTION_DAYS
+        create_ebs_log_archive_dir $ARCHIVED_LOGS
+        expose_archive_logs_to_apache $HTTP_LOGS $ARCHIVED_LOGS
+
+        ;;
+    status)
+        if [ -e "$LOCK_FILE" ] ; then
+           echo "$SCRIPT_NAME has run"
+        else
+           echo "$SCRIPT_NAME has NOT run"
+        fi
+        ;;
+    stop)
+        rm -f $LOCK_FILE
+        ;;
+esac

@@ -1,0 +1,60 @@
+#!/bin/bash -e
+
+### BEGIN INIT INFO
+# Provides: discoassociateeip
+# Required-Start: $local_fs $network $syslog discoaddetchosts
+# Default-Start: 1 2 3 4 5
+# Default-Stop: 0 6
+# Description: This grabs and releases EIPs
+### END INIT INFO
+
+# Note: using $(basename $0) for SCRIPT_NAME is not safe
+# because of the rc?.d/* symlinking pattern
+SCRIPT_NAME="disco-associate-eip"
+# The lock file is necessary for the stop to be run when we enter run level 0 or 6
+LOCK_FILE="/var/lock/subsys/$SCRIPT_NAME"
+
+source "/etc/profile.d/proxy.sh" # pulls in HTTP_PROXY
+source "/opt/wgen/bin/user-data.sh" # pulls in eip
+
+ZONE=$(curl --silent http://169.254.169.254/latest/meta-data/placement/availability-zone)
+REGION=$(echo $ZONE | sed -e 's/.$//')
+CLEAN_EIP=$(echo $eip | grep -o '[0-9]*\.[0-9]*\.[0-9]*\.[0-9]*')
+if [[ "$CLEAN_EIP" != "" ]] ; then
+    INSTANCE_ID=$(curl --silent http://169.254.169.254/latest/meta-data/instance-id)
+    EIP_JSON=$(aws --region $REGION ec2 describe-addresses --public-ips $CLEAN_EIP)
+    ALLOCATION_ID=$(echo $EIP_JSON | jq -r .Addresses[0].AllocationId)
+fi
+
+case $1 in
+    start|restart|force-reload)
+
+        # Don't grab EIP if we are testing
+        [[ "$is_testing" == "1" ]] && exit 0
+
+        if [[ "$ALLOCATION_ID" == "" ]] ; then
+            echo "Failed to start, can not determine VPC allocation id for $eip"
+            exit 1
+        fi
+
+        aws --region $REGION ec2 associate-address --allow-reassociation --instance-id $INSTANCE_ID --allocation-id $ALLOCATION_ID
+        touch $LOCK_FILE
+        ;;
+    status)
+        if [ -e $LOCK_FILE ] ; then
+           echo "$SCRIPT_NAME has run"
+        else
+           echo "$SCRIPT_NAME has NOT run"
+        fi
+        ;;
+    stop)
+        if [[ "$ALLOCATION_ID" == "" ]] ; then
+            echo "Failed to stop, can not determine VPC allocation id for $eip"
+            exit 1
+        fi
+
+        aws --region $REGION ec2 disassociate-address --allocation-id $ALLOCATION_ID
+        rm -f $LOCK_FILE
+        ;;
+
+esac

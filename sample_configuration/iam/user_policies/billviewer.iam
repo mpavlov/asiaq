@@ -1,0 +1,11 @@
+{
+"Statement": [
+  {
+      "Action": [
+        "aws-portal:ViewBilling"
+      ],
+      "Resource": "*",
+      "Effect": "Allow"
+    }
+  ]
+}

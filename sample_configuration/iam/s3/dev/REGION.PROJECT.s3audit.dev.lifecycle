@@ -1,0 +1,1 @@
+{ "Rules": [ { "Expiration": { "Days": 365 }, "Status": "Enabled", "Prefix": "", "Transition": { "Days": 30, "StorageClass": "GLACIER" }, "ID": "to_glacier" } ] }

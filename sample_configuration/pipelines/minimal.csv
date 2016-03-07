@@ -1,0 +1,2 @@
+sequence,hostclass,desired_size,min_size,instance_type,extra_disk,iops,smoke_test
+1,mhcs3proxy,1,1,c3.large,,,yes

@@ -1,0 +1,65 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "s3:List*"
+      ],
+      "Resource": "arn:aws:s3:::us-west-2.sample_project.credentials.*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "s3:Get*",
+        "s3:List*"
+      ],
+      "Resource": ["arn:aws:s3:::us-west-2.sample_project.credentials.*/accounts/*",
+                   "arn:aws:s3:::us-west-2.sample_project.credentials.*/app_auth/*",
+                   "arn:aws:s3:::us-west-2.sample_project.credentials.*/public_keys/*",
+                   "arn:aws:s3:::us-west-2.sample_project.credentials.*/app_conf/*",
+                   "arn:aws:s3:::us-west-2.sample_project.credentials.*/private_keys/ad/*",
+                   "arn:aws:s3:::us-west-2.sample_project.credentials.*/private_keys/ssl/adminproxy/*"]
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "cloudwatch:*"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "logs:*"
+      ],
+      "Resource": [
+        "arn:aws:logs:*:*:*"
+      ]
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "ec2:*tags",
+        "ec2:AssociateAddress",
+        "ec2:AttachNetworkInterface",
+        "ec2:DescribeAddresses",
+        "ec2:DescribeInstances",
+        "ec2:DescribeNetworkInterfaces",
+        "ec2:DetachNetworkInterface",
+        "ec2:DisassociateAddress",
+        "ec2:ModifyNetworkInterfaceAttribute"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "autoscaling:SetInstanceHealth"
+      ],
+      "Resource": [
+        "*"
+      ]
+    }
+  ]
+}

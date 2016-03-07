@@ -1,0 +1,57 @@
+#!/usr/bin/env python
+
+"""
+Preload services from /etc/zookeeper.d/<environment_name>.csv into zookeeper.
+
+Uses the Zookeeper command line to preload services from an environment specific csv file.
+
+Usage:
+    preload_hosts.py --env ENVIRONMENT
+"""
+
+import csv
+import subprocess
+from docopt import docopt
+import json
+import os.path
+import itertools
+
+
+def preload_hosts(environment):
+    preload_file_name = '/etc/zookeeper.d/' + environment + '.csv'
+
+    if not os.path.isfile(preload_file_name):
+        print 'No preloads file at ' + preload_file_name
+        return
+
+    with open(preload_file_name, "rb") as input:
+        reader = csv.DictReader(input)
+
+        # the /nerve folder will not exist on startup before any services have registered themselves in zookeeper so create it
+        commands = [
+            "create /nerve ''",
+            "create /nerve/services ''"
+        ]
+
+        for name, hosts in itertools.groupby(reader, lambda row: row['name']):
+            commands.append("rmr /nerve/services/%s_service" % name)
+            # zkCli does not create intermediate nodes when creating paths
+            commands.append("create /nerve/services/%s_service ''" % name)
+            commands.append("create /nerve/services/%s_service/services ''" % name)
+
+            for host in hosts:
+                data = json.dumps(host, separators=(',', ':'))  # change separators to remove whitespace from json
+                commands.append("create -s /nerve/services/%s_service/services/preloaded_%s %s" % (name, name, data))
+
+        # append a blank item so that a new line is entered after the last command to submit it
+        commands.append('')
+
+        proc = subprocess.Popen(['/opt/wgen/zookeeper/bin/zkCli.sh'], stdin=subprocess.PIPE)
+        proc.communicate('\n'.join(commands))
+
+        if proc.returncode != 0:
+            print 'zkCli returned non-zero code ' + str(proc.returncode)
+
+if __name__ == "__main__":
+    args = docopt(__doc__)
+    preload_hosts(args["ENVIRONMENT"])

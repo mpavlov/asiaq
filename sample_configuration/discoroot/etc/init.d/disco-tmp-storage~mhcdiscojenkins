@@ -1,0 +1,16 @@
+#! /bin/bash
+
+### BEGIN INIT INFO
+# Provides: discotmpstorage
+# Default-Start: 1 2 3 4 5
+# Default-Stop: 0 6
+# Required-Start: $network
+# Description: Formats and mounts a ephemeral SSD at /tmp to speed up jenkins
+### END INIT INFO
+
+source "/etc/init.d/disco-storage-functions.sh"
+
+BASE_DEV=$(find_all_ephemeral_volumes)
+TARGET_DIR="/tmp"
+
+source "/etc/init.d/disco-common-storage"

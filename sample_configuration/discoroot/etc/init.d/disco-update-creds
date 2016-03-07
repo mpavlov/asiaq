@@ -1,0 +1,188 @@
+#!/bin/bash -e
+
+### BEGIN INIT INFO
+# Provides: discoupdatecreds
+# Default-Start: 1 2 3 4 5
+# Required-Start: $local_fs $network $syslog discoaddetchosts
+# Default-Stop: 0 6
+# chkconfig: - 19 80
+# Description: Fetches credentials from S3 and injects them in config files
+### END INIT INFO
+
+# Note: using $(basename $0) for SCRIPT_NAME is not safe
+# because of the rc?.d/* symlinking pattern
+SCRIPT_NAME="disco-update-creds"
+# The lock file is necessary for the stop to be run when we enter run level 0 or 6
+LOCK_FILE="/var/lock/subsys/$SCRIPT_NAME"
+
+CRED_PATH_PATTERN="{s3cred://\([-a-zA-Z0-9_/\.]\+\)}"  # the path between the braces will be replaced with the S3 credentials at that path inside the buckets
+
+source "/opt/wgen/bin/user-data.sh" # pulls in 'credential_buckets'
+IFS=" " read -a BUCKET_NAMES <<< "$credential_buckets"
+
+ZONE=$(curl --silent http://169.254.169.254/latest/meta-data/placement/availability-zone)
+REGION=$(echo $ZONE | sed -e 's/.$//')
+
+source /etc/profile.d/proxy.sh # <- Make sure aws ec2 uses our proxy
+
+delete_keys() {
+    if [[ "$APP_AUTH" != "" ]] ; then
+        rm -Rf $APP_AUTH
+    fi
+}
+
+download_keys() {
+    export APP_AUTH=$(mktemp -d)
+    trap delete_keys EXIT
+
+    set +e
+    for bucket in "${BUCKET_NAMES[@]}" ; do
+        local src="s3://${bucket}"
+        local dst="$APP_AUTH/${bucket}"
+        mkdir -p "$dst"
+        aws s3 cp --recursive --quiet --region $REGION "$src" "$dst"
+    done
+    set -e
+}
+
+fetch_key() {
+    local key="$1"
+
+    for bucket in "${BUCKET_NAMES[@]}" ; do
+        local src="$APP_AUTH/${bucket}/${key}"
+        echo checking $src 1&>2
+        if [[ -f "$src" ]] ; then
+            cat "$src"
+            return
+        fi
+    done
+}
+
+inject_creds() {
+    local config_file="$1"
+    local cred_paths=$(grep -ho "$CRED_PATH_PATTERN" "$config_file")
+
+    [[ "$cred_paths" == "" ]] && echo -n "not "
+    echo "updating ${config_file}" 1>&2
+
+    for cred_key in $cred_paths; do
+        local cred_key_bare=$(echo "$cred_key" | sed "s|$CRED_PATH_PATTERN|\1|g")
+        local cred_val=$(fetch_key "$cred_key_bare")
+
+        [[ "$cred_val" == "" ]] && echo "  ERROR: not found: $cred_key" 1>&2 && continue
+
+        cred_val=${cred_val//$'\n'/\\n}  # replace newlines with "\n" to prepare for sed substitution
+        cred_val=${cred_val//~/\\~}  # escape sed substitution separator character
+
+        echo "  replacing: $cred_key" 1>&2
+        sed -i "s~${cred_key}~${cred_val}~g" "$config_file"
+    done
+}
+
+get_config_dir_src() {
+    local pattern="$1"
+    for bucket in "${BUCKET_NAMES[@]}" ; do
+        echo "$(find $APP_AUTH/${bucket}/ -type d|grep $pattern)"
+    done
+}
+
+get_config_dir_dest() {
+    local pattern="$1"
+    local dest="$(find /opt/wgen/etc -type d|grep $pattern)"
+    echo -e "$dest"
+}
+
+copy_config_templates() {
+    local pattern="$1"
+    local srcs="$(get_config_dir_src $pattern)"
+    local dest="$(get_config_dir_dest $pattern)"
+    for src in $srcs; do
+        cp -R $src/* $dest
+    done
+}
+
+get_config_template_dirs() {
+    local patterns="profile_store"
+    echo -e "$patterns"
+}
+
+get_config_files() {
+    local files=""
+    # ssh keys, aws keys, other passwords
+    files="$files\n$(find /home -name authorized_keys 2> /dev/null)"
+    files="$files\n$(find /home -maxdepth 3 -path '*/.ssh/id_rsa*' 2> /dev/null)"
+    files="$files\n$(find /home -name settings.xml 2> /dev/null)"
+
+    # all deployed components' config files
+    files="$files\n$(find /opt/wgen/etc 2> /dev/null)"
+
+    # all disco init scripts
+    files="$files\n$(find /etc/init.d/disco-* 2> /dev/null)"
+
+    # haproxy ssl certs
+    files="$files\n$(find /etc/haproxy/cert.d 2> /dev/null)"
+
+    # apache ssl certs
+    files="$files\n$(find /etc/pki/tls/certs/server.crt 2> /dev/null)"
+    files="$files\n$(find /etc/pki/tls/private/server.key 2> /dev/null)"
+
+    # tinyproxy whitelist
+    files="$files\n$(find /etc/tinyproxy/whitelist 2> /dev/null)"
+
+    # openvpn config and key
+    files="$files\n$(find /etc/openvpn/* 2> /dev/null)"
+
+    # redis config file
+    files="$files\n$(find /etc/redis* 2> /dev/null)"
+
+    # httpd ldap.conf
+    files="$files\n$(find /etc/httpd/conf.d/ldap.conf 2> /dev/null)"
+
+    # Nerve config files
+    files="$files\n$(find /etc/nerve.d 2> /dev/null)"
+
+    # Synapse config files
+    files="$files\n$(find /etc/synapse.d 2> /dev/null)"
+
+    # OpenSwan files
+    files="$files\n$(find /etc/ipsec.d 2> /dev/null)"
+
+    # Jenkins files
+    files="$files\n$(find /j/config.xml 2> /dev/null)"
+
+    files="$files\n$(find /opt/wgen/deployenator/config.xml 2> /dev/null)"
+
+    files="$files\n$(find /opt/splunkforwarder/etc 2> /dev/null)"
+
+    echo -e "$files"
+}
+
+run() {
+    download_keys
+    # copy config files that needs to be injected for credential first to location
+    for config_dir in $(get_config_template_dirs); do
+        copy_config_templates "$config_dir"
+    done
+
+    # inject credential into all config files
+    for config_file in $(get_config_files); do
+        inject_creds "$config_file"
+    done
+}
+
+case $1 in
+    start|restart|force-reload)
+        run
+        touch $LOCK_FILE
+        ;;
+    status)
+        if [ -e $LOCK_FILE ] ; then
+           echo "$SCRIPT_NAME has run"
+        else
+           echo "$SCRIPT_NAME has NOT run"
+        fi
+        ;;
+    stop)
+        rm -f $LOCK_FILE
+        ;;
+esac

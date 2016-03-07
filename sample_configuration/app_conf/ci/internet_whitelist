@@ -1,0 +1,50 @@
+###############
+# AWS services
+# STS is needed by dashboard to access billing info
+sts.amazonaws.com
+
+# S3 access
+s3-us-west-2.amazonaws.com
+s3.amazonaws.com
+
+# CloudWatch
+monitoring.us-west-2.amazonaws.com
+
+# Autoscaling
+autoscaling.us-west-2.amazonaws.com
+
+# EC2
+ec2.us-west-2.amazonaws.com
+
+#CloudWatch Logs
+logs.us-west-2.amazonaws.com
+
+# AWS temporarily moves services to here sometimes
+aws.amazonaws.com
+aws.amazon.com
+
+# RDS
+rds.us-west-2.amazonaws.com
+
+##########
+#Yum repos
+#???
+dl.fedoraproject.org
+
+# Jenkins
+pkg.jenkins-ci.org
+
+# rsyslog
+rpms.adiscon.com
+
+# Centos
+mirrorlist.centos.org
+mirror.centos.org
+
+# Pypi repo
+pypi.python.org
+
+# Ruby repo
+api.rubygems.org
+bb-m.rubygems.org
+

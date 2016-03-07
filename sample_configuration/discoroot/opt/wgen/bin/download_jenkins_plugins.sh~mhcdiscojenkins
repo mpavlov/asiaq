@@ -1,0 +1,55 @@
+#!/bin/bash -e
+
+# A helper script for downloading latest versions of all Jenkins plugins we use as of 2014-02-04
+# Note: make sure you `rm -rf $JENKINS_HOME/plugins/*` first, at your own risk!
+
+JENKINS_HOME="/opt/wgen/build/jenkins"
+PLUGINS_ADDED="
+  build-flow-plugin
+  buildgraph-view
+  build-timeout
+  configurationslicing
+  depgraph-view
+  description-setter
+  disk-usage
+  envinject
+  git
+  git-client
+  instant-messaging
+  jabber
+  jenkinswalldisplay
+  jobConfigHistory
+  join
+  monitoring
+  parameterized-trigger
+  simple-theme-plugin
+  throttle-concurrents
+  token-macro"
+PLUGINS_DISABLED=""
+#  ant
+#  javadoc
+#  maven-plugin
+#  subversion
+#  translation
+#  windows-slaves"
+
+disable_unused_plugins() {
+  cd "$JENKINS_HOME/plugins"
+  for plugin in $PLUGINS_DISABLED; do
+    echo "Disabling $plugin"
+    sudo -u jenkins touch "${plugin}.jpi.disabled"
+  done
+}
+
+download_useful_plugins() {
+  cd "$JENKINS_HOME/plugins"
+  for plugin in $PLUGINS_ADDED; do
+    url="https://updates.jenkins-ci.org/latest/${plugin}.hpi"
+    echo "Fetching $url"
+    sudo -u jenkins curl -L -O "$url"
+  done
+  # plugins are installed automatically at jenkins start
+}
+
+disable_unused_plugins
+download_useful_plugins

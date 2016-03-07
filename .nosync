@@ -1,0 +1,3 @@
+#Here we specify what we don't want to rsync from disco_aws repo on host provisioning.
+#The syntax for this file is described in "INCLUDE/EXCLUDE PATTERN RULES" section of rsync man page.
+- .git

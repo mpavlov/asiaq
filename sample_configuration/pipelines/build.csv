@@ -1,0 +1,4 @@
+sequence,hostclass,min_size,desired_size,max_size,instance_type,extra_disk,iops,smoke_test,integration_test,deployable
+1,mhcntp,1,1,1,t2.micro,,,no,,yes
+1,mhcdiscojenkins,1,1,1,m4.large,,1000,no,,no
+1,mhcjenkinsrelay,1,1,1,t2.micro,,,no,,no

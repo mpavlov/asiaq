@@ -1,0 +1,6 @@
+# These definition is used by /opt/wgen/bin/smokealarm.sh to determine if
+# a machine has should be terminated. Timeouts are in in seconds.
+
+REASONABLE_BOOT_TIME=1000
+REASONABLE_MAINTENANCE_TIME=1000
+MAINTENANCE_MODE_FILE="/tmp/maintenance.mode.txt"

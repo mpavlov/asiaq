@@ -1,0 +1,49 @@
+LogLevel warn
+
+<Location /jenkins>
+    RewriteEngine        on
+    RewriteCond          %{HTTPS} !=on
+    RewriteRule (.*) https://%{HTTP_HOST}%{REQUEST_URI}
+</Location>
+
+<VirtualHost *:80>
+    RewriteEngine On
+    RewriteRule ^/$ /jenkins/ [R]
+    RewriteRule ^/jenkins$ /jenkins/ [R]
+</VirtualHost>
+
+<VirtualHost *:443>
+    #######################
+    # SSL SETTINGS
+    SSLEngine on
+    SSLCertificateFile /etc/pki/tls/certs/server.crt
+    SSLCertificateKeyFile /etc/pki/tls/private/server.key
+    KeepAlive On
+
+    <filesMatch ".(js|css|png|jpeg|jpg|gif|ico|swf|flv|pdf|zip)$">
+        Header set Cache-Control "max-age=86400, public"
+    </filesMatch>
+
+    # Use HTTP instead of AJP. AJP in Winstone is broken.
+    # See https://issues.jenkins-ci.org/browse/JENKINS-5753
+    ProxyRequests Off
+    ProxyPreserveHost On
+    ProxyPass /jenkins/ http://127.0.0.1:8080/jenkins/
+    <Location /jenkins/>
+      ProxyPassReverse /
+      Order deny,allow
+      Allow from all
+    </Location>
+
+    RewriteEngine On
+    RewriteRule ^/$ /jenkins/ [R]
+    RewriteRule ^/jenkins$ /jenkins/ [R]
+
+    RequestHeader set X-Forwarded-Proto "https"
+    RequestHeader set X-Forwarded-Port "443"
+
+    ErrorLog /opt/wgen/log/jenkins.httpd_err
+
+    SetEnvIf Request_Method "OPTIONS" dontlog
+    CustomLog /opt/wgen/log/jenkins.httpd combined_with_duration env=!dontlog
+</VirtualHost>

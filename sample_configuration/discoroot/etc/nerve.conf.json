@@ -1,0 +1,4 @@
+{
+  "instance_id": "$INSTANCE_ID",
+  "service_conf_dir": "/etc/nerve.d"
+}

@@ -1,0 +1,99 @@
+#!/bin/bash
+
+### BEGIN INIT INFO
+# Provides: discoassociateeni
+# Required-Start: $local_fs $network $syslog discoaddetchosts
+# Default-Start: 1 2 3 4 5
+# Default-Stop: 0 6
+# chkconfig: - 95 01
+# Description: Finds matching ENI, forcefully detaches it from what ever instance has it attached and then attaches it to self and configures the interface.
+### END INIT INFO
+
+# Note: using $(basename $0) for script_name is not safe
+# because of the rc?.d/* symlinking pattern
+script_name="disco-associate-eni"
+# The lock file is necessary for the stop to be run when we enter run level 0 or 6
+lock_file="/var/lock/subsys/$script_name"
+
+case $1 in
+    start)
+        echo "Starting at $(date --rfc-3339=seconds)"
+
+        source "/etc/profile.d/proxy.sh" # pulls in HTTP_PROXY
+        source "/opt/wgen/bin/user-data.sh" # pulls in floating_ips
+
+        # Don't grab ENI if we are testing
+        [[ "$is_testing" == "1" ]] && exit 0
+
+        if ! [ "$floating_ips" ]; then
+            echo "floating_ips is not defined in user data. Nothing to do."
+            echo "Done at $(date --rfc-3339=seconds)"
+            exit 0
+        fi
+
+        echo "Getting basic data $(date --rfc-3339=seconds)"
+
+        zone=$(curl --silent http://169.254.169.254/latest/meta-data/placement/availability-zone)
+        region=$(echo "$zone" | sed -e 's/.$//')
+        instance_id=$(curl --silent http://169.254.169.254/latest/meta-data/instance-id)
+
+        echo "Associating ENI $(date --rfc-3339=seconds)"
+        /etc/init.d/associate-eni.py --region "$region" --instance "$instance_id" $floating_ips
+        if [ "$?" != "0" ]; then
+            /opt/wgen/bin/mark_unhealthy.sh "Could not associate ENI. Halting"
+            #We also halt to ensure that the instance does not mark itself smoketested.
+            halt
+        fi
+
+        echo "Sleeping $(date --rfc-3339=seconds)"
+        sleep 10 # wait for the kernel to do its thing.
+
+        echo "Updating config $(date --rfc-3339=seconds)"
+        # Loosen up reverse path filtering
+        /sbin/sysctl net.ipv4.conf.default.rp_filter=2
+        /sbin/sysctl net.ipv4.conf.all.rp_filter=2
+        # Configure the NIC
+        sed "s/eth0/eth1/g" /etc/sysconfig/network-scripts/ifcfg-eth0 > /etc/sysconfig/network-scripts/ifcfg-eth1
+        # Ensure that eth0 is our default gateway
+        # This ensure that the host has connectivity even if secondary
+        # interface removed. Allowing it do complete any potential shutdown
+        # cleanup operations.
+        echo "GATEWAYDEV=eth0" > /etc/sysconfig/network
+
+        #TODO we don't need to do any of this on CI, but it also doesn't hurt.
+        if [ "$hostclass" = "mhclbexternal" ]; then
+            # We bring up eth1 briefly to pre-populate route-eth1 with data
+            # from dhcp and find out the IP.
+            /sbin/ifdown eth1
+            rm -f /etc/sysconfig/network-scripts/route-eth1
+            /sbin/ifup eth1
+            eth1_ip=`ifconfig eth1 | awk '/inet addr/{print substr($2,6)}'`
+            vpn_ip=`echo $eth1_ip|awk -F. '{print($1 "." $2 "." $3 "." $4+1)}'`
+            # Bring it back down so we can update config with our route
+            /sbin/ifdown eth1
+            # Send pre-prod and prod traffic out to vpn host.
+            echo "10.120.0.0/16 via $vpn_ip dev eth1" >> /etc/sysconfig/network-scripts/route-eth1
+            echo "10.130.0.0/16 via $vpn_ip dev eth1" >> /etc/sysconfig/network-scripts/route-eth1
+        fi
+
+        echo "Bringing up eth1 $(date --rfc-3339=seconds)"
+        /sbin/ifdown eth1
+        /sbin/ifup eth1
+
+        echo "Done at $(date --rfc-3339=seconds)"
+
+        touch "$lock_file"
+        ;;
+    status)
+        if [ -e $lock_file ] ; then
+           echo "$script_name has run"
+        else
+           echo "$script_name has NOT run"
+        fi
+        ;;
+    stop)
+        echo "There is no stopping."
+        exit 1
+        ;;
+
+esac

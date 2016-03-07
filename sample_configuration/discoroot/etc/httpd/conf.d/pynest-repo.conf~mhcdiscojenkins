@@ -1,0 +1,7 @@
+Alias /pynest /opt/wgen/build/pynest/
+
+<Directory "/opt/wgen/build/pynest/">
+    Options Indexes
+    Order allow,deny
+    Allow from all
+</Directory>

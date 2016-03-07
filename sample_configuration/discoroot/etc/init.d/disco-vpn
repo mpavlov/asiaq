@@ -1,0 +1,67 @@
+#!/bin/bash -e
+
+### BEGIN INIT INFO
+# Provides: discovpn
+# Default-Start: 1 2 3 4 5
+# Default-Stop: 0 6
+# chkconfig: - 50 50
+# Description: This registers the services on the current host with Zookeeper
+### END INIT INFO
+
+# Note: using $(basename $0) for SCRIPT_NAME is not safe
+# because of the rc?.d/* symlinking pattern
+SCRIPT_NAME="disco-vpn"
+LOCK_FILE="/var/lock/subsys/$SCRIPT_NAME"
+
+source "/etc/profile.d/proxy.sh" # pulls in HTTP_PROXY
+source "/opt/wgen/bin/user-data.sh" # pulls in route_table_id and destination_cidr_block
+
+ZONE=$(curl --silent http://169.254.169.254/latest/meta-data/placement/availability-zone)
+REGION=$(echo $ZONE | sed -e 's/.$//')
+INSTANCE_ID=$(curl --silent http://169.254.169.254/latest/meta-data/instance-id)
+
+case $1 in
+    start|restart|force-reload)
+
+        # Don't setup routes we are testing
+        [[ "$is_testing" == "1" ]] && exit 0
+
+        touch $LOCK_FILE
+        # NAT & VPN instances need sourceDestCheck disabled http://goo.gl/uKRnUz
+        aws --region $REGION ec2 modify-instance-attribute --instance-id $INSTANCE_ID --no-source-dest-check
+        COUNTER=0
+        while [[ 1 == 1 ]] ; do
+            ID="route_table_id_$COUNTER"
+            CIDR="destination_cidr_block_$COUNTER"
+
+            if [[ "${!ID}" == "" ]] ; then
+                break
+            fi
+
+            set +e
+            aws --region $REGION ec2 create-route --instance-id $INSTANCE_ID \
+                --route-table-id ${!ID} --destination-cidr-block ${!CIDR}
+            if [[ "$?" != "0" ]] ; then
+                aws --region $REGION ec2 delete-route \
+                    --route-table-id ${!ID} --destination-cidr-block ${!CIDR}
+                set -e
+                aws --region $REGION ec2 create-route --instance-id $INSTANCE_ID \
+                    --route-table-id ${!ID} --destination-cidr-block ${!CIDR}
+            fi
+            set -e
+
+            let COUNTER=COUNTER+1
+        done
+        ;;
+   status)
+        if [ -e $LOCK_FILE ] ; then
+           echo "$SCRIPT_NAME has run"
+        else
+           echo "$SCRIPT_NAME has NOT run"
+        fi
+        ;;
+   stop)
+        rm -f $LOCK_FILE
+        exit 0
+        ;;
+esac

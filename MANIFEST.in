@@ -1,0 +1,7 @@
+# Manifest file for the egg
+include *.pip
+include *.md
+include *.txt *.ini *.cfg *.rst
+recursive-include jenkins *.*
+recursive-include init *.*
+recursive-include discoroot *.*

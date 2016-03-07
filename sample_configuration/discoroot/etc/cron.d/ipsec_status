@@ -1,0 +1,2 @@
+PATH=/bin:/usr/bin:/usr/sbin
+*/5 * * * * root /opt/wgen/bin/ipsec_status.sh &> /dev/null

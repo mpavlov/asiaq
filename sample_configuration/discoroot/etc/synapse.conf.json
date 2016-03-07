@@ -1,0 +1,43 @@
+{
+  "service_conf_dir": "/etc/synapse.d",
+  "haproxy": {
+    "reload_command": "service haproxy reload",
+    "config_file_path": "/etc/haproxy/haproxy.cfg",
+    "socket_file_path": "/var/lib/haproxy/stats",
+    "do_writes": true,
+    "do_reloads": true,
+    "do_socket": true,
+    "global": [
+      "daemon",
+      "user haproxy",
+      "group haproxy",
+      "maxconn 4096",
+      "log     127.0.0.1 local1 notice",
+      "stats   socket /var/lib/haproxy/stats mode 666 level admin"
+    ],
+    "defaults": [
+      "log      global",
+      "option   dontlognull",
+      "maxconn  2000",
+      "retries  3",
+      "timeout  connect 5s",
+      "timeout  client  1m",
+      "timeout  server  1m",
+      "option   redispatch",
+      "balance  roundrobin"
+    ],
+    "extra_sections": {
+      "listen stats": [
+        "bind :3212",
+        "mode http",
+        "stats enable",
+        "stats uri /",
+        "stats refresh 5s"
+      ],
+      "backend rate_limited": [
+        "mode http",
+        "errorfile 503 /etc/haproxy/errors/503rate.http"
+      ]
+    }
+  }
+}

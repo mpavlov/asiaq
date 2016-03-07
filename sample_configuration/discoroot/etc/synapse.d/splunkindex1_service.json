@@ -1,0 +1,13 @@
+{
+  "discovery": {
+    "method": "zookeeper",
+    "path": "/nerve/services/splunkindex1_service/services",
+    "hosts": $ZK_HOSTS,
+  },
+  "haproxy": {
+    "port": 9997,
+    "listen": [
+      "mode tcp"
+    ]
+  }
+}

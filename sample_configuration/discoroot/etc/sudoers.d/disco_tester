@@ -1,0 +1,7 @@
+Cmnd_Alias CELERYD = /sbin/service celeryd *
+Cmnd_Alias HTTPD = /sbin/service httpd *
+Cmnd_Alias MAINTENANCE = /opt/wgen/bin/maintenance-mode.sh *
+disco_tester ALL=(root) NOPASSWD:CELERYD,HTTPD,MAINTENANCE
+Defaults!CELERYD !requiretty
+Defaults!HTTPD !requiretty
+Defaults!MAINTENANCE !requiretty

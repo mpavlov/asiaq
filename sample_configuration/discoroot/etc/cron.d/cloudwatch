@@ -1,0 +1,1 @@
+*/1 * * * * root /opt/wgen/bin/upload_cloudwatch.sh &> /dev/null

@@ -1,0 +1,1 @@
+*/2 * * * * root /opt/wgen/bin/monitor_connectivity.sh &> /dev/null

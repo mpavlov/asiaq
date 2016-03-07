@@ -1,0 +1,46 @@
+#! /bin/sh
+
+### BEGIN INIT INFO
+# Provides: discoaddoperators
+# Default-Start: 1 2 3 4 5
+# Required-Start: $local_fs $network $syslog discoaddetchosts
+# Default-Stop: 0 6
+# chkconfig: - 20 80
+# Description: This create unix users for the human users listed in /etc/disco_operators
+### END INIT INFO
+
+# Note: using $(basename $0) for SCRIPT_NAME is not safe
+# because of the rc?.d/* symlinking pattern
+SCRIPT_NAME="disco-add-operators"
+# The lock file is necessary for the stop to be run when we enter run level 0 or 6
+LOCK_FILE="/var/lock/subsys/$SCRIPT_NAME"
+
+source "/etc/profile.d/proxy.sh" # <- Make sure aws ec2 uses our proxy
+source "/etc/init.d/fix_path.sh" # Fix path to work for Centos6 and Centos7
+
+case $1 in
+    start|restart|force-reload)
+        source "/opt/wgen/bin/user-data.sh" # pulls in 'credential_buckets'
+        IFS=" " read -a BUCKET_NAMES <<< "$credential_buckets"
+
+        # Make sure we can find disco_aws.ini
+        cd /opt/wgen/discoaws
+
+        # Now add accounts from all the buckets we respect
+        for bucket in "${BUCKET_NAMES[@]}" ; do
+            disco_accounts.py --bucket $bucket install > /tmp/oplog 2>&1
+        done
+
+        touch $LOCK_FILE
+        ;;
+    status)
+        if [ -e $LOCK_FILE ] ; then
+           echo "$SCRIPT_NAME has run"
+        else
+           echo "$SCRIPT_NAME has NOT run"
+        fi
+        ;;
+    stop)
+        rm -f $LOCK_FILE
+        ;;
+esac

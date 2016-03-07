@@ -1,0 +1,34 @@
+#! /bin/sh
+
+### BEGIN INIT INFO
+# Provides: discobackuplogs
+# Required-Start: $syslog
+# Required-Stop: $syslog
+# Default-Start: 1 2 3 4 5
+# Default-Stop: 0 6
+# chkconfig: - 15 89
+# Description: This backs up disco logs to S3 on logger shutdown
+### END INIT INFO
+
+# Note: using $(basename $0) for SCRIPT_NAME is not safe
+# because of the rc?.d/* symlinking pattern
+SCRIPT_NAME="disco-backup-logs"
+# The lock file is necessary for the stop to be run when we enter run level 0 or 6
+LOCK_FILE="/var/lock/subsys/$SCRIPT_NAME"
+
+case $1 in
+    start|restart|force-reload)
+        touch $LOCK_FILE
+        ;;
+    status)
+        if [ -e $LOCK_FILE ] ; then
+           echo "$SCRIPT_NAME is running"
+        else
+           echo "$SCRIPT_NAME is NOT running"
+        fi
+        ;;
+    stop)
+        /usr/sbin/logrotate -f /etc/logrotate.conf
+        rm -f $LOCK_FILE
+        ;;
+esac

@@ -1,0 +1,81 @@
+#! /bin/bash
+
+### BEGIN INIT INFO
+# Provides: /tmp/disco_booted creation and deletion
+# Required-Start: $network discoaddetchosts
+# Default-Start: 1 2 3 4 5
+# Default-Stop: 0 6
+# chkconfig: - 99 01
+# Description: This script is run after all other scripts on bootup and first on shutdown so we can be sure that all init scripts have been run once /tmp/disco_booted exists.
+### END INIT INFO
+
+DISCO_SMOKE_UNIT="/opt/wgen/bin/smoketest.unit.sh"
+DISCO_BOOTED="/tmp/disco_booted"
+DISCO_TESTED="/tmp/disco_tested"
+BANNER_FILE="/opt/wgen/etc/banner"
+TEST_POLL_INTERVAL=1
+
+source /etc/profile.d/proxy.sh # for HTTP_PROXY
+source /opt/wgen/bin/aws-utility-functions.sh # sets AWS_DEFAULT_REGION
+INSTANCE_ID=$(curl --silent http://169.254.169.254/latest/meta-data/instance-id)
+
+case $1 in
+    start|restart|force-reload)
+        START_TIME=$SECONDS
+        echo "WARNING:  This instance has booted but has not yet been tested" > $BANNER_FILE
+        cat > $DISCO_BOOTED <<EOF
+# This file is created by /etc/init.d/disco_booted
+# To indicate all init scripts have run.
+# Please do not delete it.
+#
+EOF
+        if [[ -x $DISCO_SMOKE_UNIT ]] ; then
+            while true; do
+                if $DISCO_SMOKE_UNIT ; then
+                    break;
+                else
+                    sleep $TEST_POLL_INTERVAL
+                fi
+            done
+        fi
+        cat > $DISCO_TESTED <<EOF
+# This file is created by /etc/init.d/disco_booted
+# to indicate all init scripts and smoke tests have
+# run.  Please do not delete it.
+#
+EOF
+        # Remove the warning message from the ssh banner file
+        echo "" > $BANNER_FILE
+        echo "# Booted and finished running $DISCO_SMOKE_UNIT at $(date --utc --rfc-3339=seconds)" >> $DISCO_TESTED
+        DURATION=$(($SECONDS-$START_TIME))
+        echo "# Waited $DURATION seconds for $DISCO_SMOKE_UNIT to finish running" >> $DISCO_TESTED
+
+        UPTIME=$(cat /proc/uptime | awk '{print $1}')
+        aws ec2 create-tags --resources $INSTANCE_ID --tags \
+            Key=smoketest,Value=tested Key=boottime,Value=$UPTIME 1> /dev/null
+
+        exit 0
+        ;;
+    status)
+        if [[ -f $DISCO_TESTED ]] ; then
+            echo "* Disco has booted and finished running $DISCO_SMOKE_UNIT"
+            exit 0
+        elif [[ -f $DISCO_BOOTED ]] ; then
+            echo "* Disco has booted but has not finished running $DISCO_SMOKE_UNIT"
+            exit 1
+        else
+            echo "* Disco has not booted"
+            exit 2
+        fi
+        ;;
+    stop)
+        rm -f $DISCO_BOOTED
+        rm -f $DISCO_TESTED
+        aws ec2 delete-tags --resources $INSTANCE_ID --tags "Key=smoketest"
+        exit 0
+        ;;
+    *)
+        echo Supported options are: start, restart, force-reload, status, stop
+        exit 3
+        ;;
+esac

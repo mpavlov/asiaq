@@ -1,0 +1,71 @@
+#!/bin/bash
+
+### BEGIN INIT INFO
+# Provides: synapse
+# Required-Start: $local_fs $network $syslog discoaddetchosts haproxy
+# Default-Start: 1 2 3 4 5
+# Default-Stop: 0 6
+# chkconfig: - 86 50
+# Description: Synapse tells haproxy how to find services
+### END INIT INFO
+
+# source function library
+. /etc/rc.d/init.d/functions
+
+LOCK_FILE=/var/lock/subsys/synapse-supervisord
+PID_FILE=/var/run/synapse-supervisor.pid
+CONF_FILE=/etc/supervisor.d/synapse.conf
+
+RETVAL=0
+
+start() {
+        echo -n $"Starting supervisord: "
+        daemon supervisord -c $CONF_FILE
+        RETVAL=$?
+        echo
+        [ $RETVAL -eq 0 ] && touch $LOCK_FILE
+}
+
+# unfortunately synapse doesn't respond to it's parent's death...
+kill_all()
+{
+    PIDS=$(ps aux | grep bin/synapse | grep -v grep | awk '{ print $2 }')
+    for PID in $PIDS ; do kill $PID ; done
+}
+
+stop() {
+        echo -n $"Stopping supervisord: "
+        killproc -p $PID_FILE supervisord
+        echo
+        [ $RETVAL -eq 0 ] && rm -f $LOCK_FILE
+        kill_all
+}
+
+case "$1" in
+  start)
+        start
+        ;;
+  stop)
+        stop
+        ;;
+  restart|force-reload|reload)
+        stop
+        start
+        ;;
+  condrestart)
+        [ -f $LOCK_FILE ] && restart
+        ;;
+  status)
+        status -p $PID_FILE supervisord
+        RETVAL=$?
+        if [[ $RETVAL == "0" ]] ; then
+            supervisorctl -c $CONF_FILE status | grep -v FATAL
+            RETVAL=$?
+        fi
+        ;;
+  *)
+        echo $"Usage: $0 {start|stop|status|restart|reload|force-reload|condrestart}"
+        exit 1
+esac
+
+exit $RETVAL

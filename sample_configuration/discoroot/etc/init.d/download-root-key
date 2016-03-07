@@ -1,0 +1,64 @@
+#!/bin/bash -e
+
+### BEGIN INIT INFO
+# Provides: downloadrootkey
+# Required-Start: $local_fs $network $syslog
+# Default-Start: 1 2 3 4 5
+# Default-Stop: 0 6
+# chkconfig: - 13 90
+# Description: If a key is passed in to the instance, this downloads it and sticks it in the right place
+### END INIT INFO
+
+# Note: using $(basename $0) for SCRIPT_NAME is not safe
+# because of the rc?.d/* symlinking pattern
+SCRIPT_NAME="download-root-key"
+# The lock file is necessary for the stop to be run when we enter run level 0 or 6
+LOCK_FILE="/var/lock/subsys/$SCRIPT_NAME"
+
+# Note: these two functions are copied from the CentOS 6.5 /etc/rc.local script
+
+set_random_password() {
+    # set a random pass on first boot
+    if [ -f /root/firstrun ]; then
+        dd if=/dev/urandom count=50|md5sum|passwd --stdin root
+        passwd -l root
+        rm /root/firstrun
+    fi
+}
+
+update_root_authorized_keys() {
+    if [ ! -d /root/.ssh ]; then
+        mkdir -m 0700 -p /root/.ssh
+        restorecon /root/.ssh
+    fi
+    # Get the root ssh key setup
+    ReTry=0
+    while [ ! -f /root/.ssh/authorized_keys ] && [ $ReTry -lt 10 ]; do
+        sleep 2
+        curl -f http://169.254.169.254/latest/meta-data/public-keys/0/openssh-key > /root/.ssh/pubkey
+        if [ 0 -eq 0 ]; then
+            mv /root/.ssh/pubkey /root/.ssh/authorized_keys
+        fi
+        ReTry=$[Retry+1]
+    done
+    chmod 600 /root/.ssh/authorized_keys && restorecon /root/.ssh/authorized_keys
+}
+
+case $1 in
+    start|restart|force-reload)
+        set_random_password
+        update_root_authorized_keys
+
+        touch $LOCK_FILE
+        ;;
+    status)
+        if [ -e $LOCK_FILE ] ; then
+           echo "$SCRIPT_NAME has run"
+        else
+           echo "$SCRIPT_NAME has NOT run"
+        fi
+        ;;
+    stop)
+        rm /root/.ssh/authorized_keys
+        ;;
+esac

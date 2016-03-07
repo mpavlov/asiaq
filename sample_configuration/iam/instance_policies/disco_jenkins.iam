@@ -1,0 +1,70 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "s3:List*",
+        "s3:Get*",
+        "s3:CreateBucket",
+        "s3:PutBucketLifecycle",
+        "s3:PutBucketLogging",
+        "s3:PutBucketPolicy",
+        "s3:PutBucketVersioning",
+        "s3:PutLifecycleConfiguration",
+        "s3:PutBucketWebsite"
+      ],
+      "Resource": [
+        "*"
+      ]
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "s3:Put*",
+        "s3:Delete*"
+      ],
+      "Resource":[
+        "arn:aws:s3:::us-west-2.sample_project.credentials.*",
+        "arn:aws:s3:::us-west-2.sample_project.credentials.*/*"
+      ]
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "logs:*"
+      ],
+      "Resource": [
+        "arn:aws:logs:*:*:*"
+      ]
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "acm:DescribeCertificate",
+        "acm:ListCertificates",
+        "iam:*",
+        "ec2:*",
+        "rds:*",
+        "autoscaling:*",
+        "sts:DecodeAuthorizationMessage",
+        "cloudwatch:*",
+        "sns:*",
+        "route53:*",
+        "elasticloadbalancing:*",
+        "dynamodb:*",
+        "elastiCache:*"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "iam:PassRole"
+      ],
+      "Resource": [
+        "arn:aws:iam::*:role/*"
+      ]
+    }
+  ]
+}

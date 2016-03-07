@@ -1,0 +1,7 @@
+Alias /pypi /opt/wgen/build/pypi/web
+
+<Directory "/opt/wgen/build/pypi/web">
+    Options Indexes
+    Order allow,deny
+    Allow from all
+</Directory>

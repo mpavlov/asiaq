@@ -1,0 +1,88 @@
+## Sudoers allows particular users to run various commands as
+## the root user, without needing the root password.
+
+# Defaults specification
+
+#
+# Disable "ssh hostname sudo <cmd>", because it will show the password in clear.
+#         You have to run "ssh -t hostname sudo <cmd>".
+#
+Defaults    requiretty
+
+#
+# Allow sudo away from root to a lower priviledge user without tty
+#
+Defaults:root !requiretty
+
+#
+# Refuse to run if unable to disable echo on the tty. This setting should also be
+# changed in order to be able to use sudo without a tty. See requiretty above.
+#
+Defaults   !visiblepw
+
+#
+# Preserving HOME has security implications since many programs
+# use it when searching for configuration files. Note that HOME
+# is already set when the the env_reset option is enabled, so
+# this option is only effective for configurations where either
+# env_reset is disabled or HOME is present in the env_keep list.
+#
+Defaults    always_set_home
+
+Defaults    env_reset
+Defaults    env_keep =  "COLORS DISPLAY HOSTNAME HISTSIZE INPUTRC KDEDIR LS_COLORS"
+Defaults    env_keep += "MAIL PS1 PS2 QTDIR USERNAME LANG LC_ADDRESS LC_CTYPE"
+Defaults    env_keep += "LC_COLLATE LC_IDENTIFICATION LC_MEASUREMENT LC_MESSAGES"
+Defaults    env_keep += "LC_MONETARY LC_NAME LC_NUMERIC LC_PAPER LC_TELEPHONE"
+Defaults    env_keep += "LC_TIME LC_ALL LANGUAGE LINGUAS _XKB_CHARSET XAUTHORITY"
+Defaults    env_keep += "EDITOR"
+
+#
+# Adding HOME to env_keep may enable a user to run unrestricted
+# commands via sudo.
+#
+# Defaults   env_keep += "HOME"
+
+Defaults    secure_path = /sbin:/bin:/usr/sbin:/usr/bin
+
+## Next comes the main part: which users can run what software on
+## which machines (the sudoers file can be shared between multiple
+## systems).
+## Syntax:
+##
+##      user    MACHINE=COMMANDS
+##
+## The COMMANDS section may have other options added to it.
+##
+## Allow root to run any commands anywhere
+root    ALL=(ALL)       ALL
+
+## Read drop-in files from /etc/sudoers.d (the # here does not mean a comment)
+#includedir /etc/sudoers.d
+# Note: OPERATORS comes from /etc/sudoers.d/operators
+
+Defaults:jenkins     !requiretty
+
+jenkins ALL=(root) NOPASSWD:/usr/bin/yum *
+
+Cmnd_Alias PACKAGING = /bin/rpm, /usr/bin/yum
+Cmnd_Alias DEBUGGING = /usr/bin/strace, /usr/bin/gdb, /usr/sbin/rabbitmqctl, /usr/bin/mongo
+Cmnd_Alias SERVICES = /sbin/service, /sbin/chkconfig
+Cmnd_Alias FILE_VIEW = /usr/bin/tree, /bin/cat, /bin/ls, /usr/bin/tail, /bin/grep, /usr/bin/test, /usr/bin/file
+Cmnd_Alias SIGNAL = /bin/kill
+Cmnd_Alias NETWORKING = /sbin/iptables, /bin/netstat
+
+# These commands allow you to run arbitary commands as root via a hoop or two
+Cmnd_Alias FILE_MOD = /bin/rm, /bin/cp, /bin/touch, /bin/chown, /usr/bin/tee, /bin/nano, /bin/chmod
+
+# sudoedit and visudo don't need escape restriction because they run the editor with
+# the user's permissions on a copy of the file and then overwrite the old file with
+# the updated file.
+Cmnd_Alias SUDOEDIT = /usr/bin/sudoedit, /usr/sbin/visudo
+
+# These commands allow you to exit to a root shell and run arbitrary commands unless we use NOEXEC
+Cmnd_Alias ESCAPE_RESTRICTED = /usr/bin/vim, /usr/bin/less
+
+OPERATORS ALL=(root) PACKAGING, DEBUGGING, SERVICES, FILE_MOD, FILE_VIEW, SIGNAL, NETWORKING, SUDOEDIT
+OPERATORS ALL=(root) NOEXEC: ESCAPE_RESTRICTED
+OPERATORS ALL=(ALL) NOPASSWD:ALL

@@ -1,0 +1,60 @@
+#! /bin/bash
+
+### BEGIN INIT INFO
+# Provides: discozookeeperstorage
+# Default-Start: 1 2 3 4 5
+# Default-Stop: 0 6
+# Required-Start: $network
+# Description: Formats and mounts a secondary volume at /opt/wgen/zookeeper/data
+### END INIT INFO
+
+# Note: using $(basename $0) for SCRIPT_NAME is not safe
+# because of the rc?.d/* symlinking pattern
+SCRIPT_NAME="disco-add-zookeeper-storage"
+# The lock file is necessary for the stop to be run when we enter run level 0 or 6
+LOCK_FILE="/var/lock/subsys/$SCRIPT_NAME"
+
+TARGET_DIR="/opt/wgen/zookeeper/data"
+RAID_DEV="/dev/md0"
+LOG_FILE=/tmp/$SCRIPT_NAME.log
+
+source "/etc/init.d/disco-storage-functions.sh"
+
+EPHEMERAL_DEVS=($(find_all_ephemeral_volumes))
+
+case $1 in
+    start)
+        if [[ -e $LOCK_FILE ]] ; then
+            echo "$SCRIPT_NAME already started!"
+            exit 1
+        fi
+        touch $LOCK_FILE
+
+        mkdir -p "$TARGET_DIR"
+
+        DEV=$(raid0_devices "$RAID_DEV" ${EPHEMERAL_DEVS[@]})
+
+        create_ephemeral_volume "$DEV" "$TARGET_DIR" &>> $LOG_FILE
+
+        blockdev --setra 128 "$DEV"
+        ;;
+    restart|force-reload)
+        echo "$SCRIPT_NAME: restart and force-reload are not supported"
+        exit 1
+        ;;
+    status)
+        if [ -e $LOCK_FILE ] ; then
+           echo "$SCRIPT_NAME has run"
+        else
+           echo "$SCRIPT_NAME has NOT run"
+        fi
+        ;;
+    stop)
+        rm -f $LOCK_FILE
+        remove_from_fstab "$TARGET_DIR"
+        umount "$TARGET_DIR"
+        if [[ -e "$RAID_DEV" ]] ; then
+            mdadm --stop "$RAID_DEV"
+        fi
+        ;;
+esac

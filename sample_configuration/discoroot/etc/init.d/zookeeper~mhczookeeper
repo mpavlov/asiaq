@@ -1,0 +1,50 @@
+#!/bin/bash
+
+### BEGIN INIT INFO
+# Provides: zookeeper
+# Required-Start: discozookeeperstorage
+# Default-Start: 1 2 3 4 5
+# Default-Stop: 0 6
+# Description: Manages zookeeper process
+### END INIT INFO
+
+unset http_proxy
+unset https_proxy
+unset HTTP_PROXY
+unset HTTPS_PROXY
+
+start() {
+    /opt/wgen/zookeeper/bin/zkServer.sh start
+
+    # wait for zookeeper to start
+    /opt/wgen/zookeeper/bin/zkServer.sh status
+    while [ $? -ne 0 ]; do
+        sleep 1
+        /opt/wgen/zookeeper/bin/zkServer.sh status
+    done
+
+    source "/opt/wgen/bin/user-data.sh"
+    /etc/init.d/preload_hosts.py --env $environment_name
+}
+
+stop() {
+    /opt/wgen/zookeeper/bin/zkServer.sh stop
+}
+
+
+# See how we were called.
+case "$1" in
+    start)
+        start
+        ;;
+    stop)
+        stop
+        ;;
+    restart|force-reload|reload)
+        stop
+        start
+        ;;
+    status)
+        /opt/wgen/zookeeper/bin/zkServer.sh status
+        ;;
+esac

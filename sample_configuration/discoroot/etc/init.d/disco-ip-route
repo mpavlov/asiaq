@@ -1,0 +1,82 @@
+#!/bin/bash -eu
+
+### BEGIN INIT INFO
+# Provides: discoiproute
+# Default-Start: 1 2 3 4 5
+# Default-Stop: 0 6
+# Required-Start: $network discoassociateeni
+# Description: Forces traffic to/from floating IP to eth1
+### END INIT INFO
+
+TABLE_FILE=/etc/iproute2/rt_tables
+SCRIPT_NAME=disco-ip-route
+# The lock file is necessary for the stop to be run when we enter run level 0 or 6
+# (an admittedly dubious requirement)
+LOCK_FILE="/var/lock/subsys/$SCRIPT_NAME"
+FLOATING_IP_FILE="/etc/floating_ip"
+# retrieve gateway IP address and set variable
+gateway=$(ip route show | sed -n 's/.*default via \([0-9.]*\) .*/\1/p')
+
+add_table_idempotent() {
+    if ! grep -q VIP $TABLE_FILE
+    then
+        echo 10 VIP >> $TABLE_FILE
+    fi
+}
+
+remove_table_idempotent() {
+    perl -ne'print unless /10 VIP/' -i $TABLE_FILE
+}
+
+route_eth1() {
+    if [[ -f "$FLOATING_IP_FILE" ]]; then
+        local floating_ip=$(cat "$FLOATING_IP_FILE")
+        add_table_idempotent
+        ip route add default via "$gateway" dev eth1 table VIP
+        ip rule add from "${floating_ip}"/32 table VIP
+    fi
+}
+
+deroute_eth1() {
+    if [[ -f "$FLOATING_IP_FILE" ]]; then
+        set +e # we don't want to fail if the IP rules don't exist
+        local floating_ip=$(cat "$FLOATING_IP_FILE")
+        ip rule del from "${floating_ip}"/32 table VIP
+        ip route del default via "$gateway" dev eth1 table VIP
+        set -e
+        remove_table_idempotent
+    fi
+}
+
+die() {
+    echo "$1"
+    exit 1
+}
+
+case $1 in
+    start)
+        if [ -e $LOCK_FILE ]; then
+            die "$SCRIPT_NAME already run"
+        fi
+        route_eth1
+        touch $LOCK_FILE
+        ;;
+    stop)
+        if [ -e $LOCK_FILE ]; then
+            deroute_eth1
+            rm $LOCK_FILE
+        else
+            die "$SCRIPT_NAME lock not found"
+        fi
+        ;;
+    status)
+        if [ -e $LOCK_FILE ] ; then
+           echo "$SCRIPT_NAME has run"
+        else
+           die "$SCRIPT_NAME has NOT run"
+        fi
+        ;;
+    *)
+        die "Usage: $SCRIPT_NAME {start,stop,status}"
+        ;;
+esac

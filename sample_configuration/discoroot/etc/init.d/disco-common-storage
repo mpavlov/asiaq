@@ -1,0 +1,25 @@
+#! /bin/false #This file is for sourcing
+# vim: ts=4 sw=4 et filetype=sh
+
+source "/etc/init.d/disco-storage-functions.sh"
+
+[ "$BASE_DEV" ] || BASE_DEV="/dev/xvdf"
+[ "$VOL_NAME"  ] || VOL_NAME="volume0"
+
+
+case $1 in
+    start)
+        create_ephemeral_encrypted_volume "$BASE_DEV" "$VOL_NAME"
+        ;;
+    restart|force-reload)
+        exit 0
+        ;;
+    status)
+        cryptsetup status "$VOL_NAME"
+        ;;
+    stop)
+        umount "$TARGET_DIR"
+        cryptsetup luksClose "$VOL_NAME"
+        dd if=/dev/zero of="$BASE_DEV" bs=512 count=20480
+        ;;
+esac

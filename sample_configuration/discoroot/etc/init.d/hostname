@@ -1,0 +1,68 @@
+#!/bin/bash
+
+### BEGIN INIT INFO
+# Provides: hostname
+# Required-Start: $local_fs $network $syslog discoaddetchosts cloud-init
+# Required-Stop: $local_fs $network $syslog
+# Defalt-Start: 1 2 3 4 5
+# Default-Stop: 0 6
+# chkconfig: - 12 99
+# Short-Description: set hostname
+# Description: Set local hostname used primarily for logging purposes,
+#              so we know who we get logs from. The host is not externally
+#              accessible by its hostname.
+### END INIT INFO
+
+# Note: using $(basename $0) for SCRIPT_NAME is not safe
+# because of the rc?.d/* symlinking pattern
+SCRIPT_NAME="hostname"
+# The lock file is necessary for the stop to be run when we enter run level 0 or 6
+LOCK_FILE="/var/lock/subsys/$SCRIPT_NAME"
+
+source "/opt/wgen/bin/user-data.sh" # pulls in 'hostname' user-data
+
+start() {
+    if ! [ "$hostname" ] && [ "$hostclass" ]; then
+        local instance_id=$(curl -s http://169.254.169.254/latest/meta-data/instance-id)
+        hostname="${hostclass:3}-$instance_id"
+    fi
+
+    if [ "$hostname" ]; then
+        if [ -e /usr/bin/hostnamectl ] ; then
+            hostnamectl set-hostname $hostname
+            touch $LOCK_FILE
+            exit 0
+        else
+            sed -i "s/^HOSTNAME=.*/HOSTNAME=$hostname/" /etc/sysconfig/network
+            sed -i "s/^127\.0\.0\.1\s.*/127.0.0.1\t${hostname}.discodemo localhost.localdomain localhost $hostname/" /etc/hosts
+            hostname $hostname
+            /sbin/service network restart
+            touch $LOCK_FILE
+            exit 0
+        fi
+    else
+        exit 1
+    fi
+}
+
+stop() {
+    echo `date` "init.d hostname stop" >> /tmp/ran
+    rm -f $LOCK_FILE
+}
+
+# See how we were called.
+case "$1" in
+    start|restart|force-reload)
+        start
+        ;;
+    status)
+        if [ -e $LOCK_FILE ] ; then
+           echo "$SCRIPT_NAME has run"
+        else
+           echo "$SCRIPT_NAME has NOT run"
+        fi
+        ;;
+    stop)
+        stop
+        ;;
+esac

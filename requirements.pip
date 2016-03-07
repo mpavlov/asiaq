@@ -1,0 +1,11 @@
+# Place dependencies in this file, following the distutils format:
+# http://docs.python.org/2/distutils/setupscript.html#relationships-between-distributions-and-packages
+boto>=2.38.0,<3
+boto3>=1.2.2,<2
+docopt>=0.6.1,<1
+passlib>=1.6.1,<2
+pytz>=2014.7
+iso8601>=0.1.10,<1
+netaddr>=0.7.12,<1
+python-dateutil>=2.4.0,<3
+semantic_version>=2.4.2

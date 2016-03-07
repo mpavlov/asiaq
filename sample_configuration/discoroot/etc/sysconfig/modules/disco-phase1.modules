@@ -1,0 +1,3 @@
+#!/bin/sh
+
+/sbin/modprobe virtio-rng # also loads virtio and virtio_ring

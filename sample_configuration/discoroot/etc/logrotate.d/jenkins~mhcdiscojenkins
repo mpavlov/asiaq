@@ -1,0 +1,27 @@
+/var/log/jenkins/jenkins.log
+{
+    create 644
+    missingok
+    sharedscripts
+    rotate 1
+    postrotate
+        if [ -s /var/run/jenkins.pid ]; then
+            JPID=`cat /var/run/jenkins.pid`
+            test -n "`find /proc/$JPID -maxdepth 0 -user jenkins 2>/dev/null`" && /bin/kill -s ALRM $JPID || :
+        fi
+        /opt/wgen/bin/backup_logs.sh /var/log/jenkins '*.log' 2>/dev/null >/dev/null || true
+    endscript
+}
+
+/var/log/httpd/access_log
+/var/log/httpd/error_log
+{
+    create 644
+    missingok
+    sharedscripts
+    rotate 1
+    postrotate
+        /etc/init.d/httpd reload 2>/dev/null >/dev/null || true
+        /opt/wgen/bin/backup_logs.sh /var/log/httpd '*_log' 2>/dev/null >/dev/null || true
+    endscript
+}

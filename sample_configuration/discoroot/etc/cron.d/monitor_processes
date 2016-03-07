@@ -1,0 +1,1 @@
+*/15 * * * * root /opt/wgen/bin/monitor_processes.sh &> /dev/null

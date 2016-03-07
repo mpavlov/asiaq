@@ -1,0 +1,17 @@
+
+SSLProxyEngine on
+SSLProxyVerify none
+SSLProxyCheckPeerCN Off
+ProxyPreserveHost Off
+# Allowed:
+# /jenkins/ghprbhook/ (github pull request builder)
+# /jenkins/github-webhook/ (github plugin)
+# /jenkins/git/notifyCommit?url=? (git plugin)
+ProxyPassMatch ^/(\w+)/(ghprbhook/|github-webhook/|git/notifyCommit\?url=.*) https://$1-jenkins.sample_project.net/jenkins/$2
+<Location />
+    Order Allow,Deny
+    # build subnet
+    Allow from 10.100
+    # github.com, per https://help.github.com/articles/what-ip-addresses-does-github-use-that-i-should-whitelist/
+    Allow from 192.30.252.0/22
+</Location>

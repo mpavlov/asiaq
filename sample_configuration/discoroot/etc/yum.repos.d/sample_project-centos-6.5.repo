@@ -1,0 +1,5 @@
+[sample_project-centos-6.5]
+gpgcheck = 0
+enabled = 0
+name = sample_project-centos-6.5
+baseurl = http://repo/rpms/sample_project-centos-6.5

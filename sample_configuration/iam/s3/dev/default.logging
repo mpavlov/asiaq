@@ -1,0 +1,6 @@
+{
+  "LoggingEnabled": {
+    "TargetBucket": "$REGION.$PROJECT.s3audit.$ACCOUNT",
+    "TargetPrefix": "S3/$BUCKET_NAME"
+  }
+}

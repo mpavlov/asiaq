@@ -1,0 +1,16 @@
+# .bashrc
+
+# Source global definitions
+if [ -f /etc/bashrc ]; then
+        . /etc/bashrc
+fi
+
+export PYTHON27="/opt/wgen-3p/python27/bin"
+export PATH="$PYTHON27:/usr/local/bin:$PATH"
+export CCACHE_COMPRESS="1"
+export CCACHE_DIR="/opt/wgen/build/jenkins-ccache/c-cache/"
+export F90CACHE_DIR="/opt/wgen/build/jenkins-ccache/fortran-cache/"
+
+# To select which eggs to pull back down into the WGen Pynest, we want to use extended shell globbing via scp
+# So turn that on here.
+shopt -s extglob

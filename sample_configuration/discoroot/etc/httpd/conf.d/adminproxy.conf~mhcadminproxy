@@ -1,0 +1,37 @@
+<VirtualHost _default_:443>
+
+ErrorLog logs/ssl_error_log
+TransferLog logs/ssl_access_log
+LogLevel warn
+SSLEngine on
+SSLProtocol all -SSLv2
+
+SSLCipherSuite HIGH:MEDIUM:!aNULL:!MD5:!SEED:!IDEA
+
+SSLCertificateFile /etc/pki/tls/certs/localhost.crt
+SSLCertificateKeyFile /etc/pki/tls/private/localhost.key
+
+<Files ~ "\.(cgi|shtml|phtml|php3?)$">
+    SSLOptions +StdEnvVars
+</Files>
+<Directory "/var/www/cgi-bin">
+    SSLOptions +StdEnvVars
+</Directory>
+
+BrowserMatch "MSIE [2-5]" \
+         nokeepalive ssl-unclean-shutdown \
+         downgrade-1.0 force-response-1.0
+
+CustomLog logs/ssl_request_log \
+          "%t %h %{SSL_PROTOCOL}x %{SSL_CIPHER}x \"%r\" %b"
+
+ProxyRequests Off
+ProxyPreserveHost On
+RewriteEngine on
+
+# Proxy all request going to "/app1" to the application
+RewriteRule ^/app1$ /app1/ [R]
+ProxyPass /app1/ http://localhost:3000/
+ProxyPassReverse /app1/ http://localhost:3000/
+
+</VirtualHost>

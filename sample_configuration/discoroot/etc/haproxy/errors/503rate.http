@@ -1,0 +1,9 @@
+HTTP/1.0 503 Service Unavailable
+Cache-Control: no-cache
+Connection: close
+Content-Type: text/html
+
+<html> 
+  <head><title>503</title></head> 
+  <body>Slow down there buddy. You've hit the service rate limit!</body>
+</html>

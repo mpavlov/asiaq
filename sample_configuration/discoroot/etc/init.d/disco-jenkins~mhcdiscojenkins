@@ -1,0 +1,89 @@
+#!/bin/bash -e
+
+### BEGIN INIT INFO
+# Provides: discojenkins
+# Default-Start: 1 2 3 4 5
+# Default-Stop: 0 6
+# Required-Start: $network
+# Description: Mounts the persistent EBS volume that stores jenkins jobs, configuration, repos
+### END INIT INFO
+
+LOCK_FILE="/var/lock/subsys/disco-jenkins"
+
+source "/etc/init.d/disco-storage-functions.sh"
+EBS_VOLUME=$(find_non_root_ebs_volumes)
+
+add_to_fstab() {
+    local EXTRA_VOLUME="$1"
+    local TARGET_DIR="$2"
+    if [ -b $EXTRA_VOLUME ] ; then
+        if [[ "$(grep -c $EXTRA_VOLUME /etc/fstab)" == "0" ]] ; then
+            echo "$EXTRA_VOLUME $TARGET_DIR xfs defaults 0 0" >> /etc/fstab
+        fi
+    fi
+}
+
+non_interfering_jenkins() {
+    sudo -u jenkins touch /opt/wgen/build/jenkins/plugins/jabber.hpi.disabled
+    sudo -u jenkins mv /opt/wgen/build/jenkins/jobs{,.disabled}
+    rm -f /etc/init.d/disco-snapshot-volume /opt/wgen/bin/take_snapshot.sh
+}
+
+run_start() {
+    if [ -e $LOCK_FILE ] ; then
+        echo "disco-jenkins: already running"
+        exit 1
+    fi
+    if [[ ( -b ${EBS_VOLUME} ) && ("$(mount -l | grep -c ${EBS_VOLUME})" == "0") ]] ; then
+        mkdir -p /opt/wgen/build
+        add_to_fstab ${EBS_VOLUME} "/opt/wgen/build"
+    fi
+    if [[ "$(grep bind /etc/fstab | grep -c /opt/wgen/build/jenkins/)" == "0" ]] ; then
+        # fix the 128 bytes shebang limitation
+        echo "/opt/wgen/build/jenkins/ /j none bind" >> /etc/fstab
+    fi
+
+    mount -a
+
+    for DIR in /opt/wgen/build/* ; do
+        chown jenkins:jenkins $DIR
+    done
+
+    chmod a+rwx+t "/tmp"
+
+    source "/opt/wgen/bin/user-data.sh" # pulls in is_testing
+    if [[ "$is_testing" == "1" ]] ; then
+        non_interfering_jenkins
+    fi
+
+    touch $LOCK_FILE
+}
+
+run_stop()
+{
+    rm -Rf $LOCK_FILE
+}
+
+case $1 in
+    start)
+        run_start
+        exit 0
+        ;;
+    restart|force-reload)
+        run_stop
+        run_start
+        exit 0
+        ;;
+    status)
+        if [ -e $LOCK_FILE ] ; then
+            echo "disco-jenkins: running"
+        else
+            echo "disco-jenkins: NOT running"
+        fi
+        exit 0
+        ;;
+    stop)
+        run_stop
+        exit 0
+        ;;
+esac

@@ -1,0 +1,2 @@
+name,host,port
+some_host_with_static_ip,10.1.1.1,80

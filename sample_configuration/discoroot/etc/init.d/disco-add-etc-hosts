@@ -1,0 +1,70 @@
+#!/bin/sh
+
+### BEGIN INIT INFO
+# Provides: discoaddetchosts
+# Default-Start: 1 2 3 4 5
+# Required-Start: $local_fs $network $syslog
+# Default-Stop: 0 6
+# chkconfig: - 15 85
+# Description: This add s3proxy entry to /etc/hosts file, and has to run before disco-add-operator and disco-update-creds
+### END INIT INFO
+
+# Note: using $(basename $0) for SCRIPT_NAME is not safe
+# because of the rc?.d/* symlinking pattern
+SCRIPT_NAME="disco-add-etc-hosts"
+# The lock file is necessary for the stop to be run when we enter run level 0 or 6
+LOCK_FILE="/var/lock/subsys/$SCRIPT_NAME"
+
+add_line_if_absent() {
+    host_line="$1"
+    # with -x, this will re-add if the line is present but modified or commented out
+    if ! grep -qxF "$host_line" /etc/hosts; then
+        echo "$host_line" >> /etc/hosts
+    fi
+}
+
+add_host_or_comment() {
+    ip_addr="$1"
+    host="$2"
+    if [ -n "$ip_addr" ]; then
+        add_line_if_absent "$ip_addr $host"
+    else
+        add_line_if_absent "# no address found for host $host"
+    fi
+}
+
+add_environment_specific_records() {
+    # Remove and re-add hosts (if available) from user-data
+    # YOU MUST UPDATE strip_environment_specific_records IF YOU UPDATE THIS FUNCTION
+    strip_environment_specific_records
+    source "/opt/wgen/bin/user-data.sh" # pulls in env-specific IPs
+    add_host_or_comment "$http_proxy_ip" s3proxy
+    add_host_or_comment "$logger_ip" discologger
+    add_host_or_comment "$logforwarder_ip" logforwarder
+}
+
+strip_environment_specific_records() {
+    # remove lines added by add_environment_specific_records
+    perl -ne 'print unless / (s3proxy|discologger|logforwarder)$/' -i /etc/hosts
+}
+
+case $1 in
+    start|restart|force-reload)
+        add_environment_specific_records
+        # Any additional hosts can be added here
+        # add_line_if_absent "10.100.16.40 banana1.sample_project.net"
+        touch $LOCK_FILE
+        ;;
+    status)
+        if [ -e $LOCK_FILE ] ; then
+           echo "$SCRIPT_NAME has run"
+        else
+           echo "$SCRIPT_NAME has NOT run"
+           exit 1
+        fi
+        ;;
+    stop)
+        strip_environment_specific_records
+        rm -f $LOCK_FILE
+        ;;
+esac

@@ -1,0 +1,3 @@
+Cmnd_Alias RABBITMQ_CHECK = /usr/sbin/rabbitmqctl status
+smoketest ALL=(root) NOPASSWD: RABBITMQ_CHECK
+Defaults!RABBITMQ_CHECK !requiretty

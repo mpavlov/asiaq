@@ -1,0 +1,46 @@
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Action": [
+                "acm:*",
+                "autoscaling:*",
+                "aws-marketplace:*",
+                "aws-portal:ViewBilling",
+                "aws-portal:ViewUsage",
+                "ec2:*",
+                "ec2-reports:*",
+                "elastiCache:*",
+                "cloudwatch:*",
+                "logs:*",
+                "iam:*",
+                "cloudtrail:CreateTrail",
+                "cloudtrail:DescribeTrails",
+                "cloudtrail:GetTrailStatus",
+                "cloudtrail:StartLogging",
+                "cloudtrail:UpdateTrail",
+                "s3:*",
+                "rds:*",
+                "sns:*",
+                "sts:DecodeAuthorizationMessage",
+                "sts:GetFederationToken",
+                "sts:AssumeRole",
+                "support:*",
+                "trustedadvisor:*",
+                "route53:*",
+                "route53domains:*",
+                "elasticloadbalancing:*",
+                "es:*"
+            ],
+            "Condition": {
+                "IpAddress":{
+                "aws:SourceIp": [
+                    "54.201.1.1/32",
+                  ]
+                }
+            },
+            "Resource": "*",
+            "Effect": "Allow"
+        }
+    ]
+}
