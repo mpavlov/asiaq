@@ -67,7 +67,9 @@ class DiscoELBTests(TestCase):
             elb_public=public,
             sticky_app_cookie=sticky_app_cookie,
             idle_timeout=idle_timeout,
-            connection_draining_timeout=connection_draining_timeout)
+            connection_draining_timeout=connection_draining_timeout,
+            tags={'tag_key': 'tag_value'}
+        )
 
     @mock_elb
     def test_get_certificate_arn_prefers_acm(self):
@@ -323,3 +325,16 @@ class DiscoELBTests(TestCase):
         self.disco_elb.elb_client.register_instances_with_load_balancer(LoadBalancerName=elb_id,
                                                                         Instances=instances)
         self.disco_elb.wait_for_instance_health_state(hostclass='mhcbar')
+
+    @mock_elb
+    def test_tagging_elb(self):
+        """Test tagging an ELB"""
+        client = self.disco_elb.elb_client
+        client.add_tags = MagicMock(wraps=client.add_tags)
+
+        self._create_elb()
+
+        client.add_tags.assert_called_once_with(
+            LoadBalancerNames=[DiscoELB.get_elb_id('unittestenv', 'mhcunit')],
+            Tags=[{'Value': 'tag_value', 'Key': 'tag_key'}]
+        )

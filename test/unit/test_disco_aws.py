@@ -11,6 +11,8 @@ from moto import mock_elb
 
 from disco_aws_automation import DiscoAWS
 from disco_aws_automation.exceptions import TimeoutError, SmokeTestError
+
+from test.helpers.matchers import MatchAnything
 from test.helpers.patch_disco_aws import (patch_disco_aws,
                                           get_default_config_dict,
                                           get_mock_config,
@@ -323,7 +325,8 @@ class DiscoAWSTests(TestCase):
             "eip": None,
             "domain_name": "example.com",
             "elb": "yes",
-            "elb_health_check_url": "/foo"
+            "elb_health_check_url": "/foo",
+            'product_line': 'unittest'
         }
         return get_mock_config(config)
 
@@ -345,7 +348,15 @@ class DiscoAWSTests(TestCase):
             elb_protocols='HTTP', instance_protocol='HTTP',
             security_groups=['sg-1234abcd'], elb_public=False,
             sticky_app_cookie=None, subnets=['s-1234abcd', 's-1234abcd', 's-1234abcd'],
-            connection_draining_timeout=300, idle_timeout=300, testing=False)
+            connection_draining_timeout=300, idle_timeout=300, testing=False,
+            tags={
+                'owner': MatchAnything(),
+                'environment': 'unittestenv',
+                'productline': 'unittest',
+                'hostclass': 'mhcelb',
+                'testing': '0'
+            }
+        )
 
     @patch_disco_aws
     def test_create_userdata_with_eip(self, **kwargs):
