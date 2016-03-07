@@ -57,6 +57,16 @@ def parse_arguments():
                                  help='The VPC Name of the environment for VPC peering operation')
     parser_peerings.add_argument('--vpc-id', dest='vpc_id', required=False, default=None,
                                  help="The VPC ID of the environment for VPC peering operation")
+
+    parser_update = subparsers.add_parser(
+        'update', help='Update environment settings.')
+    parser_update.set_defaults(mode='update')
+    parser_update_group = parser_update.add_mutually_exclusive_group(required=True)
+    parser_update_group.add_argument('--name', dest='vpc_name', default=None,
+                                     help="The name of the environment that ought to be updated.")
+    parser_update_group.add_argument('--vpc-id', dest='vpc_id', default=None,
+                                     help="The VPC ID of the environment that ought to be updated.")
+
     return parser.parse_args()
 
 
@@ -79,6 +89,20 @@ def destroy_vpc_command(args):
 
     if vpc:
         vpc.destroy()
+    else:
+        logging.error("No matching VPC found")
+        sys.exit(2)
+
+
+def update_vpc_command(args):
+    """ handle vpc update command actions"""
+    if args.vpc_name:
+        vpc = DiscoVPC.fetch_environment(environment_name=args.vpc_name)
+    else:
+        vpc = DiscoVPC.fetch_environment(vpc_id=args.vpc_id)
+
+    if vpc:
+        vpc.update()
     else:
         logging.error("No matching VPC found")
         sys.exit(2)
@@ -143,6 +167,8 @@ def run():
         list_vpc_command(args)
     elif args.mode == 'peerings':
         proxy_peerings_command(args)
+    elif args.mode == "update":
+        update_vpc_command(args)
 
 
 if __name__ == "__main__":
