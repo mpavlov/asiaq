@@ -45,11 +45,11 @@ class DiscoBakeTests(TestCase):
         self._bake.get_ami_creation_time = DiscoBake.extract_ami_creation_time_from_ami_name
         self._amis = []
         self._amis_by_name = {}
-        self.add_ami('mhcfoo 1', 'untested', 'astro')
+        self.add_ami('mhcfoo 1', 'untested', 'astro', 'unavailable')
         self.add_ami('mhcbar 2', 'tested')
         self.add_ami('mhcfoo 4', 'tested', 'astro')
         self.add_ami('mhcfoo 5', 'failed')
-        self.add_ami('mhcbar 1', 'tested', 'someone_else')
+        self.add_ami('mhcbar 1', 'tested', 'someone_else', 'unavailable')
         self._bake.get_amis = MagicMock(return_value=self._amis)
 
     def test_get_phase1_ami_id_success(self):
@@ -83,6 +83,19 @@ class DiscoBakeTests(TestCase):
         '''Test that list amis can filter by stage successfully'''
         self.assertEqual(self._bake.list_amis(stage="failed"),
                          [self._amis_by_name["mhcfoo 5"]])
+
+    def test_list_amis_by_state(self):
+        '''Test that list amis can filter by state successfully'''
+        self.assertEqual(self._bake.list_amis(state="unavailable"),
+                         [self._amis_by_name["mhcfoo 1"],
+                         self._amis_by_name["mhcbar 1"]])
+
+    def test_list_amis_by_hostclass(self):
+        '''Test that list amis can filter by hostclass successfully'''
+        self.assertEqual(self._bake.list_amis(hostclass="mhcfoo"),
+                         [self._amis_by_name["mhcfoo 1"],
+                         self._amis_by_name["mhcfoo 4"],
+                         self._amis_by_name["mhcfoo 5"]])
 
     def test_list_amis_by_productline_and_stage(self):
         '''Test that list amis can filter by productline and stage successfully'''

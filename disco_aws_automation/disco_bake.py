@@ -25,7 +25,7 @@ from .disco_vpc import DiscoVPC
 from .exceptions import CommandError, AMIError, WrongPathError, EarlyExitException
 from .disco_constants import DEFAULT_CONFIG_SECTION
 
-AMI_NAME_PATTERN = re.compile(r"^\w+\s(?:[0-9]+\s)?[0-9]{10,50}")
+AMI_NAME_PATTERN = re.compile(r"^\w+\s(?:[0-9]+\s)?[0-9]{1,50}")
 AMI_TAG_LIMIT = 10
 
 
@@ -540,13 +540,16 @@ class DiscoBake(object):
         return {instance_id: image for image in self.get_amis(ami_dict.keys())
                 for instance_id in ami_dict[image.id]}
 
-    def list_amis(self, ami_ids=None, instance_ids=None, stage=None, product_line=None):
+    def list_amis(self, ami_ids=None, instance_ids=None, stage=None, product_line=None,
+                  state=None, hostclass=None):
         """
         Fetch all AMI's filtered by supplied args
         :param amis:  AMI ids to filter by
         :param instance_ids:  ID's of instances whose AMI's we should filter by
         :param stage: Stage to filter by
         :param product_line: Product line to filter by
+        :param state: State to filter by
+        :param hostclass: Hostclass to filter by
 
         Return a list of matching AMI's
         """
@@ -557,7 +560,7 @@ class DiscoBake(object):
                 ami_ids = list(instance_amis.intersection(ami_ids))
             else:
                 ami_ids = list(instance_amis)
-        return self.ami_filter(self.get_amis(ami_ids), stage, product_line)
+        return self.ami_filter(self.get_amis(ami_ids), stage, product_line, state, hostclass)
 
     def list_stragglers(self, days=1, stage=None):
         """
@@ -640,12 +643,12 @@ class DiscoBake(object):
         """Return hostclass/ami-type from ami"""
         return ami.name.split()[0]
 
-    def ami_filter(self, amis, stage=None, product_line=None):
+    def ami_filter(self, amis, stage=None, product_line=None, state=None, hostclass=None):
         """
-        Returns a filtered subset of amis. Optionally filtered by the product line
-        that they belong to, as well as their stage.
+        Returns a filtered subset of amis. Optionally filtered by their productline,
+        stage, state, and hostclass.
         """
-        if not product_line and not stage:
+        if not product_line and not stage and not state and not hostclass:
             return amis
 
         filter_amis = amis[:]
@@ -655,6 +658,16 @@ class DiscoBake(object):
 
         if stage:
             filter_amis = [ami for ami in filter_amis if ami.tags.get("stage", None) == stage]
+
+        if state:
+            filter_amis = [ami for ami in filter_amis if ami.state == state]
+
+        if hostclass:
+            for ami in filter_amis[:]:
+                if not (ami.name and
+                        AMI_NAME_PATTERN.match(ami.name) and
+                        self.ami_hostclass(ami) == hostclass):
+                    filter_amis.remove(ami)
 
         return filter_amis
 
