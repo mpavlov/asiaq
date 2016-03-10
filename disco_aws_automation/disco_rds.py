@@ -63,6 +63,10 @@ class DiscoRDS(object):
             return default
 
     def config_integer(self, section, param, default=None):
+        """
+        Read the RDS config file and extract an integer value, returning the integer value of
+        default (or None if there is no default) if the value is not found.
+        """
         value = self.config_with_default(section, param, default)
         return int(value) if value is not None else None
 
