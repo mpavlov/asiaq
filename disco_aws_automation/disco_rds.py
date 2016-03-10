@@ -64,11 +64,16 @@ class DiscoRDS(object):
 
     def config_integer(self, section, param, default=None):
         """
-        Read the RDS config file and extract an integer value, returning the integer value of
-        default (or None if there is no default) if the value is not found.
+        Read the RDS config file and extract an integer value. If the value is not found and no
+        default is provided, raise NoOptionError.
         """
-        value = self.config_with_default(section, param, default)
-        return int(value) if value is not None else None
+        try:
+            return int(self.config_rds.get(section, param))
+        except NoOptionError:
+            if default is not None:
+                return int(default)
+            else:
+                raise
 
     def config_truthy(self, section, param, default='True'):
         """Read the RDS config file and extract the boolean value, or return default if missing"""
