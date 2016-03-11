@@ -59,8 +59,10 @@ class DiscoDeploy(object):
 
         return hostclasses
 
-    def _filter_on_hostclass(self, amis):
-        if self._restrict_hostclass:
+    def _filter_amis(self, amis):
+        if self._restrict_amis:
+            return [ami for ami in amis if ami.id in self._restrict_amis]
+        elif self._restrict_hostclass:
             return [ami for ami in amis if DiscoBake.ami_hostclass(ami) == self._restrict_hostclass]
         elif not self._allow_any_hostclass:
             return [ami for ami in amis if DiscoBake.ami_hostclass(ami) in self._hostclasses]
@@ -71,7 +73,7 @@ class DiscoDeploy(object):
     def all_stage_amis(self):
         '''Returns AMIs filtered on AMI ids, hostclass and state == available'''
         if not self._all_stage_amis:
-            self._all_stage_amis = [ami for ami in self._filter_on_hostclass(
+            self._all_stage_amis = [ami for ami in self._filter_amis(
                 self._disco_bake.list_amis(ami_ids=self._restrict_amis)) if ami.state == u'available']
         return self._all_stage_amis
 
