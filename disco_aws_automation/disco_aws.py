@@ -162,6 +162,7 @@ class DiscoAWS(object):
                 data["route_table_id_{0}".format(_)] = _tmp[_][0]
                 data["destination_cidr_block_{0}".format(_)] = _tmp[_][1]
         logging.debug("userdata: %s", data)
+        data["project_name"] = self.config("project_name")
         return data
 
     @staticmethod
