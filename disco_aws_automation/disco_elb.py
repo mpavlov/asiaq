@@ -110,7 +110,7 @@ class DiscoELB(object):
                                                requests to resolve before removing EC2 instance from ELB
         """
         cname = self.get_cname(hostclass, hosted_zone_name)
-        elb_name = self._get_elb_name(hostclass)
+        elb_name = DiscoELB.get_elb_name(self.vpc.environment_name, hostclass)
         elb = self.get_elb(hostclass)
         if not elb:
             logging.info("Creating ELB %s", elb_name)
@@ -169,7 +169,7 @@ class DiscoELB(object):
 
     def get_elb(self, hostclass):
         """Get an existing ELB without creating it"""
-        name = self._get_elb_name(hostclass)
+        name = DiscoELB.get_elb_name(self.vpc.environment_name, hostclass)
 
         try:
             load_balancers = throttled_call(self.elb_client.describe_load_balancers,
@@ -191,11 +191,12 @@ class DiscoELB(object):
 
         # delete any CNAME records that point to the deleted ELB because they are no longer valid
         self.route53.delete_records_by_value('CNAME', elb['DNSName'])
-        throttled_call(self.elb_client.delete_load_balancer, LoadBalancerName=self._get_elb_name(hostclass))
+        throttled_call(self.elb_client.delete_load_balancer, LoadBalancerName=elb['LoadBalancerName'])
 
-    def _get_elb_name(self, hostclass):
+    @staticmethod
+    def get_elb_name(environment_name, hostclass):
         """Returns the elb name for a given hostclass"""
-        name = self.vpc.environment_name + '-' + hostclass
+        name = environment_name + '-' + hostclass
 
         # load balancers can only have letters, numbers or dashes in their names so strip everything else
         elb_name = re.sub(r'[^a-zA-Z0-9-]', '', name)
