@@ -176,3 +176,21 @@ class DiscoAlarmTests(TestCase):
         self.assertEqual(1, len(alarm_configs))
         self.assertEquals('LogMetrics/' + ENVIRONMENT, alarm_configs[0].namespace)
         self.assertEquals('mhcrasberi-ErrorCount', alarm_configs[0].metric_name)
+
+    def test_get_alarm_config_elb_metric(self):
+        """Test DiscoAlarmsConfig get_alarms for ELB metrics"""
+        disco_alarms_config = DiscoAlarmsConfig(ENVIRONMENT)
+        disco_alarms_config.config = get_mock_config({
+            'reporting.AWS/ELB.HealthyHostCount.mhcbanana': {
+                'threshold_min': '1',
+                'duration': '60',
+                'period': '5',
+                'statistic': 'Minimum',
+                'custom_metric': 'false',
+                'level': 'critical'
+            }
+        })
+
+        alarm_configs = disco_alarms_config.get_alarms('mhcbanana')
+        self.assertEqual(1, len(alarm_configs))
+        self.assertEquals({'LoadBalancerName': 'testenv-mhcbanana'}, alarm_configs[0].dimensions)
