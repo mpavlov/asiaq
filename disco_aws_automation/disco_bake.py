@@ -281,6 +281,7 @@ class DiscoBake(object):
         config_data_destination = self.option("data_destination")
         asiaq_data_destination = self.option("data_destination") + "/asiaq"
         self.remotecmd(instance, ["mkdir", "-p", asiaq_data_destination])
+
         self._rsync(instance,
                     normalize_path(self.option("config_data_source")),
                     config_data_destination,
@@ -322,6 +323,15 @@ class DiscoBake(object):
         except:
             logging.debug("CentOS >6 specific; enabling of root login during bake failed")
 
+        # Vertica AMI is not strictly centos, but RHEL 7 with only one dbadmin user
+        try:
+            self.remotecmd(
+                instance,
+                ["sudo", "cp", "/home/dbadmin/.ssh/authorized_keys", "/root/.ssh/authorized_keys"],
+                user="dbadmin", ssh_options=ssh_args)
+        except:
+            logging.debug("CentOS >6 specific; enabling of root login during bake failed")
+
     def bake_ami(self, hostclass, no_destroy, source_ami_id=None, stage=None):
         # Pylint thinks this function has too many local variables and too many statements and branches
         # pylint: disable=R0914, R0915, R0912
@@ -346,7 +356,7 @@ class DiscoBake(object):
         if phase == 1:
             base_image_name = hostclass if hostclass else self.option("phase1_ami_name")
             source_ami_id = source_ami_id or self.hc_option(base_image_name, 'bake_ami')
-            hostclass = self.option("phase1_hostclass")
+            hostclass = self.hc_option(hostclass, "phase1_hostclass")
             logging.info("Creating phase 1 AMI named %s based on upstream AMI %s",
                          base_image_name, source_ami_id)
         else:
@@ -369,7 +379,7 @@ class DiscoBake(object):
             source_ami_id,
             block_device_map=self.disco_storage.configure_storage(
                 hostclass, ami_id=source_ami_id, map_snapshot=False),
-            instance_type=self.option("bakery_instance_type"),
+            instance_type=self.hc_option(hostclass, "bakery_instance_type"),
             key_name=self.option("bake_key"),
             network_interfaces=interfaces)
         instance = reservation.instances[0]
