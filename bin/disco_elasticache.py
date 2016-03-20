@@ -50,7 +50,9 @@ def run():
             size = 'N/A'
             if cluster['Status'] == 'available':
                 size = len(cluster['NodeGroups'][0]['NodeGroupMembers'])
-            print("{0:<25} {1:5} {2:>5}".format(cluster['ReplicationGroupId'], cluster['Status'], size))
+            print("{0:<25} {1:5} {2:>5}".format(cluster['ReplicationGroupDescription'],
+                                                cluster['Status'],
+                                                size))
     elif args['update']:
         if args['--cluster']:
             disco_elasticache.update(args['--cluster'])

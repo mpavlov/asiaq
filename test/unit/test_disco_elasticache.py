@@ -43,6 +43,7 @@ def _get_mock_route53():
 
 class MatchAnything(object):
     """Helper class to use with assertions that can match any value"""
+
     def __eq__(self, other):
         return True
 
@@ -55,7 +56,7 @@ class DiscoElastiCacheTests(TestCase):
             vpc=_get_mock_vpc(), aws=_get_mock_aws(), route53=_get_mock_route53())
         self.elasticache.route53 = MagicMock()
 
-        type(self.elasticache).config = PropertyMock(return_value=get_mock_config({
+        DiscoElastiCache.config = PropertyMock(return_value=get_mock_config({
             'unittest:new-cache': {
                 'instance_type': 'cache.m1.small',
                 'engine': 'redis',
@@ -78,48 +79,53 @@ class DiscoElastiCacheTests(TestCase):
 
         self.elasticache.conn = MagicMock()
 
-        self.replication_groups = {
-            'unittest-old-cache': {
-                'ReplicationGroupId': 'unittest-old-cache',
+        self.replication_groups = [
+            {
+                'ReplicationGroupId': self.elasticache._get_redis_replication_group_id('old-cache'),
+                'ReplicationGroupDescription': 'unittest-old-cache',
                 'NodeGroups': [{
                     'PrimaryEndpoint': {
                         'Address': 'old-cache.example.com'
                     }
                 }]
             },
-            'unittest-cache2': {
-                'ReplicationGroupId': 'unittest-cache2',
+            {
+                'ReplicationGroupId': self.elasticache._get_redis_replication_group_id('cache2'),
+                'ReplicationGroupDescription': 'unittest-cache2',
                 'NodeGroups': [{
                     'PrimaryEndpoint': {
                         'Address': 'cache2.example.com'
                     }
                 }]
             },
-            'unittest2-cache': {
-                'ReplicationGroupId': 'unittest2-cache'
+            {
+                'ReplicationGroupId': self.elasticache._get_redis_replication_group_id('cache'),
+                'ReplicationGroupDescription': 'unittest2-cache',
             }
-        }
+        ]
 
         def _create_replication_group(**kwargs):
-            self.replication_groups[kwargs['ReplicationGroupId']] = {
+            self.replication_groups.append({
                 'ReplicationGroupId': kwargs['ReplicationGroupId'],
                 'NodeGroups': [{
                     'PrimaryEndpoint': {
                         'Address': 'foo.example.com'
                     }
                 }]
-            }
+            })
 
         # pylint doesn't like Boto3's argument names
         # pylint: disable=C0103
         def _describe_replication_groups(ReplicationGroupId=None):
-            if ReplicationGroupId in self.replication_groups.keys():
+            if ReplicationGroupId is None:
                 return {
-                    'ReplicationGroups': [self.replication_groups[ReplicationGroupId]]
+                    'ReplicationGroups': self.replication_groups
                 }
-            elif ReplicationGroupId is None:
+            else:
+                found_groups = [group for group in self.replication_groups
+                                if group['ReplicationGroupId'] == ReplicationGroupId]
                 return {
-                    'ReplicationGroups': self.replication_groups.values()
+                    'ReplicationGroups': found_groups
                 }
 
         # pylint: disable=C0103
@@ -149,7 +155,7 @@ class DiscoElastiCacheTests(TestCase):
 
         self.assertEquals(len(clusters), 2)
 
-        ids = [cluster['ReplicationGroupId'] for cluster in clusters]
+        ids = [cluster['ReplicationGroupDescription'] for cluster in clusters]
         self.assertEquals(set(['unittest-old-cache', 'unittest-cache2']), set(ids))
 
     def test_create_redis_cluster(self):
@@ -166,11 +172,12 @@ class DiscoElastiCacheTests(TestCase):
             NumCacheClusters=5,
             Port=1000,
             ReplicationGroupDescription='unittest-new-cache',
-            ReplicationGroupId='unittest-new-cache',
+            ReplicationGroupId=self.elasticache._get_redis_replication_group_id('new-cache'),
             SecurityGroupIds=['fake_security'],
-            Tags=[{'Value': 'example_team', 'Key': 'product_line'},
-                  {'Value': MatchAnything(), 'Key': 'owner'},
-                  {'Value': 'new-cache', 'Key': 'name'}]
+            Tags=[{'Key': 'product_line', 'Value': 'example_team'},
+                  {'Key': 'owner', 'Value': MatchAnything()},
+                  {'Key': 'name', 'Value': 'new-cache'},
+                  {'Key': 'environment', 'Value': 'unittest'}]
         )
 
         subdomain = 'new-cache-unittest.example.com'
@@ -187,7 +194,7 @@ class DiscoElastiCacheTests(TestCase):
             AutomaticFailoverEnabled=True,
             CacheParameterGroupName='default',
             EngineVersion='2.8.6',
-            ReplicationGroupId='unittest-old-cache'
+            ReplicationGroupId=self.elasticache._get_redis_replication_group_id('old-cache')
         )
 
     def test_update_all(self):
@@ -204,11 +211,12 @@ class DiscoElastiCacheTests(TestCase):
             NumCacheClusters=5,
             Port=1000,
             ReplicationGroupDescription='unittest-new-cache',
-            ReplicationGroupId='unittest-new-cache',
+            ReplicationGroupId=self.elasticache._get_redis_replication_group_id('new-cache'),
             SecurityGroupIds=['fake_security'],
-            Tags=[{'Value': 'example_team', 'Key': 'product_line'},
-                  {'Value': MatchAnything(), 'Key': 'owner'},
-                  {'Value': 'new-cache', 'Key': 'name'}]
+            Tags=[{'Key': 'product_line', 'Value': 'example_team'},
+                  {'Key': 'owner', 'Value': MatchAnything()},
+                  {'Key': 'name', 'Value': 'new-cache'},
+                  {'Key': 'environment', 'Value': 'unittest'}]
         )
 
         self.elasticache.conn.modify_replication_group.assert_called_once_with(
@@ -216,7 +224,7 @@ class DiscoElastiCacheTests(TestCase):
             AutomaticFailoverEnabled=True,
             CacheParameterGroupName='default',
             EngineVersion='2.8.6',
-            ReplicationGroupId='unittest-old-cache'
+            ReplicationGroupId=self.elasticache._get_redis_replication_group_id('old-cache')
         )
 
     def test_delete_cache_cluster(self):
@@ -224,7 +232,7 @@ class DiscoElastiCacheTests(TestCase):
         self.elasticache.delete('old-cache')
 
         self.elasticache.conn.delete_replication_group.assert_called_once_with(
-            ReplicationGroupId='unittest-old-cache'
+            ReplicationGroupId=self.elasticache._get_redis_replication_group_id('old-cache')
         )
 
         self.elasticache.route53.delete_records_by_value.assert_called_once_with(
@@ -245,8 +253,8 @@ class DiscoElastiCacheTests(TestCase):
         self.elasticache.delete_all_cache_clusters()
 
         delete_group_calls = [
-            call(ReplicationGroupId='unittest-old-cache'),
-            call(ReplicationGroupId='unittest-cache2')
+            call(ReplicationGroupId=self.elasticache._get_redis_replication_group_id('old-cache')),
+            call(ReplicationGroupId=self.elasticache._get_redis_replication_group_id('cache2'))
         ]
 
         self.elasticache.conn.delete_replication_group.assert_has_calls(delete_group_calls, any_order=True)
