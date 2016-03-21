@@ -46,9 +46,9 @@ class DiscoElastiCache(object):
         """List all cache clusters in environment"""
         response = throttled_call(self.conn.describe_replication_groups)
         groups = [group for group in response.get('ReplicationGroups', [])
-                  if group['ReplicationGroupDescription'].startswith(self.vpc.environment_name + '-')]
+                  if group['Description'].startswith(self.vpc.environment_name + '-')]
 
-        return sorted(groups, key=lambda group: (group['ReplicationGroupDescription']))
+        return sorted(groups, key=lambda group: (group['Description']))
 
     def update(self, cluster_name):
         """
@@ -88,8 +88,12 @@ class DiscoElastiCache(object):
             self._create_redis_cluster(cluster_name, engine_version, num_nodes, instance_type,
                                        parameter_group, port, meta_network, auto_failover, domain_name, tags)
         else:
-            self._modify_redis_cluster(cluster_name, engine_version,
-                                       parameter_group, auto_failover, domain_name)
+            if cache_cluster['Status'] == 'available':
+                self._modify_redis_cluster(cluster_name, engine_version,
+                                           parameter_group, auto_failover, domain_name)
+            else:
+                logging.info('Unable update to cache cluster %s. Its status is not available',
+                             cache_cluster['Description'])
 
     def update_all(self):
         """Update all clusters in environment to match config"""
@@ -113,7 +117,7 @@ class DiscoElastiCache(object):
             logging.info('Cache cluster %s does not exist. Nothing to delete', cluster_name)
             return
 
-        logging.info('Deleting cache cluster %s', cluster_name)
+        logging.info('Deleting cache cluster %s', cluster['Description'])
         throttled_call(self.conn.delete_replication_group, ReplicationGroupId=cluster['ReplicationGroupId'])
 
         self.route53.delete_records_by_value('CNAME', cluster['NodeGroups'][0]['PrimaryEndpoint']['Address'])
@@ -130,7 +134,7 @@ class DiscoElastiCache(object):
         """
         clusters = self.list()
         for cluster in clusters:
-            logging.info('Deleting cache cluster %s', cluster['ReplicationGroupId'])
+            logging.info('Deleting cache cluster %s', cluster['Description'])
             throttled_call(self.conn.delete_replication_group,
                            ReplicationGroupId=cluster['ReplicationGroupId'])
 
@@ -192,13 +196,14 @@ class DiscoElastiCache(object):
             tags (List[dict]): list of tags to add to replication group
         """
         cluster_id = self._get_redis_replication_group_id(cluster_name)
+        description = self._get_redis_description(cluster_name)
         meta_network = self.vpc.networks[meta_network_name]
         subnet_group = self._get_subnet_group_name(meta_network_name)
 
-        logging.info('Creating "%s" Redis cache', cluster_id)
+        logging.info('Creating "%s" Redis cache', description)
         throttled_call(self.conn.create_replication_group,
                        ReplicationGroupId=cluster_id,
-                       ReplicationGroupDescription=self._get_redis_description(cluster_name),
+                       ReplicationGroupDescription=description,
                        NumCacheClusters=num_nodes,
                        CacheNodeType=instance_type,
                        Engine='redis',
@@ -273,7 +278,8 @@ class DiscoElastiCache(object):
         """Get a unique id for a redis cluster. This will not be human readable"""
 
         # Redis Replication Groups Ids are limited to 16 characters so hash the group name to get a shorter id
-        return hashlib.md5(self.vpc.environment_name + '-' + cluster_name).hexdigest()[:16]
+        # Ids must also start with a letter
+        return 'A' + hashlib.md5(self.vpc.environment_name + '-' + cluster_name).hexdigest()[:15]
 
     def _get_redis_description(self, cluster_name):
         """Get a human readable name for a redis cluster"""

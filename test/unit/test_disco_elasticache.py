@@ -82,7 +82,8 @@ class DiscoElastiCacheTests(TestCase):
         self.replication_groups = [
             {
                 'ReplicationGroupId': self.elasticache._get_redis_replication_group_id('old-cache'),
-                'ReplicationGroupDescription': 'unittest-old-cache',
+                'Description': 'unittest-old-cache',
+                'Status': 'available',
                 'NodeGroups': [{
                     'PrimaryEndpoint': {
                         'Address': 'old-cache.example.com'
@@ -91,7 +92,8 @@ class DiscoElastiCacheTests(TestCase):
             },
             {
                 'ReplicationGroupId': self.elasticache._get_redis_replication_group_id('cache2'),
-                'ReplicationGroupDescription': 'unittest-cache2',
+                'Description': 'unittest-cache2',
+                'Status': 'available',
                 'NodeGroups': [{
                     'PrimaryEndpoint': {
                         'Address': 'cache2.example.com'
@@ -100,7 +102,8 @@ class DiscoElastiCacheTests(TestCase):
             },
             {
                 'ReplicationGroupId': self.elasticache._get_redis_replication_group_id('cache'),
-                'ReplicationGroupDescription': 'unittest2-cache',
+                'Description': 'unittest2-cache',
+                'Status': 'available'
             }
         ]
 
@@ -155,7 +158,7 @@ class DiscoElastiCacheTests(TestCase):
 
         self.assertEquals(len(clusters), 2)
 
-        ids = [cluster['ReplicationGroupDescription'] for cluster in clusters]
+        ids = [cluster['Description'] for cluster in clusters]
         self.assertEquals(set(['unittest-old-cache', 'unittest-cache2']), set(ids))
 
     def test_create_redis_cluster(self):
