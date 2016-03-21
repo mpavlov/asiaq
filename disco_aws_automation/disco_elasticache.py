@@ -158,12 +158,13 @@ class DiscoElastiCache(object):
                            CacheSubnetGroupName=group['CacheSubnetGroupName'])
 
     def _get_redis_cluster(self, cluster_name):
-        cluster_id = self._get_redis_replication_group_id(cluster_name)
+        """Returns a Redis Replication group by its name"""
+        replication_group_id = self._get_redis_replication_group_id(cluster_name)
         try:
             response = throttled_call(self.conn.describe_replication_groups,
-                                      ReplicationGroupId=cluster_id)
-            clusters = response.get('ReplicationGroups', [])
-            return clusters[0] if clusters else None
+                                      ReplicationGroupId=replication_group_id)
+            groups = response.get('ReplicationGroups', [])
+            return groups[0] if groups else None
         except Exception:
             return None
 
@@ -195,14 +196,14 @@ class DiscoElastiCache(object):
             domain_name (str): hosted zone id to use for Route53 domain name
             tags (List[dict]): list of tags to add to replication group
         """
-        cluster_id = self._get_redis_replication_group_id(cluster_name)
+        replication_group_id = self._get_redis_replication_group_id(cluster_name)
         description = self._get_redis_description(cluster_name)
         meta_network = self.vpc.networks[meta_network_name]
         subnet_group = self._get_subnet_group_name(meta_network_name)
 
         logging.info('Creating "%s" Redis cache', description)
         throttled_call(self.conn.create_replication_group,
-                       ReplicationGroupId=cluster_id,
+                       ReplicationGroupId=replication_group_id,
                        ReplicationGroupDescription=description,
                        NumCacheClusters=num_nodes,
                        CacheNodeType=instance_type,
@@ -216,7 +217,7 @@ class DiscoElastiCache(object):
                        Tags=tags)
 
         self.conn.get_waiter('replication_group_available').wait(
-            ReplicationGroupId=cluster_id
+            ReplicationGroupId=replication_group_id
         )
 
         cluster = self._get_redis_cluster(cluster_name)
@@ -239,11 +240,11 @@ class DiscoElastiCache(object):
             apply_immediately (bool): True to immediately update the cluster
                                       False to schedule update at next cluster maintenance window or restart
         """
-        cluster_id = self._get_redis_replication_group_id(cluster_name)
+        replication_group_id = self._get_redis_replication_group_id(cluster_name)
         cluster = self._get_redis_cluster(cluster_name)
 
         throttled_call(self.conn.modify_replication_group,
-                       ReplicationGroupId=cluster_id,
+                       ReplicationGroupId=replication_group_id,
                        AutomaticFailoverEnabled=auto_failover,
                        CacheParameterGroupName=parameter_group,
                        ApplyImmediately=apply_immediately,
