@@ -93,7 +93,7 @@ class DiscoElastiCache(object):
                                            parameter_group, auto_failover, domain_name)
             else:
                 logging.error('Unable to update cache cluster %s. Its status is not available',
-                             cache_cluster['Description'])
+                              cache_cluster['Description'])
 
     def update_all(self):
         """Update all clusters in environment to match config"""
