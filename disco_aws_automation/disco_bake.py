@@ -18,6 +18,7 @@ import dateutil.parser
 from pytz import UTC
 
 from . import normalize_path, read_config
+from .disco_aws_util import is_truthy
 from .resource_helper import wait_for_sshable, keep_trying, wait_for_state
 from .disco_storage import DiscoStorage
 from .disco_remote_exec import DiscoRemoteExec, SSH_DEFAULT_OPTIONS
@@ -205,7 +206,8 @@ class DiscoBake(object):
         else:
             repo_ip = self.repo_instance().private_ip_address
 
-        self.remotecmd(instance, [script, hostclass, repo_ip], log_on_error=True)
+        forward_agent = is_truthy(self.hc_option_default(hostclass, "forward_agent", "False"))
+        self.remotecmd(instance, [script, hostclass, repo_ip], log_on_error=True, forward_agent=forward_agent)
 
     def ami_stages(self):
         """ Return list of configured ami stages"""
