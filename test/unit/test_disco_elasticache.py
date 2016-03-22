@@ -279,3 +279,10 @@ class DiscoElastiCacheTests(TestCase):
         ]
 
         self.elasticache.conn.delete_cache_subnet_group.assert_has_calls(delete_group_calls, any_order=True)
+
+    def test_get_replication_group_id(self):
+        """Test that replication group Ids follow the AWS rules for Ids"""
+        group_id = self.elasticache._get_redis_replication_group_id('test-name')
+
+        self.assertLessEqual(16, len(group_id))
+        self.assertTrue(group_id[0].isalpha())

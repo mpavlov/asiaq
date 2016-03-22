@@ -92,7 +92,7 @@ class DiscoElastiCache(object):
                 self._modify_redis_cluster(cluster_name, engine_version,
                                            parameter_group, auto_failover, domain_name)
             else:
-                logging.info('Unable update to cache cluster %s. Its status is not available',
+                logging.error('Unable to update cache cluster %s. Its status is not available',
                              cache_cluster['Description'])
 
     def update_all(self):
