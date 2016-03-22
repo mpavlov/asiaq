@@ -116,7 +116,7 @@ class DiscoBake(object):
 
     def hc_option(self, hostclass, key):
         '''
-        Returns an option from the [hostclass] section of the disco_aws.ini config file it it is set,
+        Returns an option from the [hostclass] section of the disco_aws.ini config file if it is set,
         otherwise it returns that value from the [bake] section if it is set,
         otherwise it returns that value from the DEFAULT_CONFIG_SECTION if it is set.
         '''
@@ -404,7 +404,8 @@ class DiscoBake(object):
 
             DiscoBake._tag_ami_with_metadata(image, stage, source_ami_id, productline)
 
-            wait_for_state(image, u'available', 600)
+            wait_for_state(image, u'available',
+                           int(self.hc_option_default(hostclass, "ami_available_wait_time", "600")))
             logging.info("Created %s AMI %s", image_name, image_id)
         except EarlyExitException as early_exit:
             logging.info(str(early_exit))
