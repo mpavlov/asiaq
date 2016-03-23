@@ -12,6 +12,7 @@ import boto
 import boto.ec2
 from boto.vpc import VPCConnection
 from boto.exception import EC2ResponseError
+import boto3
 
 from . import read_config
 from .resource_helper import keep_trying, wait_for_state
@@ -373,6 +374,28 @@ class DiscoVPC(object):
             self._wait_for_vgw_states(u'detached')
         except TimeoutError:
             logging.exception("Failed to detach VPN Gateways (Timeout).")
+
+    def _update_environment(self):
+        """Update the disco style environment VPC"""
+        vpc_cidr = self.get_config("vpc_cidr")
+        client = boto3.client('ec2')
+        vpcs = client.describe_vpcs(Filters=[{'Name': 'tag-value', 'Values': [self.environment_name]}])
+
+        if vpcs is None:
+            logging.error("Failed to find vpc : {}".format(self.environment_name))
+            raise Exception("Failed to find vpc : {}".format(self.environment_name))
+
+        if len(vpcs['Vpcs']) > 1:
+            vpc_names = [tag['Value'] for vpc in vpcs['Vpcs'] if 'Tags' in vpc
+                         for tag in vpc['Tags'] if tag['Key'] == 'Name']
+            logging.error("More than one vpc was found : %s" % vpc_names)
+            raise Exception("More than one vpc was found : %s" % vpc_names)
+
+        vpc = vpcs['Vpcs'][0]
+
+        if vpc_cidr != vpc['CidrBlock']:
+            logging.error("VPC cannot be updated, Cidr values are different, {0} instead of"
+                          "{1}".format(vpc_cidr, vpc['CidrBlock']))
 
     def _configure_environment(self):
         """Create a new disco style environment VPC"""

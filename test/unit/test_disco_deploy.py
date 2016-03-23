@@ -113,20 +113,26 @@ class DiscoDeployTests(TestCase):
         self.add_ami('mhcintegrated 3', None)
         self._ci_deploy._disco_bake.list_amis = MagicMock(return_value=self._amis)
 
+    def test_filter_with_ami_restriction(self):
+        '''Tests that filter on ami works when ami is set'''
+        self._ci_deploy._restrict_amis = [self._amis_by_name['mhcbar 2'].id]
+        self.assertEqual(self._ci_deploy._filter_amis(self._amis),
+                         [self._amis_by_name['mhcbar 2']])
+
     def test_filter_on_hostclass_wo_restriction(self):
         '''Tests that filter on hostclass does nothing when filtering is not restricted'''
         self._ci_deploy._allow_any_hostclass = True
-        self.assertEqual(self._ci_deploy._filter_on_hostclass(self._amis), self._amis)
+        self.assertEqual(self._ci_deploy._filter_amis(self._amis), self._amis)
 
     def test_filter_with_hostclass_restriction(self):
         '''Tests that filter on hostclass filters when the filtering hostclass is set'''
         self._ci_deploy._restrict_hostclass = 'mhcbar'
-        self.assertEqual(self._ci_deploy._filter_on_hostclass(self._amis),
+        self.assertEqual(self._ci_deploy._filter_amis(self._amis),
                          [self._amis_by_name['mhcbar 2'], self._amis_by_name['mhcbar 1']])
 
     def test_filter_with_pipeline_restriction(self):
         '''Tests that filter on hostclass filters to pipeline when no hostclass filter set'''
-        self.assertEqual(self._ci_deploy._filter_on_hostclass(self._amis),
+        self.assertEqual(self._ci_deploy._filter_amis(self._amis),
                          [self._amis_by_name["mhcfoo 1"],
                           self._amis_by_name["mhcfoo 4"],
                           self._amis_by_name["mhcfoo 5"],
@@ -141,7 +147,7 @@ class DiscoDeployTests(TestCase):
     def test_filter_by_hostclass_beats_pipeline(self):
         '''Tests that filter overrides pipeline filtering when hostclass is set'''
         self._ci_deploy._restrict_hostclass = 'mhcbar'
-        self.assertEqual(self._ci_deploy._filter_on_hostclass(self._amis),
+        self.assertEqual(self._ci_deploy._filter_amis(self._amis),
                          [self._amis_by_name['mhcbar 2'], self._amis_by_name['mhcbar 1']])
 
     def test_all_stage_amis_with_any_hostclass(self):

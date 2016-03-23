@@ -33,6 +33,10 @@ DEFAULT_LICENSE = {
     'oracle': 'bring-your-own-license',
     'postgres': 'postgresql-license'
 }
+DEFAULT_PORT = {
+    'postgres': 5432,
+    'oracle': 1521
+}
 
 
 class DiscoRDS(object):
@@ -58,6 +62,19 @@ class DiscoRDS(object):
         except NoOptionError:
             return default
 
+    def config_integer(self, section, param, default=None):
+        """
+        Read the RDS config file and extract an integer value. If the value is not found and no
+        default is provided, raise NoOptionError.
+        """
+        try:
+            return int(self.config_rds.get(section, param))
+        except NoOptionError:
+            if default is not None:
+                return int(default)
+            else:
+                raise
+
     def config_truthy(self, section, param, default='True'):
         """Read the RDS config file and extract the boolean value, or return default if missing"""
         return is_truthy(self.config_with_default(section, param, default))
@@ -76,9 +93,10 @@ class DiscoRDS(object):
         db_engine = self.config_rds.get(section, 'engine')
         engine_family = db_engine.split('-')[0]
         default_license = DEFAULT_LICENSE.get(engine_family)
+        default_port = DEFAULT_PORT.get(engine_family)
 
         instance_params = {
-            'AllocatedStorage': int(self.config_rds.get(section, 'allocated_storage')),
+            'AllocatedStorage': self.config_integer(section, 'allocated_storage'),
             'AutoMinorVersionUpgrade': self.config_truthy(section, 'auto_minor_version_upgrade'),
             'CharacterSetName': self.config_with_default(section, 'character_set_name'),
             'DBInstanceClass': self.config_rds.get(section, 'db_instance_class'),
@@ -87,12 +105,12 @@ class DiscoRDS(object):
             'DBSubnetGroupName': section,
             'Engine': db_engine,
             'EngineVersion': self.config_rds.get(section, 'engine_version'),
-            'Iops': int(self.config_with_default(section, 'iops')),
+            'Iops': self.config_integer(section, 'iops', 0),
             'LicenseModel': self.config_with_default(section, 'license_model', default_license),
             'MasterUserPassword': self.get_master_password(instance_identifier),
             'MasterUsername': self.config_rds.get(section, 'master_username'),
             'MultiAZ': self.config_truthy(section, 'multi_az'),
-            'Port': int(self.config_with_default(section, 'port')),
+            'Port': self.config_integer(section, 'port', default_port),
             'PubliclyAccessible': self.config_truthy(section, 'publicly_accessible', 'False'),
             'VpcSecurityGroupIds': [self.get_rds_security_group_id()],
             'StorageEncrypted': self.config_truthy(section, 'storage_encrypted')}
