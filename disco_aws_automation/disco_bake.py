@@ -205,7 +205,7 @@ class DiscoBake(object):
         else:
             repo_ip = self.repo_instance().private_ip_address
 
-        self.remotecmd(instance, [script, hostclass, repo_ip], log_on_error=True)
+        self.remotecmd(instance, [script, hostclass, repo_ip], log_on_error=True, forward_agent=True)
 
     def ami_stages(self):
         """ Return list of configured ami stages"""
