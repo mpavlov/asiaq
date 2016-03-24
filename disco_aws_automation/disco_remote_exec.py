@@ -73,9 +73,12 @@ class DiscoRemoteExec(object):
             # Remove the temporary directory
             shutil.rmtree(tempdir)
 
+    # R0914 Allow more than 15 local variables so we can pass a lot of options to ssh
+    # pylint: disable=R0914
     @staticmethod
     def remotecmd(address, remote_command, user, stdin=None,
-                  nothrow=False, jump_address=None, log_on_error=None, ssh_options=()):
+                  nothrow=False, jump_address=None, log_on_error=None,
+                  ssh_options=(), forward_agent=None):
         """
         Runs the passed in command on a remote host, via a jump host if a jump_address
         is provided.
@@ -90,6 +93,8 @@ class DiscoRemoteExec(object):
         # Build up command to get from tunnel to final dest
         final_hop = ["ssh"]
         final_hop.extend(common_flags)
+        if forward_agent:
+            final_hop.extend(["-A"])
         final_hop.append("-l{0}".format(user))
         final_hop.append(address)
         final_hop.extend(ssh_options)
