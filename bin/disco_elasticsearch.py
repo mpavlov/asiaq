@@ -10,8 +10,8 @@ Usage:
     disco_elasticsearch.py (-h | --help)
 
 Commands:
-    create    Creates an elasticsearch domain
     list      List all elasticsearch domains
+    create    Creates an elasticsearch domain
     update    Update elasticsearch domain configuration
     delete    Delete an elasticsearch domain
 
@@ -42,7 +42,7 @@ def run():
 
     if args['list']:
         for domain in disco_elasticsearch.list():
-            print(domain['DomainName'])
+            print(domain)
 
     elif args['create']:
         disco_elasticsearch.create(args['--domain'])
