@@ -43,7 +43,8 @@ class DiscoES(object):
         """List all elasticsearch domains in an account"""
         response = throttled_call(self.conn.list_domain_names)
 
-        return response['DomainNames']
+        return sorted([ domain['DomainName'] for domain in
+            response['DomainNames'] ])
 
     def update(self, cluster_name):
         """
@@ -90,36 +91,31 @@ class DiscoES(object):
                 logging.error('Unable to update cache cluster %s. Its status is not available',
                               cache_cluster['Description'])
 
-    def update_all(self):
-        """Update all clusters in environment to match config"""
-        sections = [section for section in self.config.sections()
-                    if section.startswith(self.vpc.environment_name + ':')]
-
-        for section in sections:
-            cluster_name = section.split(':')[1]
-            self.update(cluster_name)
-
-    def delete(self, cluster_name, wait=False):
+    def delete(self, domain_name):
         """
-        Delete a cache cluster
+        Delete an elasticsearch domain
         Args:
-            cluster_name (str): name of cluster
-            wait (bool): block until cluster is deleted
+            domain_name (str): name of elasticsearch domain
         """
-        cluster = self._get_redis_cluster(cluster_name)
+        domains = self.list()
 
-        if not cluster:
-            logging.info('Cache cluster %s does not exist. Nothing to delete', cluster_name)
+        if domain_name not in domains:
+            logging.info('Elasticsearch domain {} does not exist. Nothing to '
+                        'delete.'.format(domain_name))
             return
 
-        logging.info('Deleting cache cluster %s', cluster['Description'])
-        throttled_call(self.conn.delete_replication_group, ReplicationGroupId=cluster['ReplicationGroupId'])
+        logging.info('Deleting elasticsearch domain {}'.format(domain_name))
+        throttled_call(self.conn.delete_elasticsearch_domain,
+                DomainName=domain_name)
 
-        self.route53.delete_records_by_value('CNAME', cluster['NodeGroups'][0]['PrimaryEndpoint']['Address'])
+    def _describe_elasticsearch_domain(self,domain_name):
+        """
+        Returns domain configuration information about the specified
+        Elasticsearch domain, including the domain ID, domain endpoint, and
+        domain ARN.
+        """
+        return self.conn.describe_elasticsearch_domain(DomainName=domain_name)
 
-        if wait:
-            self.conn.get_waiter('replication_group_deleted').wait(
-                ReplicationGroupId=cluster['ReplicationGroupId'])
 
     def delete_all_cache_clusters(self, wait=False):
         """
