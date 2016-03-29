@@ -46,6 +46,19 @@ class DiscoES(object):
         return sorted([ domain['DomainName'] for domain in
             response['DomainNames'] ])
 
+    def create(self,domain_name):
+        """
+        Create a new elasticsearch domain based on the config file
+        """
+
+        logging.info('Crating elasticsearch domain {}...'.format(domain_name))
+        response = throttled_call(self.conn.create_elasticsearch_domain,
+                DomainName=domain_name)
+        logging.info('Created elasticsearch domain {}'.format(domain_name))
+
+        return None
+
+
     def update(self, cluster_name):
         """
         Create a new cluster or modify an existing one based on the config file
