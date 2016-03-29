@@ -5,11 +5,15 @@ import logging
 import random
 import sys
 
+from ConfigParser import NoOptionError
 from boto.exception import EC2ResponseError
 
-from . import DiscoBake
+from . import DiscoBake, read_config
 from .exceptions import TimeoutError, MaintenanceModeError, IntegrationTestError, SmokeTestError
 from .disco_aws_util import is_truthy
+from .disco_constants import DEFAULT_CONFIG_SECTION
+
+TEST_CONFIG_PREFIX = "test_"
 
 
 def snap_to_range(val, mini, maxi):
@@ -22,8 +26,7 @@ class DiscoDeploy(object):
 
     # pylint: disable=too-many-arguments
     def __init__(self, aws, test_aws, bake, pipeline_definition,
-                 test_hostclass, test_user, test_command,
-                 ami=None, hostclass=None, allow_any_hostclass=False):
+                 ami=None, hostclass=None, allow_any_hostclass=False, config=None):
         '''
         Constructor for DiscoDeploy
 
@@ -31,11 +34,14 @@ class DiscoDeploy(object):
         :param test_aws DiscoAWS instance for integration tests. may be different environment than "aws" param
         :param bake a DiscoBake instance to use
         :param pipeline_definition a list of dicts containing hostname, deployable and other pipeline values
-        :param test_hostclass hostclass which contains the integration tests
-        :param test_user user under which to ssh into integration test hostclass
-        :param test_command command to run integration tests
         :param allow_any_hostclass do not restrict to hostclasses in the pipeline definition
+        :param config: Configuration object to use.
         '''
+        if config:
+            self._config = config
+        else:
+            self._config = read_config()
+
         self._restrict_amis = [ami] if ami else None
         self._restrict_hostclass = hostclass
         self._disco_aws = aws
@@ -43,9 +49,6 @@ class DiscoDeploy(object):
         self._disco_bake = bake
         self._all_stage_amis = None
         self._hostclasses = self._get_hostclasses_from_pipeline_definition(pipeline_definition)
-        self._test_hostclass = test_hostclass
-        self._test_user = test_user
-        self._test_command = test_command
         self._allow_any_hostclass = allow_any_hostclass
 
     def _get_hostclasses_from_pipeline_definition(self, pipeline_definition):
@@ -401,7 +404,7 @@ class DiscoDeploy(object):
         for inst in instances:
             _code, _stdout = self._disco_aws.remotecmd(
                 inst, ["sudo", "/opt/wgen/bin/maintenance-mode.sh", "on" if mode_on else "off"],
-                user=self._test_user, nothrow=True)
+                user=self.option("test_user"), nothrow=True)
             sys.stdout.write(_stdout)
             if _code:
                 exit_code = _code
@@ -411,9 +414,9 @@ class DiscoDeploy(object):
             raise MaintenanceModeError(
                 "Failed to {} maintenance mode".format("enter" if mode_on else "exit"))
 
-    def get_test_host(self):
+    def get_host(self, hostclass):
         '''Returns an instance to use for running integration tests'''
-        instances = self._test_aws.instances_from_hostclasses([self._test_hostclass])
+        instances = self._test_aws.instances_from_hostclasses([hostclass])
         for inst in instances:
             try:
                 self._disco_aws.smoketest_once(inst)
@@ -428,10 +431,15 @@ class DiscoDeploy(object):
 
         NOTE: This does not put any instances into maintenance mode.
         '''
-        test_name = self.get_integration_test(DiscoBake.ami_hostclass(ami))
+        hostclass = DiscoBake.ami_hostclass(ami)
+        test_hostclass = self.hostclass_option(hostclass, "test_hostclass")
+        test_command = self.hostclass_option(hostclass, "test_command")
+        test_user = self.hostclass_option(hostclass, "test_user")
+        test_name = self.get_integration_test(hostclass)
+        logging.info("running integration test %s on %s", test_name, test_hostclass)
         exit_code, stdout = self._test_aws.remotecmd(
-            self.get_test_host(), [self._test_command, test_name],
-            user=self._test_user, nothrow=True)
+            self.get_host(test_hostclass), [test_command, test_name],
+            user=test_user, nothrow=True)
         sys.stdout.write(stdout)
         return exit_code == 0
 
@@ -481,3 +489,35 @@ class DiscoDeploy(object):
         amis = self.get_update_amis()
         if len(amis):
             self.update_ami(random.choice(amis), dry_run)
+
+    def option(self, key):
+        '''
+        Returns an option from the [test] section of the disco_aws.ini config file.
+        First looks for the key as provided. If not found, tries to remove TEST_CONFIG_PREFIX
+        from the key and looks again.
+        '''
+        if self._config.has_option("test", key):
+            return self._config.get("test", key)
+        else:
+            return self._config.get("test", key.split(TEST_CONFIG_PREFIX).pop())
+
+    def hostclass_option(self, hostclass, key):
+        '''
+        Returns an option from the [hostclass] section of the disco_aws.ini config file if it is set,
+        otherwise it returns that value from the [test] section if it is set,
+        minus that prefix, otherwise it returns that value from the DEFAULT_CONFIG_SECTION if it is set.
+        '''
+        alt_key = key.split(TEST_CONFIG_PREFIX).pop()
+        if self._config.has_option(hostclass, key):
+            return self._config.get(hostclass, key)
+        elif self._config.has_option("test", key) or self._config.has_option("test", alt_key):
+            return self.option(key)
+        else:
+            return self._config.get(DEFAULT_CONFIG_SECTION, "default_{0}".format(key))
+
+    def hostclass_option_default(self, hostclass, key, default=None):
+        """Fetch a hostclass configuration option if it exists, otherwise return value passed in as default"""
+        try:
+            return self.hc_option(hostclass, key)
+        except NoOptionError:
+            return default

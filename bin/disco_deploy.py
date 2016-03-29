@@ -79,9 +79,6 @@ def run():
     deploy = DiscoDeploy(
         aws, test_aws, DiscoBake(config, aws.connection),
         pipeline_definition=pipeline_definition,
-        test_hostclass=aws.config('hostclass', 'test'),
-        test_user=aws.config('user', 'test'),
-        test_command=aws.config('command', 'test'),
         ami=args.get("--ami"), hostclass=args.get("--hostclass"),
         allow_any_hostclass=args["--allow-any-hostclass"])
 
