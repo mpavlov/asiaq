@@ -3,7 +3,7 @@
 Manages ElasticSearch
 
 Usage:
-    disco_elasticsearch.py [--debug] list
+    disco_elasticsearch.py [--debug] list [--endpoint]
     disco_elasticsearch.py [--debug] create --domain ES_DOMAIN
     disco_elasticsearch.py [--debug] update --domain ES_DOMAIN
     disco_elasticsearch.py [--debug] delete --domain ES_DOMAIN
@@ -18,6 +18,7 @@ Commands:
 Options:
     -h --help           Show this screen
     --debug             Log in debug level
+    --endpoint          Display elasticsearch service endpoint
     --domain ES_DOMAIN  Name of elasticsearch domain
 """
 from __future__ import print_function
@@ -42,7 +43,12 @@ def run():
 
     if args['list']:
         for domain in disco_elasticsearch.list():
-            print(domain)
+            if args['--endpoint']:
+                endpoint = disco_elasticsearch._describe_es_domain(domain)\
+                ['DomainStatus']['Endpoint']
+                print(domain,'\t',endpoint)
+            else:
+                print(domain)
 
     elif args['create']:
         disco_elasticsearch.create(args['--domain'])

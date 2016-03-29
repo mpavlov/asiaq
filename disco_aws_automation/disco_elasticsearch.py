@@ -121,7 +121,7 @@ class DiscoES(object):
         throttled_call(self.conn.delete_elasticsearch_domain,
                 DomainName=domain_name)
 
-    def _describe_elasticsearch_domain(self,domain_name):
+    def _describe_es_domain(self,domain_name):
         """
         Returns domain configuration information about the specified
         Elasticsearch domain, including the domain ID, domain endpoint, and
