@@ -1,17 +1,13 @@
 """
 Manage AWS ElasticSearch
 """
-# import getpass
 import logging
-# import hashlib
 from ConfigParser import ConfigParser
 
 import boto3
 # import botocore
-# from semantic_version import Spec, Version
 
 from . import normalize_path
-# from .disco_route53 import DiscoRoute53
 # from .exceptions import CommandError
 from .resource_helper import throttled_call
 
@@ -21,7 +17,7 @@ class DiscoES(object):
     A simple class to manage ElasticSearch
     """
 
-    def __init__(self, config_file='disco_elasticsearch.ini', aws):
+    def __init__(self, config_file, aws):
         self.conn = boto3.client('es')
         self.config_file = config_file
         self._config = None  # lazily initialized
@@ -111,16 +107,16 @@ class DiscoES(object):
         throttled_call(
            generator,
            DomainName=self._cluster_name,
-           InstanceType=self.aws.vpc.get_config("es_instance_type", "extra_small"),
-           InstanceCount=instance_count,
-           DedicatedMasterEnabled=dedicated_master,
-           ZoneAwarenessEnabled=zone_awareness,
-           DedicatedMasterType=dedicated_master_type,
-           DedicatedMasterCount=dedicated_master_count,
-           EBSEnabled=ebs_enabled,
-           VolumeType=volume_type,
-           VolumeSize=volume_size,
-           Iops=iops,
+           InstanceType=self.aws.vpc.get_config('es_instance_type', 't2.medium.elasticsearch'),
+           InstanceCount=self.aws.vpc.get_config('es_instance_count', 2),
+           DedicatedMasterEnabled=self.aws.vpc.get_config('dedicated_master', False),
+           ZoneAwarenessEnabled=self.aws.vpc.get_config('zone_awareness', False),
+           DedicatedMasterType=self.aws.vpc.get_config('dedicated_master_type', None),
+           DedicatedMasterCount=self.aws.vpc.get_config('dedicated_master_count', None),
+           EBSEnabled=self.aws.vpc.get_config('ebs_enabled', False),
+           VolumeType=self.aws.vpc.get_config('volume_type', 'standard'),
+           VolumeSize=self.aws.vpc.get_config('volume_size', 10),
+           Iops=self.aws.vpc.get_config('iops', None),
            AccessPolicies=self._access_policy(),
-           AutomatedSnapshotStartHour=snapshot_start_hour
+           AutomatedSnapshotStartHour=self.aws.vpc.get_config('snapshot_start_hour', 5)
         )
