@@ -4,9 +4,9 @@ Manages ElasticSearch
 
 Usage:
     disco_elasticsearch.py [--debug] list [--endpoint]
-    disco_elasticsearch.py [--debug] create --domain ES_DOMAIN
-    disco_elasticsearch.py [--debug] update --domain ES_DOMAIN
-    disco_elasticsearch.py [--debug] delete --domain ES_DOMAIN
+    disco_elasticsearch.py [--debug] [--env ENV] create
+    disco_elasticsearch.py [--debug] [--env ENV] update
+    disco_elasticsearch.py [--debug] [--env ENV] delete
     disco_elasticsearch.py (-h | --help)
 
 Commands:
@@ -19,12 +19,11 @@ Options:
     -h --help           Show this screen
     --debug             Log in debug level
     --endpoint          Display elasticsearch service endpoint
-    --domain ES_DOMAIN  Name of elasticsearch domain
+    --env ENV           Environment name (build, ci, etc.)
 """
 from __future__ import print_function
-# import sys
 from docopt import docopt
-from disco_aws_automation import DiscoES, read_config  # , DiscoAWS
+from disco_aws_automation import DiscoES,  DiscoAWS, read_config
 from disco_aws_automation.disco_aws_util import run_gracefully
 from disco_aws_automation.disco_logging import configure_logging
 
@@ -34,12 +33,12 @@ def run():
     args = docopt(__doc__)
 
     configure_logging(args["--debug"])
+    
+    config = read_config()
 
-    config = read_config('../asiaq_astro_config/disco_elasticsearch.ini')
-
-    # aws = DiscoAWS(config, env)
-    # disco_elasticsearch = DiscoES(aws=aws)
-    disco_elasticsearch = DiscoES()
+    #aws = DiscoAWS(config, env)
+    aws = DiscoAWS(config, 'ci')
+    disco_elasticsearch = DiscoES(config, aws)
 
     if args['list']:
         for domain in disco_elasticsearch.list():
@@ -53,17 +52,13 @@ def run():
                 print(domain)
 
     elif args['create']:
-        if config.items(args['--domain']):
-            print(config.items(args['--domain']))
-            disco_elasticsearch.create(args['--domain'], [item[1] for item in config.items(args['--domain'])])
-        else:
-            disco_elasticsearch.create(args['--domain'])
+        disco_elasticsearch.create(args['--env'])
 
     elif args['update']:
-        disco_elasticsearch.update(args['--domain'])
+        disco_elasticsearch.update(args['--env'])
 
     elif args['delete']:
-        disco_elasticsearch.delete(args['--domain'])
+        disco_elasticsearch.delete(args['--env'])
 
 if __name__ == "__main__":
     run_gracefully(run)
