@@ -124,11 +124,11 @@ class DiscoES(object):
                 }
 
         es_kwargs = {
-            'DomainName': self._cluster_name,
-            'ElasticsearchClusterConfig': es_cluster_config,
-            'EBSOptions': ebs_option,
-            'AccessPolicies': self._access_policy(),
-            'SnapshotOptions': snapshot_options
+                'DomainName': self._cluster_name,
+                'ElasticsearchClusterConfig': es_cluster_config,
+                'EBSOptions': ebs_option,
+                'AccessPolicies': self._access_policy(),
+                'SnapshotOptions': snapshot_options
             }
 
         throttled_call(generator, **es_kwargs)
