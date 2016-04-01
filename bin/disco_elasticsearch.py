@@ -48,7 +48,8 @@ def run():
                     endpoint = None
                 print('{0:20}\t{1}'.format(domain, endpoint))
             else:
-                print(domain)
+                if not disco_elasticsearch._describe_es_domain(domain)['DomainStatus']['Deleted']:
+                    print(domain)
 
     elif args['create']:
         disco_elasticsearch.create()
