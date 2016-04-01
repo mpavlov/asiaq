@@ -12,7 +12,7 @@ from disco_aws_automation import DiscoIAM
 from . import normalize_path
 # from .exceptions import CommandError
 from .resource_helper import throttled_call
-
+from .disco_aws_util import is_truthy
 
 class DiscoES(object):
     """
@@ -104,20 +104,26 @@ class DiscoES(object):
 
     def _upsert(self, generator):
         es_cluster_config = {
-                'InstanceType': self.aws.vpc.get_config('es_instance_type', 't2.medium.elasticsearch'),
-                'InstanceCount': int(self.aws.vpc.get_config('es_instance_count', 2)),
+                'InstanceType': self.aws.vpc.get_config('es_instance_type', 'm3.medium.elasticsearch'),
+                'InstanceCount': int(self.aws.vpc.get_config('es_instance_count', 1)),
                 'DedicatedMasterEnabled': bool(self.aws.vpc.get_config('es_dedicated_master', False)),
-                'ZoneAwarenessEnabled': bool(self.aws.vpc.get_config('es_zone_awareness', False)),
-                'DedicatedMasterType': self.aws.vpc.get_config('es_dedicated_master_type'),
-                'DedicatedMasterCount': int(self.aws.vpc.get_config('es_dedicated_master_count'))
+                'ZoneAwarenessEnabled': bool(self.aws.vpc.get_config('es_zone_awareness', False))
                 }
 
+        if is_truthy(es_cluster_config['DedicatedMasterEnabled']):
+            es_cluster_config['DedicatedMasterType'] = self.aws.vpc.get_config('es_dedicated_master_type')
+            es_cluster_config['DedicatedMasterCount'] = int(self.aws.vpc.get_config('es_dedicated_master_count'))
+
         ebs_option = {
-                'EBSEnabled': bool(self.aws.vpc.get_config('es_ebs_enabled', False)),
-                'VolumeType': self.aws.vpc.get_config('es_volume_type', 'standard'),
-                'VolumeSize': int(self.aws.vpc.get_config('es_volume_size', 10)),
-                #'Iops': int(self.aws.vpc.get_config('es_iops'))
+                'EBSEnabled': bool(self.aws.vpc.get_config('es_ebs_enabled', False))
                 }
+
+        if is_truthy(ebs_option['EBSEnabled']):
+            ebs_option['VolumeType'] = self.aws.vpc.get_config('es_volume_type', 'standard')
+            ebs_option['VolumeSize'] = int(self.aws.vpc.get_config('es_volume_size', 10))
+
+        if ebs_option['VolumeType'] == 'io1':
+            ebs_option['Iops'] = int(self.aws.vpc.get_config('es_iops', 1000))
 
         snapshot_options = {
                 'AutomatedSnapshotStartHour': int(self.aws.vpc.get_config('es_snapshot_start_hour', 5))
@@ -130,5 +136,6 @@ class DiscoES(object):
                 'AccessPolicies': self._access_policy(),
                 'SnapshotOptions': snapshot_options
             }
+        print(es_kwargs)
 
         throttled_call(generator, **es_kwargs)
