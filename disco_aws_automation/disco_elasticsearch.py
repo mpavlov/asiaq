@@ -7,6 +7,8 @@ from ConfigParser import ConfigParser
 import boto3
 # import botocore
 
+from disco_aws_automation import DiscoIAM
+
 from . import normalize_path
 # from .exceptions import CommandError
 from .resource_helper import throttled_call
@@ -35,6 +37,10 @@ class DiscoES(object):
                 return None
         return self._config
 
+    @property
+    def _cluster_name(self):
+        return "{0}-log-es".format(self.aws.environment_name)
+
     def list(self):
         """List all elasticsearch domains in an account"""
         response = throttled_call(self.conn.list_domain_names)
@@ -56,46 +62,40 @@ class DiscoES(object):
         throttled_call(self.conn.delete_elasticsearch_domain,
                        DomainName=self._cluster_name)
 
-    def _describe_es_domain(self):
+    def _describe_es_domain(self, cluster_name):
         """
         Returns domain configuration information about the specified
         Elasticsearch domain, including the domain ID, domain endpoint, and
         domain ARN.
         """
-        return self.conn.describe_elasticsearch_domain(DomainName=self._cluster_name)
-
-    @property
-    def _cluster_name(self):
-	return "{0}-log-es".format(aws.environment_name)
+        return self.conn.describe_elasticsearch_domain(DomainName=cluster_name)
 
     def _access_policy(self):
-	disco_iam = DiscoIAM(
-		environment=self.aws.environment_name,
-		boto2_connection=self.aws.connection
-	)
-	return '''
-	    {
-	      "Version": "2012-10-17",
-	      "Statement": [
-		{
-		  "Effect": "Allow",
-		  "Principal": {
-		    "AWS": [
-		      "{1}"
-		    ]
-		  },
-		  "Action": [
-		    "es:*"
-		  ],
-		  "Resource": "arn:aws:es:{0}:{1}:domain/{2}/*"
-		}
-	      ]
-	    }
-	'''.format(
-                self.aws.vpc.region,
-                disco_iam.account_id(),
-                self._cluster_name,
-	)
+        disco_iam = DiscoIAM(
+                environment=self.aws.environment_name,
+                boto2_connection=self.aws.connection
+        )
+
+        policy = '''{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "AWS": [
+          "{1}"
+        ]
+      },
+      "Action": [
+        "es:*"
+      ],
+      "Resource": "arn:aws:es:{0}:{1}:domain/{2}/*"
+    }
+  ]
+}'''
+        print(type(policy))
+        #return policy.format(self.aws.vpc.region, disco_iam.account_id(), self._cluster_name)
+        return policy
 
     def create(self):
         return self._upsert(self.conn.create_elasticsearch_domain)
@@ -109,14 +109,14 @@ class DiscoES(object):
            DomainName=self._cluster_name,
            InstanceType=self.aws.vpc.get_config('es_instance_type', 't2.medium.elasticsearch'),
            InstanceCount=self.aws.vpc.get_config('es_instance_count', 2),
-           DedicatedMasterEnabled=self.aws.vpc.get_config('dedicated_master', False),
-           ZoneAwarenessEnabled=self.aws.vpc.get_config('zone_awareness', False),
-           DedicatedMasterType=self.aws.vpc.get_config('dedicated_master_type', None),
-           DedicatedMasterCount=self.aws.vpc.get_config('dedicated_master_count', None),
-           EBSEnabled=self.aws.vpc.get_config('ebs_enabled', False),
-           VolumeType=self.aws.vpc.get_config('volume_type', 'standard'),
-           VolumeSize=self.aws.vpc.get_config('volume_size', 10),
-           Iops=self.aws.vpc.get_config('iops', None),
+           DedicatedMasterEnabled=self.aws.vpc.get_config('es_dedicated_master', False),
+           ZoneAwarenessEnabled=self.aws.vpc.get_config('es_zone_awareness', False),
+           DedicatedMasterType=self.aws.vpc.get_config('es_dedicated_master_type', None),
+           DedicatedMasterCount=self.aws.vpc.get_config('es_dedicated_master_count', None),
+           EBSEnabled=self.aws.vpc.get_config('es_ebs_enabled', False),
+           VolumeType=self.aws.vpc.get_config('es_volume_type', 'standard'),
+           VolumeSize=self.aws.vpc.get_config('es_volume_size', 10),
+           Iops=self.aws.vpc.get_config('es_iops', None),
            AccessPolicies=self._access_policy(),
-           AutomatedSnapshotStartHour=self.aws.vpc.get_config('snapshot_start_hour', 5)
+           AutomatedSnapshotStartHour=self.aws.vpc.get_config('es_snapshot_start_hour', 5)
         )

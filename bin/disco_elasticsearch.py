@@ -23,7 +23,7 @@ Options:
 """
 from __future__ import print_function
 from docopt import docopt
-from disco_aws_automation import DiscoES,  DiscoAWS, read_config
+from disco_aws_automation import DiscoES, DiscoAWS, read_config
 from disco_aws_automation.disco_aws_util import run_gracefully
 from disco_aws_automation.disco_logging import configure_logging
 
@@ -35,9 +35,8 @@ def run():
     configure_logging(args["--debug"])
     
     config = read_config()
-
-    #aws = DiscoAWS(config, env)
-    aws = DiscoAWS(config, 'ci')
+    env = args['--env']
+    aws = DiscoAWS(config, env)
     disco_elasticsearch = DiscoES(config, aws)
 
     if args['list']:
@@ -52,13 +51,13 @@ def run():
                 print(domain)
 
     elif args['create']:
-        disco_elasticsearch.create(args['--env'])
+        disco_elasticsearch.create()
 
     elif args['update']:
-        disco_elasticsearch.update(args['--env'])
+        disco_elasticsearch.update()
 
     elif args['delete']:
-        disco_elasticsearch.delete(args['--env'])
+        disco_elasticsearch.delete()
 
 if __name__ == "__main__":
     run_gracefully(run)
