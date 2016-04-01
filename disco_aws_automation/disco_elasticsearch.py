@@ -76,26 +76,25 @@ class DiscoES(object):
                 boto2_connection=self.aws.connection
         )
 
-        policy = '''{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Principal": {
-        "AWS": [
-          "{1}"
-        ]
-      },
-      "Action": [
-        "es:*"
-      ],
-      "Resource": "arn:aws:es:{0}:{1}:domain/{2}/*"
-    }
-  ]
-}'''
-        print(type(policy))
-        #return policy.format(self.aws.vpc.region, disco_iam.account_id(), self._cluster_name)
-        return policy
+        policy = '''
+                {{
+                  "Version": "2012-10-17",
+                  "Statement": [
+                    {{
+                      "Effect": "Allow",
+                      "Principal": {{
+                        "AWS": [
+                          "{1}"
+                        ]
+                      }},
+                      "Action": "es:*",
+                      "Resource": "arn:aws:es:{0}:{1}:domain/{2}/*"
+                    }}
+                  ]
+                }}
+                '''
+
+        return policy.format(self.aws.vpc.region, disco_iam.account_id(), self._cluster_name)
 
     def create(self):
         return self._upsert(self.conn.create_elasticsearch_domain)
@@ -104,19 +103,32 @@ class DiscoES(object):
         return self._upsert(self.conn.update_elasticsearch_domain_config)
 
     def _upsert(self, generator):
-        throttled_call(
-           generator,
-           DomainName=self._cluster_name,
-           InstanceType=self.aws.vpc.get_config('es_instance_type', 't2.medium.elasticsearch'),
-           InstanceCount=self.aws.vpc.get_config('es_instance_count', 2),
-           DedicatedMasterEnabled=self.aws.vpc.get_config('es_dedicated_master', False),
-           ZoneAwarenessEnabled=self.aws.vpc.get_config('es_zone_awareness', False),
-           DedicatedMasterType=self.aws.vpc.get_config('es_dedicated_master_type', None),
-           DedicatedMasterCount=self.aws.vpc.get_config('es_dedicated_master_count', None),
-           EBSEnabled=self.aws.vpc.get_config('es_ebs_enabled', False),
-           VolumeType=self.aws.vpc.get_config('es_volume_type', 'standard'),
-           VolumeSize=self.aws.vpc.get_config('es_volume_size', 10),
-           Iops=self.aws.vpc.get_config('es_iops', None),
-           AccessPolicies=self._access_policy(),
-           AutomatedSnapshotStartHour=self.aws.vpc.get_config('es_snapshot_start_hour', 5)
-        )
+        es_cluster_config = {
+                'InstanceType': self.aws.vpc.get_config('es_instance_type', 't2.medium.elasticsearch'),
+                'InstanceCount': int(self.aws.vpc.get_config('es_instance_count', 2)),
+                'DedicatedMasterEnabled': bool(self.aws.vpc.get_config('es_dedicated_master', False)),
+                'ZoneAwarenessEnabled': bool(self.aws.vpc.get_config('es_zone_awareness', False)),
+                'DedicatedMasterType': self.aws.vpc.get_config('es_dedicated_master_type'),
+                'DedicatedMasterCount': int(self.aws.vpc.get_config('es_dedicated_master_count'))
+                }
+
+        ebs_option = {
+                'EBSEnabled': bool(self.aws.vpc.get_config('es_ebs_enabled', False)),
+                'VolumeType': self.aws.vpc.get_config('es_volume_type', 'standard'),
+                'VolumeSize': int(self.aws.vpc.get_config('es_volume_size', 10)),
+                #'Iops': int(self.aws.vpc.get_config('es_iops'))
+                }
+
+        snapshot_options = {
+                'AutomatedSnapshotStartHour': int(self.aws.vpc.get_config('es_snapshot_start_hour', 5))
+                }
+
+        es_kwargs = {
+            'DomainName': self._cluster_name,
+            'ElasticsearchClusterConfig': es_cluster_config,
+            'EBSOptions': ebs_option,
+            'AccessPolicies': self._access_policy(),
+            'SnapshotOptions': snapshot_options
+            }
+
+        throttled_call(generator, **es_kwargs)
