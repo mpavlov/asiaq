@@ -70,6 +70,9 @@ class DiscoES(object):
         """
         return self.conn.describe_elasticsearch_domain(DomainName=cluster_name)
 
+    def get_endpoint(self, cluster_name):
+        return self._describe_es_domain(cluster_name)['DomainStatus']['Endpoint']
+
     def _access_policy(self):
         disco_iam = DiscoIAM(
                 environment=self.aws.environment_name,
