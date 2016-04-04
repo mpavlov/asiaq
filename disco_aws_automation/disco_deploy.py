@@ -13,8 +13,6 @@ from .exceptions import TimeoutError, MaintenanceModeError, IntegrationTestError
 from .disco_aws_util import is_truthy
 from .disco_constants import DEFAULT_CONFIG_SECTION
 
-TEST_CONFIG_PREFIX = "test_"
-
 
 def snap_to_range(val, mini, maxi):
     '''Returns a value snapped into [mini, maxi]'''
@@ -321,10 +319,11 @@ class DiscoDeploy(object):
         This method puts all AMIs not matching the passed in AMI into maintenance mode.
         If tests pass the old instances are left in maintenance mode, otherwise they are returned to normal.
         '''
-        self._set_maintenance_mode(self._get_old_instances(ami.id), True)
+        hostclass = self._disco_bake.ami_hostclass(ami)
+        self._set_maintenance_mode(hostclass, self._get_old_instances(ami.id), True)
         ret = self.run_integration_tests(ami)
         if not ret:
-            self._set_maintenance_mode(self._get_old_instances(ami.id), False)
+            self._set_maintenance_mode(hostclass, self._get_old_instances(ami.id), False)
         return ret
 
     def handle_tested_ami(self, old_hostclass_dict, ami, desired_size,
@@ -391,7 +390,7 @@ class DiscoDeploy(object):
         self._disco_aws.terminate(self._get_new_instances(ami.id), use_autoscaling=True)
         self._disco_aws.spinup([post_hostclass_dict])
 
-    def _set_maintenance_mode(self, instances, mode_on):
+    def _set_maintenance_mode(self, hostclass, instances, mode_on):
         '''
         Takes instances into or out of maintenance mode.
 
@@ -404,7 +403,7 @@ class DiscoDeploy(object):
         for inst in instances:
             _code, _stdout = self._disco_aws.remotecmd(
                 inst, ["sudo", "/opt/wgen/bin/maintenance-mode.sh", "on" if mode_on else "off"],
-                user=self.option("test_user"), nothrow=True)
+                user=self.hostclass_option(hostclass, "test_user"), nothrow=True)
             sys.stdout.write(_stdout)
             if _code:
                 exit_code = _code
@@ -490,34 +489,25 @@ class DiscoDeploy(object):
         if len(amis):
             self.update_ami(random.choice(amis), dry_run)
 
-    def option(self, key):
-        '''
-        Returns an option from the [test] section of the disco_aws.ini config file.
-        First looks for the key as provided. If not found, tries to remove TEST_CONFIG_PREFIX
-        from the key and looks again.
-        '''
-        if self._config.has_option("test", key):
-            return self._config.get("test", key)
-        else:
-            return self._config.get("test", key.split(TEST_CONFIG_PREFIX).pop())
-
     def hostclass_option(self, hostclass, key):
         '''
         Returns an option from the [hostclass] section of the disco_aws.ini config file if it is set,
         otherwise it returns that value from the [test] section if it is set,
         minus that prefix, otherwise it returns that value from the DEFAULT_CONFIG_SECTION if it is set.
         '''
-        alt_key = key.split(TEST_CONFIG_PREFIX).pop()
+        alt_key = key.split("test_").pop()
         if self._config.has_option(hostclass, key):
             return self._config.get(hostclass, key)
-        elif self._config.has_option("test", key) or self._config.has_option("test", alt_key):
-            return self.option(key)
+        elif self._config.has_option("test", key):
+            return self._config.get("test", key)
+        elif alt_key != key and self._config.has_option("test", alt_key):
+            return self._config.get("test", alt_key)
         else:
             return self._config.get(DEFAULT_CONFIG_SECTION, "default_{0}".format(key))
 
     def hostclass_option_default(self, hostclass, key, default=None):
         """Fetch a hostclass configuration option if it exists, otherwise return value passed in as default"""
         try:
-            return self.hc_option(hostclass, key)
+            return self.hostclass_option(hostclass, key)
         except NoOptionError:
             return default

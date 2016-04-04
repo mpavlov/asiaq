@@ -80,6 +80,7 @@ class DiscoDeployTests(TestCase):
         inst = create_autospec(boto.ec2.instance.Instance)
         inst.id = 'i-' + ''.join(random.choice("0123456789abcdef") for _ in range(8))
         inst.image_id = 'ami-' + ''.join(random.choice("0123456789abcdef") for _ in range(8))
+        inst.tags = {"hostclass": "hostclass_being_tested"}
         return inst
 
     def add_ami(self, name, stage, state=u'available'):
@@ -432,7 +433,7 @@ class DiscoDeployTests(TestCase):
     def test_set_maintenance_mode_on(self):
         '''_set_maintenance_mode makes expected remotecmd call'''
         self._ci_deploy._disco_aws.remotecmd = MagicMock(return_value=(0, ""))
-        self._ci_deploy._set_maintenance_mode(instances=["i-1"], mode_on=True)
+        self._ci_deploy._set_maintenance_mode(hostclass="mhcfoo", instances=["i-1"], mode_on=True)
         self._ci_deploy._disco_aws.remotecmd.assert_called_with(
             "i-1", ["sudo", "/opt/wgen/bin/maintenance-mode.sh", "on"],
             user="test_user", nothrow=True)
@@ -441,7 +442,7 @@ class DiscoDeployTests(TestCase):
         '''_set_maintenance_mode handles errors'''
         self._ci_deploy._disco_aws.remotecmd = MagicMock(return_value=(1, ""))
         self.assertRaises(MaintenanceModeError, self._ci_deploy._set_maintenance_mode,
-                          instances=["i-1"], mode_on=False)
+                          hostclass="foo", instances=["i-1"], mode_on=False)
         self._ci_deploy._disco_aws.remotecmd.assert_called_with(
             "i-1", ["sudo", "/opt/wgen/bin/maintenance-mode.sh", "off"],
             user="test_user", nothrow=True)
