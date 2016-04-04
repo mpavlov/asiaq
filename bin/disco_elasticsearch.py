@@ -43,7 +43,7 @@ def run():
         for domain in disco_elasticsearch.list():
             if args['--endpoint']:
                 try:
-                    endpoint = disco_elasticsearch._describe_es_domain(domain)['DomainStatus']['Endpoint']
+                    endpoint = disco_elasticsearch.get_endpoint(domain)
                 except KeyError:
                     endpoint = None
                 print('{0:20}\t{1}'.format(domain, endpoint))
