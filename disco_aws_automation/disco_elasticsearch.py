@@ -7,7 +7,7 @@ from ConfigParser import ConfigParser
 import boto3
 # import botocore
 
-from disco_aws_automation import DiscoIAM
+from .disco_iam import DiscoIAM
 
 from . import normalize_path
 # from .exceptions import CommandError
@@ -122,8 +122,8 @@ class DiscoES(object):
             ebs_option['VolumeType'] = self.aws.vpc.get_config('es_volume_type', 'standard')
             ebs_option['VolumeSize'] = int(self.aws.vpc.get_config('es_volume_size', 10))
 
-        if ebs_option['VolumeType'] == 'io1':
-            ebs_option['Iops'] = int(self.aws.vpc.get_config('es_iops', 1000))
+            if ebs_option['VolumeType'] == 'io1':
+                ebs_option['Iops'] = int(self.aws.vpc.get_config('es_iops', 1000))
 
         snapshot_options = {
                 'AutomatedSnapshotStartHour': int(self.aws.vpc.get_config('es_snapshot_start_hour', 5))
@@ -136,6 +136,5 @@ class DiscoES(object):
                 'AccessPolicies': self._access_policy(),
                 'SnapshotOptions': snapshot_options
             }
-        print(es_kwargs)
 
         throttled_call(generator, **es_kwargs)
