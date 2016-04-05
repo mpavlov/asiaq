@@ -171,7 +171,7 @@ class DiscoElastiCache(object):
 
     # too many arguments and local variables for pylint
     # pylint: disable=R0913, R0914
-    def  _create_redis_cluster(self, cluster_name, engine_version, num_nodes, instance_type,
+    def _create_redis_cluster(self, cluster_name, engine_version, num_nodes, instance_type,
                               parameter_group,
                               port, meta_network_name, auto_failover, domain_name, tags, maintenance_window):
         """
