@@ -87,7 +87,8 @@ class DiscoElastiCache(object):
         cache_cluster = self._get_redis_cluster(cluster_name)
         if not cache_cluster:
             self._create_redis_cluster(cluster_name, engine_version, num_nodes, instance_type,
-                                       parameter_group, port, meta_network, auto_failover, domain_name, tags, maintenance_window)
+                                       parameter_group, port, meta_network, auto_failover, domain_name, tags,
+                                       maintenance_window)
         else:
             if cache_cluster['Status'] == 'available':
                 self._modify_redis_cluster(cluster_name, engine_version,
@@ -196,7 +197,8 @@ class DiscoElastiCache(object):
                                   not allowed for T1 and T2 instance types.
             domain_name (str): hosted zone id to use for Route53 domain name
             tags (List[dict]): list of tags to add to replication group
-            maintenance_window(string): specifies the weekly time range during which maintenance on the cache cluster is performed. 
+            maintenance_window(string): specifies the weekly time range during which
+                                        maintenance on the cache cluster is performed.
         """
         replication_group_id = self._get_redis_replication_group_id(cluster_name)
         description = self._get_redis_description(cluster_name)
@@ -230,8 +232,8 @@ class DiscoElastiCache(object):
             subdomain = self._get_subdomain(cluster_name, domain_name)
             self.route53.create_record(domain_name, subdomain, 'CNAME', address)
 
-    def _modify_redis_cluster(self, cluster_name, engine_version, parameter_group,
-                              auto_failover, domain_name, maintenance_window,apply_immediately=True):
+    def _modify_redis_cluster(self, cluster_name, engine_version, parameter_group, auto_failover,
+                              domain_name, maintenance_window, apply_immediately=True):
         """
         Modify an existing Redis replication group
         Args:
@@ -242,7 +244,8 @@ class DiscoElastiCache(object):
             domain_name (str): Hosted zone where to create subdomain for cluster
             apply_immediately (bool): True to immediately update the cluster
                                       False to schedule update at next cluster maintenance window or restart
-            maintenance_window(string): specifies the weekly time range during which maintenance on the cache cluster is performed. 
+            maintenance_window(string): specifies the weekly time range during which
+                                        maintenance on the cache cluster is performed.
         """
         replication_group_id = self._get_redis_replication_group_id(cluster_name)
         cluster = self._get_redis_cluster(cluster_name)
