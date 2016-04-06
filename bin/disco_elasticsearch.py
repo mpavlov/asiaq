@@ -33,7 +33,7 @@ def run():
     args = docopt(__doc__)
 
     configure_logging(args["--debug"])
-    
+
     config = read_config()
     env = args['--env']
     aws = DiscoAWS(config, env)
