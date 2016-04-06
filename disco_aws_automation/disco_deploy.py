@@ -35,10 +35,7 @@ class DiscoDeploy(object):
         :param allow_any_hostclass do not restrict to hostclasses in the pipeline definition
         :param config: Configuration object to use.
         '''
-        if config:
-            self._config = config
-        else:
-            self._config = read_config()
+        self._config = config or read_config()
 
         self._restrict_amis = [ami] if ami else None
         self._restrict_hostclass = hostclass
@@ -319,7 +316,7 @@ class DiscoDeploy(object):
         This method puts all AMIs not matching the passed in AMI into maintenance mode.
         If tests pass the old instances are left in maintenance mode, otherwise they are returned to normal.
         '''
-        hostclass = self._disco_bake.ami_hostclass(ami)
+        hostclass = DiscoBake.ami_hostclass(ami)
         self._set_maintenance_mode(hostclass, self._get_old_instances(ami.id), True)
         ret = self.run_integration_tests(ami)
         if not ret:
