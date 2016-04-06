@@ -14,6 +14,7 @@ from . import normalize_path
 from .resource_helper import throttled_call
 from .disco_aws_util import is_truthy
 
+
 class DiscoES(object):
     """
     A simple class to manage ElasticSearch
@@ -71,12 +72,15 @@ class DiscoES(object):
         return self.conn.describe_elasticsearch_domain(DomainName=cluster_name)
 
     def get_endpoint(self, cluster_name):
+        '''
+        Get elasticsearch service endpoint
+        '''
         return self._describe_es_domain(cluster_name)['DomainStatus']['Endpoint']
 
     def _access_policy(self):
         disco_iam = DiscoIAM(
-                environment=self.aws.environment_name,
-                boto2_connection=self.aws.connection
+            environment=self.aws.environment_name,
+            boto2_connection=self.aws.connection
         )
 
         policy = '''
@@ -86,12 +90,19 @@ class DiscoES(object):
                     {{
                       "Effect": "Allow",
                       "Principal": {{
-                        "AWS": [
-                          "{1}"
-                        ]
+                        "AWS": "*"
                       }},
                       "Action": "es:*",
-                      "Resource": "arn:aws:es:{0}:{1}:domain/{2}/*"
+                      "Resource": "arn:aws:es:{0}:{1}:domain/{2}/*",
+                      "Condition": {{
+                        "IpAddress": {{
+                          "aws:SourceIp": [
+                            "52.36.160.219",
+                            "52.34.32.85",
+                            "66.104.227.162"
+                          ]
+                        }}
+                      }}
                     }}
                   ]
                 }}
@@ -100,26 +111,36 @@ class DiscoES(object):
         return policy.format(self.aws.vpc.region, disco_iam.account_id(), self._cluster_name)
 
     def create(self):
+        '''
+        Create elasticsearch cluster using _upsert method
+        Configuration is read from disco_vpc.ini
+        '''
         return self._upsert(self.conn.create_elasticsearch_domain)
 
     def update(self):
+        '''
+        Update elasticsearch cluster using _upsert method
+        Configuration is read from disco_vpc.ini
+        '''
         return self._upsert(self.conn.update_elasticsearch_domain_config)
 
     def _upsert(self, generator):
         es_cluster_config = {
-                'InstanceType': self.aws.vpc.get_config('es_instance_type', 'm3.medium.elasticsearch'),
-                'InstanceCount': int(self.aws.vpc.get_config('es_instance_count', 1)),
-                'DedicatedMasterEnabled': bool(self.aws.vpc.get_config('es_dedicated_master', False)),
-                'ZoneAwarenessEnabled': bool(self.aws.vpc.get_config('es_zone_awareness', False))
-                }
+            'InstanceType': self.aws.vpc.get_config('es_instance_type', 'm3.medium.elasticsearch'),
+            'InstanceCount': int(self.aws.vpc.get_config('es_instance_count', 1)),
+            'DedicatedMasterEnabled': bool(self.aws.vpc.get_config('es_dedicated_master', False)),
+            'ZoneAwarenessEnabled': bool(self.aws.vpc.get_config('es_zone_awareness', False))
+        }
 
         if is_truthy(es_cluster_config['DedicatedMasterEnabled']):
             es_cluster_config['DedicatedMasterType'] = self.aws.vpc.get_config('es_dedicated_master_type')
-            es_cluster_config['DedicatedMasterCount'] = int(self.aws.vpc.get_config('es_dedicated_master_count'))
+            es_cluster_config['DedicatedMasterCount'] = int(
+                self.aws.vpc.get_config('es_dedicated_master_count')
+            )
 
         ebs_option = {
-                'EBSEnabled': bool(self.aws.vpc.get_config('es_ebs_enabled', False))
-                }
+            'EBSEnabled': bool(self.aws.vpc.get_config('es_ebs_enabled', False))
+        }
 
         if is_truthy(ebs_option['EBSEnabled']):
             ebs_option['VolumeType'] = self.aws.vpc.get_config('es_volume_type', 'standard')
@@ -129,15 +150,15 @@ class DiscoES(object):
                 ebs_option['Iops'] = int(self.aws.vpc.get_config('es_iops', 1000))
 
         snapshot_options = {
-                'AutomatedSnapshotStartHour': int(self.aws.vpc.get_config('es_snapshot_start_hour', 5))
-                }
+            'AutomatedSnapshotStartHour': int(self.aws.vpc.get_config('es_snapshot_start_hour', 5))
+        }
 
         es_kwargs = {
-                'DomainName': self._cluster_name,
-                'ElasticsearchClusterConfig': es_cluster_config,
-                'EBSOptions': ebs_option,
-                'AccessPolicies': self._access_policy(),
-                'SnapshotOptions': snapshot_options
-            }
+            'DomainName': self._cluster_name,
+            'ElasticsearchClusterConfig': es_cluster_config,
+            'EBSOptions': ebs_option,
+            'AccessPolicies': self._access_policy(),
+            'SnapshotOptions': snapshot_options
+        }
 
         throttled_call(generator, **es_kwargs)
