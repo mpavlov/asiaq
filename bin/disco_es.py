@@ -3,11 +3,11 @@
 Manages ElasticSearch
 
 Usage:
-    disco_elasticsearch.py [--debug] list [--endpoint]
-    disco_elasticsearch.py [--debug] [--env ENV] create
-    disco_elasticsearch.py [--debug] [--env ENV] update
-    disco_elasticsearch.py [--debug] [--env ENV] delete
-    disco_elasticsearch.py (-h | --help)
+    disco_es.py [--debug] list [--endpoint]
+    disco_es.py [--debug] [--env ENV] create
+    disco_es.py [--debug] [--env ENV] update
+    disco_es.py [--debug] [--env ENV] delete
+    disco_es.py (-h | --help)
 
 Commands:
     list      List all elasticsearch domains
@@ -37,28 +37,28 @@ def run():
     config = read_config()
     env = args['--env']
     aws = DiscoAWS(config, env)
-    disco_elasticsearch = DiscoES(config, aws)
+    disco_es = DiscoES(config, aws)
 
     if args['list']:
-        for domain in disco_elasticsearch.list():
+        for domain in disco_es.list():
             if args['--endpoint']:
                 try:
-                    endpoint = disco_elasticsearch.get_endpoint(domain)
+                    endpoint = disco_es.get_endpoint(domain)
                 except KeyError:
                     endpoint = None
                 print('{0:20}\t{1}'.format(domain, endpoint))
             else:
-                if not disco_elasticsearch._describe_es_domain(domain)['DomainStatus']['Deleted']:
+                if not disco_es._describe_es_domain(domain)['DomainStatus']['Deleted']:
                     print(domain)
 
     elif args['create']:
-        disco_elasticsearch.create()
+        disco_es.create()
 
     elif args['update']:
-        disco_elasticsearch.update()
+        disco_es.update()
 
     elif args['delete']:
-        disco_elasticsearch.delete()
+        disco_es.delete()
 
 if __name__ == "__main__":
     run_gracefully(run)
