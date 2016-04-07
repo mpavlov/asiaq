@@ -4,10 +4,12 @@ Manage AWS ElasticSearch
 import logging
 from ConfigParser import ConfigParser
 
+import time
 import boto3
 # import botocore
 
 from .disco_iam import DiscoIAM
+from .disco_route53 import DiscoRoute53
 
 from . import normalize_path
 # from .exceptions import CommandError
@@ -25,6 +27,7 @@ class DiscoES(object):
         self.config_file = config_file
         self._config = None  # lazily initialized
         self.aws = aws
+        self.route53 = DiscoRoute53()
 
     @property
     def config(self):
@@ -48,6 +51,30 @@ class DiscoES(object):
 
         return sorted([domain['DomainName'] for domain in
                        response['DomainNames']])
+
+    @property
+    def _get_zone(self):
+        if self.aws.environment_name == 'staging':
+            return 'staging.wgen.net'
+        elif self.aws.environment_name == 'production':
+            return 'production.wgen.net'
+        else:
+            return 'aws.wgen.net'
+
+    def _add_route53(self):
+        zone = self._get_zone
+        value = self.get_endpoint(self._cluster_name)
+        name = '{}.{}'.format(self._cluster_name, zone)
+
+        while not self.get_endpoint(self._cluster_name):
+            time.sleep(60)
+
+        return self.route53.create_record(zone, name, 'CNAME', value)
+
+    def _remove_route53(self):
+        value = self.get_endpoint(self._cluster_name)
+
+        return self.route53.delete_records_by_value('CNAME', value)
 
     def delete(self):
         """
@@ -75,7 +102,10 @@ class DiscoES(object):
         '''
         Get elasticsearch service endpoint
         '''
-        return self._describe_es_domain(cluster_name)['DomainStatus']['Endpoint']
+        try:
+            return self._describe_es_domain(cluster_name)['DomainStatus']['Endpoint']
+        except:
+            return False
 
     def _access_policy(self):
         disco_iam = DiscoIAM(
