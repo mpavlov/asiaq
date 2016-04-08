@@ -43,7 +43,7 @@ class DiscoES(object):
 
     @property
     def _cluster_name(self):
-        return "{0}-log-es".format(self.aws.environment_name)
+        return "{0}-log-es".format(self.aws.environment_name.lower())
 
     def list(self):
         """List all elasticsearch domains in an account"""
