@@ -1831,7 +1831,7 @@ Options:
 -   `port` Port that Redis should be available on
 -   `parameter_group` The set of Redis parameters to use
 -   `num_nodes` Number of nodes in cache cluster
--   `maintenance_window` Specifies the weekly time range during which maintenance on the cache cluster is performed. 
+-   `maintenance_window` Specifies the weekly time range (of atleast 1 hour) during which maintenance on the cache cluster is performed. 
 
 ElastiCache also depends on some configuration from `disco_aws.ini`
 

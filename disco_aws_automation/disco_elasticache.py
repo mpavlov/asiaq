@@ -62,7 +62,7 @@ class DiscoElastiCache(object):
         if not self._get_subnet_group(meta_network):
             self._create_subnet_group(meta_network)
 
-        maintenance_window = self._get_option(cluster_name, 'maintenance_window')
+        maintenance_window = self._get_option(cluster_name, 'maintenance_window') or "sun:1:00-sun:2:00"
         engine_version = self._get_option(cluster_name, 'engine_version')
         instance_type = self._get_option(cluster_name, 'instance_type')
         parameter_group = self._get_option(cluster_name, 'parameter_group')
@@ -197,7 +197,7 @@ class DiscoElastiCache(object):
                                   not allowed for T1 and T2 instance types.
             domain_name (str): hosted zone id to use for Route53 domain name
             tags (List[dict]): list of tags to add to replication group
-            maintenance_window(string): specifies the weekly time range during which
+            maintenance_window(string): specifies the weekly time range (of atleast 1 hour) during which
                                         maintenance on the cache cluster is performed.
         """
         replication_group_id = self._get_redis_replication_group_id(cluster_name)
