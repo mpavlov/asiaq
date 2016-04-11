@@ -27,6 +27,7 @@ Table of Contents
   * [Route53](#route53)
   * [Chaos](#chaos)
   * [ElastiCache](#elasticache)
+  * [Testing a hostclass](#testing-hostclasses)
 
 
 History
@@ -860,7 +861,17 @@ Finally if this new hostclass should become part of the standard Asiaq
 pipeline add it to the appropriate pipeline definition CSV file. See
 Provisioning a pipeline_ for more details.
 
-Image management
+#### Configuration
+
+##### Enhanced Networking
+By default, Asiaq does not set the enhanced networking attribute on AMIs that it builds. If you install enhanced networking compatible drivers (or your phase 1 AMI comes with them) and want to ensure that your hostclass is started with enhanced networking, you must configure this behavior in ```disco_aws.ini```. Below is an example of this:
+
+```ini
+[mhcfoo]
+enhanced_networking=true
+```
+
+Image Management
 ----------------
 
 ### Promoting images
@@ -1851,4 +1862,71 @@ Create/update the clusters in a environment from the `disco_elasticache.ini conf
 
 Delete a cache cluster
 
-   disco_elasticache.py [--env ENV] delete --cluster CLUSTER
+    disco_elasticache.py [--env ENV] delete --cluster CLUSTER
+
+Testing Hostclasses
+-------------------
+
+Asiaq supports two kinds of tests for a hostclass out of the box. There are *smoke tests* and *integration tests*. As a rule of thumb, smoke tests test if the hostclass is working internally. Integration tests test if the hostclass is able to interact with external services correctly. An example of a smoke test might be making sure that the apache service started correctly. An example of an integration test might be making sure that the hostclass can communicate with an external database.
+
+### Integration Tests
+
+Asiaq only runs integration tests of a hostclass when that hostclass is being tested or updated, typically through the use of ```disco_deploy.py test``` or ```disco_deploy.py update```. In general, integration tests take the form of executing a script on a designated hostclass and either pass or fail depending on the exit code returned by the script. The test script is also passed an argument, typically used to denote what exact test should be run.
+
+
+#### Configuration
+
+Configuration of integration tests is spread across two places, ```disco_aws.ini``` and the pipeline file.
+
+##### disco_aws.ini
+
+There are three configuration options for integration tests in ```disco_aws.ini```.
+
+```ini
+test_hostclass=mhcfootest
+test_user=integration_tester
+test_command=/opt/asiaq/bin/run_tests.sh
+```
+
+* test_hostclass
+  * The hostclass to execute ```test_command``` on. Typically a hostclass dedicated to testing one or more other hostclasses. For example, mhcfootest would probably be a hostclass dedicated to testing the mhcfoo hostclass.
+* test_user
+  * The user to execute ```test_command``` as.
+* test_command
+  * The command to execute the tests on ```test_hostclass``` as the ```test_user```. Typically a shell script with some logic for handling the test argument that is passed to it. The exit code of this command determines whether or not the integration tests were successful.
+
+These options can be specified in two places in ```disco_aws.ini```, in the ```[test]``` section or in a given hostclass' section. Below is an example of specifying defaults in the ```[test]``` section and overriding them for the mhcfoo hostclass.
+
+```ini
+[test]
+test_hostclass=mhcgenerictester
+test_user=asiaq_tester
+test_command=/opt/asiaq/bin/run_tests.sh
+
+[mhcbar]
+...
+
+[mhcfoo]
+test_hostclass=mhcfootests
+```
+
+In this example, we set defaults in the ```[test]``` section for all hostclasses. Then ```[mhcfoo]``` overrides those defaults to specify a different test_hostclass for itself.
+
+
+##### Pipeline
+
+Integration tests are also configured in the pipeline file. As mentioned above, the ```test_command``` is passed an argument when run. This argument is defined in the pipeline file, under the ```integration_test``` entry in the pipeline. If the entry is empty, then no integration test will be run during ```disco_deploy.py test``` or ```disco_deploy.py update```. Instead, those commands will simply wait for the hostclass to pass its smoke tests and pass if those pass.
+
+Here's an example of a hostclass with integration tests and one without integration tests in the pipeline, using some of the example hostclasses from above:
+
+```csv
+sequence,hostclass,min_size,desired_size,max_size,instance_type,extra_disk,iops,smoke_test,integration_test,deployable
+1,mhcgenerictest,1,1,1,c4.large,,,no,,yes
+1,mhcfootest,1,1,1,c4.large,,,no,,yes
+1,mhcbar,2,2,2,m4.large,,,no,mhcbar_integration,yes
+1,mhcfoo,2,2,2,m4.large,,,no,mhcfoo_integration,yes
+1,mhcnointegrationtests,2,2,2,m4.large,,,no,,yes
+```
+
+In the above pipeline, mhcbar will be integration tested by passing ```mhcbar_integration``` as the argument to the ```test_command``` on the generic ```test_hostclass``` defined in our example ```disco_aws.ini``` above. In contrast, mhcfoo will be integration tested by passing ```mhcfoo_integration``` as the argument to the ```test_command``` on it's specially defined ```test_hostclass```. And because mhcnointegrationtests left the ```integration_test``` column empty, no integration tests will be run for it.
+
