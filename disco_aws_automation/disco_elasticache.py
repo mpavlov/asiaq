@@ -58,9 +58,10 @@ class DiscoElastiCache(object):
         Args:
             cluster_name (str): name of cluster
             maintenance_window(str): accept Preferred Maintenance Window value
-                                    or assigns defaul value from sun:1:00-sun:2:00.
+                                    or assigns defaul value from sat:1:00-sat:2:00 EST 
+                                    which is sat 05:00 to 06:00 UTC.
         """
-        default_maintenance_window = "sat:5:00-sat:6:00"
+        default_maintenance_window = "sat:05:00-sat:06:00"
         meta_network = self._get_option(cluster_name, 'meta_network') or self.aws.get_default_meta_network()
         if not self._get_subnet_group(meta_network):
             self._create_subnet_group(meta_network)
@@ -87,7 +88,6 @@ class DiscoElastiCache(object):
             'Key': 'environment',
             'Value': self.vpc.environment_name
         }]
-
         cache_cluster = self._get_redis_cluster(cluster_name)
         if not cache_cluster:
             self._create_redis_cluster(cluster_name, engine_version, num_nodes, instance_type,

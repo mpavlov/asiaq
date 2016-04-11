@@ -74,11 +74,9 @@ class DiscoElastiCacheTests(TestCase):
                 'port': '1000',
                 'parameter_group': 'default',
                 'num_nodes': '5',
-                'auto_failover': 'true',
-                'maintenance_window': 'sat:10:00-sat:12:00'
+                'auto_failover': 'true'
             }
         }))
-
         self.elasticache.conn = MagicMock()
 
         self.replication_groups = [
@@ -200,7 +198,7 @@ class DiscoElastiCacheTests(TestCase):
             AutomaticFailoverEnabled=True,
             CacheParameterGroupName='default',
             EngineVersion='2.8.6',
-            PreferredMaintenanceWindow='sat:10:00-sat:12:00',
+            PreferredMaintenanceWindow='sat:05:00-sat:06:00',
             ReplicationGroupId=self.elasticache._get_redis_replication_group_id('old-cache')
         )
 
@@ -232,7 +230,7 @@ class DiscoElastiCacheTests(TestCase):
             AutomaticFailoverEnabled=True,
             CacheParameterGroupName='default',
             EngineVersion='2.8.6',
-            PreferredMaintenanceWindow='sat:10:00-sat:12:00',
+            PreferredMaintenanceWindow='sat:05:00-sat:06:00',
             ReplicationGroupId=self.elasticache._get_redis_replication_group_id('old-cache')
         )
 
