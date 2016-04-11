@@ -57,12 +57,16 @@ class DiscoElastiCache(object):
         Modifying tags, number of nodes, instance type, engine type, and port is not supported
         Args:
             cluster_name (str): name of cluster
+            maintenance_window(str): accept Preferred Maintenance Window value
+                                    or assigns defaul value from sun:1:00-sun:2:00.
         """
+        default_maintenance_window = "sat:5:00-sat:6:00"
         meta_network = self._get_option(cluster_name, 'meta_network') or self.aws.get_default_meta_network()
         if not self._get_subnet_group(meta_network):
             self._create_subnet_group(meta_network)
 
-        maintenance_window = self._get_option(cluster_name, 'maintenance_window') or "sun:1:00-sun:2:00"
+        maintenance_window = self._get_option(cluster_name,
+                                              'maintenance_window') or default_maintenance_window
         engine_version = self._get_option(cluster_name, 'engine_version')
         instance_type = self._get_option(cluster_name, 'instance_type')
         parameter_group = self._get_option(cluster_name, 'parameter_group')
@@ -198,8 +202,7 @@ class DiscoElastiCache(object):
             domain_name (str): hosted zone id to use for Route53 domain name
             tags (List[dict]): list of tags to add to replication group
             maintenance_window(string): specifies the weekly time range (of atleast 1 hour) in UTC during
-                                        which maintenance on the cache cluster is performed. Default
-                                        maintenance window is from sun:1:00-sun:2:00.
+                                        which maintenance on the cache cluster is performed.
         """
         replication_group_id = self._get_redis_replication_group_id(cluster_name)
         description = self._get_redis_description(cluster_name)
@@ -246,8 +249,7 @@ class DiscoElastiCache(object):
             apply_immediately (bool): True to immediately update the cluster
                                       False to schedule update at next cluster maintenance window or restart
             maintenance_window(string): specifies the weekly time range (of atleast 1 hour) in UTC during
-                                        which maintenance on the cache cluster is performed. Default
-                                        maintenance window is from sun:1:00-sun:2:00.
+                                        which maintenance on the cache cluster is performed.
         """
         replication_group_id = self._get_redis_replication_group_id(cluster_name)
         cluster = self._get_redis_cluster(cluster_name)
