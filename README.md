@@ -1831,7 +1831,7 @@ Options:
 -   `port` Port that Redis should be available on
 -   `parameter_group` The set of Redis parameters to use
 -   `num_nodes` Number of nodes in cache cluster
--   `maintenance_window` Specifies the weekly time range (of atleast 1 hour) during which maintenance on the cache cluster is performed. 
+-   `maintenance_window` specifies the weekly time range (of atleast 1 hour) in UTC during which maintenance on the cache cluster is performed. Default maintenance window is from sun:1:00-sun:2:00. 
 
 ElastiCache also depends on some configuration from `disco_aws.ini`
 
@@ -1851,4 +1851,4 @@ Create/update the clusters in a environment from the `disco_elasticache.ini conf
 
 Delete a cache cluster
 
-    disco_elasticache.py [--env ENV] delete --cluster CLUSTER
+   disco_elasticache.py [--env ENV] delete --cluster CLUSTER
