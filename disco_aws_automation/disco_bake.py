@@ -24,6 +24,7 @@ from .disco_remote_exec import DiscoRemoteExec, SSH_DEFAULT_OPTIONS
 from .disco_vpc import DiscoVPC
 from .exceptions import CommandError, AMIError, WrongPathError, EarlyExitException
 from .disco_constants import DEFAULT_CONFIG_SECTION
+from .disco_aws_util import is_truthy
 
 AMI_NAME_PATTERN = re.compile(r"^\w+\s(?:[0-9]+\s)?[0-9]{1,50}")
 AMI_TAG_LIMIT = 10
@@ -116,7 +117,7 @@ class DiscoBake(object):
 
     def hc_option(self, hostclass, key):
         '''
-        Returns an option from the [hostclass] section of the disco_aws.ini config file it it is set,
+        Returns an option from the [hostclass] section of the disco_aws.ini config file if it is set,
         otherwise it returns that value from the [bake] section if it is set,
         otherwise it returns that value from the DEFAULT_CONFIG_SECTION if it is set.
         '''
@@ -205,7 +206,7 @@ class DiscoBake(object):
         else:
             repo_ip = self.repo_instance().private_ip_address
 
-        self.remotecmd(instance, [script, hostclass, repo_ip], log_on_error=True)
+        self.remotecmd(instance, [script, hostclass, repo_ip], log_on_error=True, forward_agent=True)
 
     def ami_stages(self):
         """ Return list of configured ami stages"""
@@ -395,6 +396,15 @@ class DiscoBake(object):
             wait_for_state(instance, u'stopped', 300)
             logging.info("Creating snapshot from instance")
 
+            # Check whether or not enhanced networking should be enabled for this hostclass
+            enhanced_networking = self.hc_option_default(hostclass, "enhanced_networking", "false")
+            # This is the easiest way to accomplish this without significantly rewriting things.
+            # This attribute will be copied over the the AMI when it is created, and doesn't appear
+            # to cause any problems.
+            if is_truthy(enhanced_networking):
+                logging.info("Setting enhanced networking attribute")
+                self.connection.modify_instance_attribute(instance.id, "sriovNetSupport", "simple")
+
             image_id = instance.create_image(image_name, no_reboot=True)
             image = keep_trying(60, self.connection.get_image, image_id)
 
@@ -404,7 +414,8 @@ class DiscoBake(object):
 
             DiscoBake._tag_ami_with_metadata(image, stage, source_ami_id, productline)
 
-            wait_for_state(image, u'available', 600)
+            wait_for_state(image, u'available',
+                           int(self.hc_option_default(hostclass, "ami_available_wait_time", "600")))
             logging.info("Created %s AMI %s", image_name, image_id)
         except EarlyExitException as early_exit:
             logging.info(str(early_exit))

@@ -102,7 +102,7 @@ def get_parser():
     parser_bake.add_argument('--no-destroy', dest='no_destroy', action='store_const', const=True,
                              default=False, help='If bake fails do not terminate instance')
     parser_bake.add_argument("--stage", dest="stage", default=None,
-                                help="Which stage to tag baked ami with", type=str)
+                             help="Which stage to tag baked ami with", type=str)
     parser_bake.add_argument('--source-ami', type=str, default=None,
                              help='The ami to be used as a base for baking')
     parser_bake.add_argument('--use-local-ip', dest='use_local_ip', action='store_const',
