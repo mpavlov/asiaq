@@ -20,7 +20,13 @@ from .resource_helper import throttled_call
 class DiscoElastiCache(object):
     """
     A simple class to manage ElastiCache
+
+    Default Maintenence windown is set as sat 1:00am to 2:00am EST.
+    The Preferred Maintenance Window works on UTC.
+    The equivalent UTC time is 5:00am to 6:00am.
     """
+
+    DEFAULT_MAINTENANCE_WINDOW = "sat:05:00-sat:06:00"
 
     def __init__(self, vpc, config_file='disco_elasticache.ini', aws=None, route53=None):
         self.vpc = vpc
@@ -58,16 +64,14 @@ class DiscoElastiCache(object):
         Args:
             cluster_name (str): name of cluster
             maintenance_window(str): accept Preferred Maintenance Window value
-                                    or assigns defaul value from sat:1:00-sat:2:00 EST 
-                                    which is sat 05:00 to 06:00 UTC.
+                                    or assigns defaul value.
         """
-        default_maintenance_window = "sat:05:00-sat:06:00"
         meta_network = self._get_option(cluster_name, 'meta_network') or self.aws.get_default_meta_network()
         if not self._get_subnet_group(meta_network):
             self._create_subnet_group(meta_network)
 
         maintenance_window = self._get_option(cluster_name,
-                                              'maintenance_window') or default_maintenance_window
+                                              'maintenance_window') or self.DEFAULT_MAINTENANCE_WINDOW
         engine_version = self._get_option(cluster_name, 'engine_version')
         instance_type = self._get_option(cluster_name, 'instance_type')
         parameter_group = self._get_option(cluster_name, 'parameter_group')
