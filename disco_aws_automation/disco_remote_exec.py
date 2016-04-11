@@ -88,7 +88,7 @@ class DiscoRemoteExec(object):
         """
         is_reachable = DiscoRemoteExec._is_reachable(address)
 
-        if not is_reachable and not jump_address:
+        if not is_reachable and not jump_address and not nothrow:
             raise CommandError('Unable to run command {0}. {1} host is not reachable'
                                .format(remote_command, address))
 
