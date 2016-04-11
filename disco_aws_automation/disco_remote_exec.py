@@ -210,7 +210,7 @@ class DiscoRemoteExec(object):
             sock = socket.create_connection((ip_address, 22), timeout=2)
             sock.close()
             return True
-        except socket.timeout:
+        except (socket.timeout, socket.error):
             return False
 
     if __name__ == "__main__":
