@@ -860,7 +860,17 @@ Finally if this new hostclass should become part of the standard Asiaq
 pipeline add it to the appropriate pipeline definition CSV file. See
 Provisioning a pipeline_ for more details.
 
-Image management
+#### Configuration
+
+##### Enhanced Networking
+By default, Asiaq does not set the enhanced networking attribute on AMIs that it builds. If you install enhanced networking compatible drivers (or your phase 1 AMI comes with them) and want to ensure that your hostclass is started with enhanced networking, you must configure this behavior in ```disco_aws.ini```. Below is an example of this:
+
+```ini
+[mhcfoo]
+enhanced_networking=true
+```
+
+Image Management
 ----------------
 
 ### Promoting images

@@ -24,6 +24,7 @@ from .disco_remote_exec import DiscoRemoteExec, SSH_DEFAULT_OPTIONS
 from .disco_vpc import DiscoVPC
 from .exceptions import CommandError, AMIError, WrongPathError, EarlyExitException
 from .disco_constants import DEFAULT_CONFIG_SECTION
+from .disco_aws_util import is_truthy
 
 AMI_NAME_PATTERN = re.compile(r"^\w+\s(?:[0-9]+\s)?[0-9]{10,50}")
 AMI_TAG_LIMIT = 10
@@ -394,6 +395,15 @@ class DiscoBake(object):
             self.remotecmd(instance, ["rm -Rf /root/.ssh/authorized_keys ; shutdown now -P"], nothrow=True)
             wait_for_state(instance, u'stopped', 300)
             logging.info("Creating snapshot from instance")
+
+            # Check whether or not enhanced networking should be enabled for this hostclass
+            enhanced_networking = self.hc_option_default(hostclass, "enhanced_networking", "false")
+            # This is the easiest way to accomplish this without significantly rewriting things.
+            # This attribute will be copied over the the AMI when it is created, and doesn't appear
+            # to cause any problems.
+            if is_truthy(enhanced_networking):
+                logging.info("Setting enhanced networking attribute")
+                self.connection.modify_instance_attribute(instance.id, "sriovNetSupport", "simple")
 
             image_id = instance.create_image(image_name, no_reboot=True)
             image = keep_trying(60, self.connection.get_image, image_id)
