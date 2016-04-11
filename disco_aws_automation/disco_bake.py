@@ -26,7 +26,7 @@ from .exceptions import CommandError, AMIError, WrongPathError, EarlyExitExcepti
 from .disco_constants import DEFAULT_CONFIG_SECTION
 from .disco_aws_util import is_truthy
 
-AMI_NAME_PATTERN = re.compile(r"^\w+\s(?:[0-9]+\s)?[0-9]{1,50}")
+AMI_NAME_PATTERN = re.compile(r"^\w+\s(?:[0-9]+\s)?[0-9]{10,50}")
 AMI_TAG_LIMIT = 10
 
 
