@@ -659,28 +659,16 @@ class DiscoBake(object):
         Returns a filtered subset of amis. Optionally filtered by their productline,
         stage, state, and hostclass.
         """
-        if not product_line and not stage and not state and not hostclass:
-            return amis
-
-        filter_amis = amis[:]
-
-        if product_line:
-            filter_amis = [ami for ami in filter_amis if ami.tags.get("productline", None) == product_line]
-
-        if stage:
-            filter_amis = [ami for ami in filter_amis if ami.tags.get("stage", None) == stage]
-
-        if state:
-            filter_amis = [ami for ami in filter_amis if ami.state == state]
-
-        if hostclass:
-            for ami in filter_amis[:]:
-                if not (ami.name and
-                        AMI_NAME_PATTERN.match(ami.name) and
-                        self.ami_hostclass(ami) == hostclass):
-                    filter_amis.remove(ami)
-
-        return filter_amis
+        filtered_amis = []
+        for ami in amis:
+            filters = [
+                not stage or ami.tags.get("stage", None) == stage,
+                not product_line or ami.tags.get("productline", None) == product_line,
+                not state or ami.state == state,
+                not hostclass or self.ami_hostclass(ami) == hostclass]
+            if all(filters):
+                filtered_amis.append(ami)
+        return filtered_amis
 
     def find_ami(self, stage, hostclass=None, ami_id=None, product_line=None):
         """
