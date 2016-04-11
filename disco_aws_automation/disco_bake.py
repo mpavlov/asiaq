@@ -551,13 +551,16 @@ class DiscoBake(object):
         return {instance_id: image for image in self.get_amis(ami_dict.keys())
                 for instance_id in ami_dict[image.id]}
 
-    def list_amis(self, ami_ids=None, instance_ids=None, stage=None, product_line=None):
+    def list_amis(self, ami_ids=None, instance_ids=None, stage=None, product_line=None,
+                  state=None, hostclass=None):
         """
         Fetch all AMI's filtered by supplied args
         :param amis:  AMI ids to filter by
         :param instance_ids:  ID's of instances whose AMI's we should filter by
         :param stage: Stage to filter by
         :param product_line: Product line to filter by
+        :param state: State to filter by
+        :param hostclass: Hostclass to filter by
 
         Return a list of matching AMI's
         """
@@ -568,7 +571,7 @@ class DiscoBake(object):
                 ami_ids = list(instance_amis.intersection(ami_ids))
             else:
                 ami_ids = list(instance_amis)
-        return self.ami_filter(self.get_amis(ami_ids), stage, product_line)
+        return self.ami_filter(self.get_amis(ami_ids), stage, product_line, state, hostclass)
 
     def list_stragglers(self, days=1, stage=None):
         """
@@ -651,23 +654,21 @@ class DiscoBake(object):
         """Return hostclass/ami-type from ami"""
         return ami.name.split()[0]
 
-    def ami_filter(self, amis, stage=None, product_line=None):
+    def ami_filter(self, amis, stage=None, product_line=None, state=None, hostclass=None):
         """
-        Returns a filtered subset of amis. Optionally filtered by the product line
-        that they belong to, as well as their stage.
+        Returns a filtered subset of amis. Optionally filtered by their productline,
+        stage, state, and hostclass.
         """
-        if not product_line and not stage:
-            return amis
-
-        filter_amis = amis[:]
-
-        if product_line:
-            filter_amis = [ami for ami in filter_amis if ami.tags.get("productline", None) == product_line]
-
-        if stage:
-            filter_amis = [ami for ami in filter_amis if ami.tags.get("stage", None) == stage]
-
-        return filter_amis
+        filtered_amis = []
+        for ami in amis:
+            filters = [
+                not stage or ami.tags.get("stage", None) == stage,
+                not product_line or ami.tags.get("productline", None) == product_line,
+                not state or ami.state == state,
+                not hostclass or self.ami_hostclass(ami) == hostclass]
+            if all(filters):
+                filtered_amis.append(ami)
+        return filtered_amis
 
     def find_ami(self, stage, hostclass=None, ami_id=None, product_line=None):
         """
