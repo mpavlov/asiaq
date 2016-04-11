@@ -82,7 +82,7 @@ class DiscoRemoteExec(object):
                   ssh_options=(), forward_agent=None):
         """
         Runs the passed in command on a remote host, via a jump host if a jump_address
-        is provided and the address is not reachable without a jump host.
+        is provided and if the address is not reachable without a jump host.
 
         Returns a tuple containing the return code and the standard output from the command.
         """
