@@ -88,14 +88,14 @@ class DiscoBakeTests(TestCase):
         '''Test that list amis can filter by state successfully'''
         self.assertEqual(self._bake.list_amis(state="unavailable"),
                          [self._amis_by_name["mhcfoo 1"],
-                         self._amis_by_name["mhcbar 1"]])
+                          self._amis_by_name["mhcbar 1"]])
 
     def test_list_amis_by_hostclass(self):
         '''Test that list amis can filter by hostclass successfully'''
         self.assertEqual(self._bake.list_amis(hostclass="mhcfoo"),
                          [self._amis_by_name["mhcfoo 1"],
-                         self._amis_by_name["mhcfoo 4"],
-                         self._amis_by_name["mhcfoo 5"]])
+                          self._amis_by_name["mhcfoo 4"],
+                          self._amis_by_name["mhcfoo 5"]])
 
     def test_list_amis_by_productline_and_stage(self):
         '''Test that list amis can filter by productline and stage successfully'''
