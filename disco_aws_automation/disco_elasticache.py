@@ -198,8 +198,8 @@ class DiscoElastiCache(object):
             domain_name (str): hosted zone id to use for Route53 domain name
             tags (List[dict]): list of tags to add to replication group
             maintenance_window(string): specifies the weekly time range (of atleast 1 hour) in UTC during
-                                         which maintenance on the cache cluster is performed. Default 
-                                         maintenance window is from sun:1:00-sun:2:00.
+                                        which maintenance on the cache cluster is performed. Default
+                                        maintenance window is from sun:1:00-sun:2:00.
         """
         replication_group_id = self._get_redis_replication_group_id(cluster_name)
         description = self._get_redis_description(cluster_name)
@@ -246,8 +246,8 @@ class DiscoElastiCache(object):
             apply_immediately (bool): True to immediately update the cluster
                                       False to schedule update at next cluster maintenance window or restart
             maintenance_window(string): specifies the weekly time range (of atleast 1 hour) in UTC during
-                                         which maintenance on the cache cluster is performed. Default 
-                                         maintenance window is from sun:1:00-sun:2:00.
+                                        which maintenance on the cache cluster is performed. Default
+                                        maintenance window is from sun:1:00-sun:2:00.
         """
         replication_group_id = self._get_redis_replication_group_id(cluster_name)
         cluster = self._get_redis_cluster(cluster_name)
