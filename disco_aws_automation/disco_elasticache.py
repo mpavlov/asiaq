@@ -64,7 +64,7 @@ class DiscoElastiCache(object):
         Args:
             cluster_name (str): name of cluster
             maintenance_window(str): accept Preferred Maintenance Window value
-                                    or assigns defaul value.
+                                    or assigns default value.
         """
         meta_network = self._get_option(cluster_name, 'meta_network') or self.aws.get_default_meta_network()
         if not self._get_subnet_group(meta_network):
@@ -205,7 +205,7 @@ class DiscoElastiCache(object):
                                   not allowed for T1 and T2 instance types.
             domain_name (str): hosted zone id to use for Route53 domain name
             tags (List[dict]): list of tags to add to replication group
-            maintenance_window(string): specifies the weekly time range (of atleast 1 hour) in UTC during
+            maintenance_window(string): specifies the weekly time range (of at least 1 hour) in UTC during
                                         which maintenance on the cache cluster is performed.
         """
         replication_group_id = self._get_redis_replication_group_id(cluster_name)
@@ -252,7 +252,7 @@ class DiscoElastiCache(object):
             domain_name (str): Hosted zone where to create subdomain for cluster
             apply_immediately (bool): True to immediately update the cluster
                                       False to schedule update at next cluster maintenance window or restart
-            maintenance_window(string): specifies the weekly time range (of atleast 1 hour) in UTC during
+            maintenance_window(string): specifies the weekly time range (of at least 1 hour) in UTC during
                                         which maintenance on the cache cluster is performed.
         """
         replication_group_id = self._get_redis_replication_group_id(cluster_name)
