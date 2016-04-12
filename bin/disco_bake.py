@@ -14,7 +14,7 @@ from disco_aws_automation.disco_logging import configure_logging
 
 
 # R0912 Allow more than 12 branches so we can parse a lot of commands..
-# pylint: disable=R0912
+# pylint: disable=R0912,R0915
 def get_parser():
     '''Returns command line parser'''
     parser = argparse.ArgumentParser(description='Disco AWS image creation & management')
@@ -51,6 +51,10 @@ def get_parser():
                                  help='Only show amis available to this stage.', type=str, default=None)
     parser_listamis.add_argument('--productline', dest='product_line', required=False,
                                  help='Only show amis baked by this product line.', type=str, default=None)
+    parser_listamis.add_argument('--state', dest='state', required=False,
+                                 help='Only show amis in this state.', type=str, default=None)
+    parser_listamis.add_argument('--hostclass', dest='hostclass', required=False,
+                                 help='Only show amis for this hostclass.', type=str, default=None)
     parser_listamis.add_argument('--in-prod', dest='in_prod', action='store_const', const=True,
                                  help='Show whether AMI is executable in prod.', default=False)
 
@@ -148,8 +152,12 @@ def run():
         ami_ids = [args.ami] if args.ami else None
         instance_ids = [args.instance] if args.instance else None
         bakery = DiscoBake()
-        amis = sorted(bakery.list_amis(ami_ids, instance_ids, args.stage, args.product_line),
-                      key=bakery.ami_timestamp)
+        amis = sorted(bakery.list_amis(ami_ids,
+                                       instance_ids,
+                                       args.stage,
+                                       args.product_line,
+                                       args.state,
+                                       args.hostclass), key=bakery.ami_timestamp)
         now = datetime.utcnow()
         for ami in amis:
             bakery.pretty_print_ami(ami, now, in_prod=args.in_prod)
