@@ -21,9 +21,8 @@ class DiscoElastiCache(object):
     """
     A simple class to manage ElastiCache
 
-    Default Maintenence windown is set as sat 1:00am to 2:00am EST.
+    Default Maintenence windown is set as sat 5:00am to 6:00am.
     The Preferred Maintenance Window works on UTC.
-    The equivalent UTC time is 5:00am to 6:00am.
     """
 
     DEFAULT_MAINTENANCE_WINDOW = "sat:05:00-sat:06:00"
