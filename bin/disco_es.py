@@ -53,15 +53,12 @@ def run():
 
     elif args['create']:
         disco_es.create()
-        disco_es._add_route53()
 
     elif args['update']:
         disco_es.update()
-        disco_es._add_route53()
 
     elif args['delete']:
         disco_es.delete()
-        disco_es._remove_route53()
 
 if __name__ == "__main__":
     run_gracefully(run)
