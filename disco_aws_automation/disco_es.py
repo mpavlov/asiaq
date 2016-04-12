@@ -62,12 +62,12 @@ class DiscoES(object):
             return 'aws.wgen.net'
 
     def _add_route53(self):
+        while not self.get_endpoint(self._cluster_name):
+            time.sleep(60)
+
         zone = self._get_zone
         value = self.get_endpoint(self._cluster_name)
         name = '{}.{}'.format(self._cluster_name, zone)
-
-        while not self.get_endpoint(self._cluster_name):
-            time.sleep(60)
 
         return self.route53.create_record(zone, name, 'CNAME', value)
 
@@ -87,6 +87,7 @@ class DiscoES(object):
             return
 
         logging.info('Deleting elasticsearch domain %s', self._cluster_name)
+        self._remove_route53()
         throttled_call(self.conn.delete_elasticsearch_domain,
                        DomainName=self._cluster_name)
 
@@ -112,6 +113,7 @@ class DiscoES(object):
             environment=self.aws.environment_name,
             boto2_connection=self.aws.connection
         )
+        s3proxy_ip = self.aws.config('eip', 'mhcs3proxy')
 
         policy = '''
                 {{
@@ -127,9 +129,9 @@ class DiscoES(object):
                       "Condition": {{
                         "IpAddress": {{
                           "aws:SourceIp": [
-                            "52.36.160.219",
-                            "52.34.32.85",
-                            "66.104.227.162"
+                            "66.104.227.162",
+                            "38.117.159.162",
+                            "{3}"
                           ]
                         }}
                       }}
@@ -138,21 +140,24 @@ class DiscoES(object):
                 }}
                 '''
 
-        return policy.format(self.aws.vpc.region, disco_iam.account_id(), self._cluster_name)
+        return policy.format(self.aws.vpc.region, disco_iam.account_id(),
+                             self._cluster_name, s3proxy_ip)
 
     def create(self):
         '''
         Create elasticsearch cluster using _upsert method
         Configuration is read from disco_vpc.ini
         '''
-        return self._upsert(self.conn.create_elasticsearch_domain)
+        self._upsert(self.conn.create_elasticsearch_domain)
+        self._add_route53()
 
     def update(self):
         '''
         Update elasticsearch cluster using _upsert method
         Configuration is read from disco_vpc.ini
         '''
-        return self._upsert(self.conn.update_elasticsearch_domain_config)
+        self._upsert(self.conn.update_elasticsearch_domain_config)
+        self._add_route53()
 
     def _upsert(self, generator):
         es_cluster_config = {
