@@ -198,7 +198,6 @@ class DiscoElastiCacheTests(TestCase):
             AutomaticFailoverEnabled=True,
             CacheParameterGroupName='default',
             EngineVersion='2.8.6',
-            """Default maintenance window is Saturday 5:00am to 6:00am"""
             PreferredMaintenanceWindow='sat:05:00-sat:06:00',
             ReplicationGroupId=self.elasticache._get_redis_replication_group_id('old-cache')
         )
