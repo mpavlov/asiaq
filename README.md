@@ -1833,7 +1833,7 @@ The following configuration is available in `disco_elasticache.ini` to configure
     port=6379
     parameter_group=default.redis2.8
     num_nodes=2
-    maintenance_window=sun:5:00-sun:09:00
+    maintenance_window=sat:5:00-sat:06:00
 
 Options:
 
