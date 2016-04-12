@@ -1833,6 +1833,7 @@ The following configuration is available in `disco_elasticache.ini` to configure
     port=6379
     parameter_group=default.redis2.8
     num_nodes=2
+    maintenance_window=sat:5:00-sat:06:00
 
 Options:
 
@@ -1841,6 +1842,7 @@ Options:
 -   `port` Port that Redis should be available on
 -   `parameter_group` The set of Redis parameters to use
 -   `num_nodes` Number of nodes in cache cluster
+-   `maintenance_window` specifies the weekly time range (of atleast 1 hour) in UTC during which maintenance on the cache cluster is performed. Default maintenance window is from sat:1:00-sat:2:00 EST or sat 05:00-06:00 UTC. 
 
 ElastiCache also depends on some configuration from `disco_aws.ini`
 
@@ -1927,3 +1929,4 @@ sequence,hostclass,min_size,desired_size,max_size,instance_type,extra_disk,iops,
 ```
 
 In the above pipeline, mhcbar will be integration tested by passing ```mhcbar_integration``` as the argument to the ```test_command``` on the generic ```test_hostclass``` defined in our example ```disco_aws.ini``` above. In contrast, mhcfoo will be integration tested by passing ```mhcfoo_integration``` as the argument to the ```test_command``` on it's specially defined ```test_hostclass```. And because mhcnointegrationtests left the ```integration_test``` column empty, no integration tests will be run for it.
+

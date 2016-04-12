@@ -64,7 +64,8 @@ class DiscoElastiCacheTests(TestCase):
                 'port': '1000',
                 'parameter_group': 'default',
                 'num_nodes': '5',
-                'auto_failover': 'true'
+                'auto_failover': 'true',
+                'maintenance_window': 'sun:10:00-sun:11:00'
             },
             'unittest:old-cache': {
                 'instance_type': 'cache.m1.small',
@@ -76,7 +77,6 @@ class DiscoElastiCacheTests(TestCase):
                 'auto_failover': 'true'
             }
         }))
-
         self.elasticache.conn = MagicMock()
 
         self.replication_groups = [
@@ -177,6 +177,7 @@ class DiscoElastiCacheTests(TestCase):
             ReplicationGroupDescription='unittest-new-cache',
             ReplicationGroupId=self.elasticache._get_redis_replication_group_id('new-cache'),
             SecurityGroupIds=['fake_security'],
+            PreferredMaintenanceWindow='sun:10:00-sun:11:00',
             Tags=[{'Key': 'product_line', 'Value': 'example_team'},
                   {'Key': 'owner', 'Value': MatchAnything()},
                   {'Key': 'name', 'Value': 'new-cache'},
@@ -197,6 +198,7 @@ class DiscoElastiCacheTests(TestCase):
             AutomaticFailoverEnabled=True,
             CacheParameterGroupName='default',
             EngineVersion='2.8.6',
+            PreferredMaintenanceWindow='sat:05:00-sat:06:00',
             ReplicationGroupId=self.elasticache._get_redis_replication_group_id('old-cache')
         )
 
@@ -216,6 +218,7 @@ class DiscoElastiCacheTests(TestCase):
             ReplicationGroupDescription='unittest-new-cache',
             ReplicationGroupId=self.elasticache._get_redis_replication_group_id('new-cache'),
             SecurityGroupIds=['fake_security'],
+            PreferredMaintenanceWindow='sun:10:00-sun:11:00',
             Tags=[{'Key': 'product_line', 'Value': 'example_team'},
                   {'Key': 'owner', 'Value': MatchAnything()},
                   {'Key': 'name', 'Value': 'new-cache'},
@@ -227,6 +230,7 @@ class DiscoElastiCacheTests(TestCase):
             AutomaticFailoverEnabled=True,
             CacheParameterGroupName='default',
             EngineVersion='2.8.6',
+            PreferredMaintenanceWindow='sat:05:00-sat:06:00',
             ReplicationGroupId=self.elasticache._get_redis_replication_group_id('old-cache')
         )
 
