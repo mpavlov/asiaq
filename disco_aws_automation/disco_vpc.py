@@ -34,7 +34,8 @@ LIVE_PEERING_STATES = ["pending-acceptance", "provisioning", "active"]
 
 
 def tag2dict(tags):
-    return {tag.get('Key'): tag.get('Value') for tag in (tags or {})}
+    ''' Converts a list of dict to dict '''
+    return {tag.get('Key'): tag.get('Value') for tag in tags or {}}
 
 
 class DiscoVPC(object):
@@ -386,20 +387,20 @@ class DiscoVPC(object):
         vpcs = client.describe_vpcs(Filters=[{'Name': 'tag-value', 'Values': [self.environment_name]}])
 
         if vpcs is None:
-            logging.error("Failed to find vpc : {}".format(self.environment_name))
+            logging.error("Failed to find vpc : %s", self.environment_name)
             raise Exception("Failed to find vpc : {}".format(self.environment_name))
 
         if len(vpcs['Vpcs']) > 1:
             vpc_names = [tag['Value'] for vpc in vpcs['Vpcs'] if 'Tags' in vpc
                          for tag in vpc['Tags'] if tag['Key'] == 'Name']
-            logging.error("More than one vpc was found : %s" % vpc_names)
+            logging.error("More than one vpc was found : %s", vpc_names)
             raise Exception("More than one vpc was found : %s" % vpc_names)
 
         vpc = vpcs['Vpcs'][0]
 
         if vpc_cidr != vpc['CidrBlock']:
-            logging.error("VPC cannot be updated, Cidr values are different, {0} instead of"
-                          "{1}".format(vpc_cidr, vpc['CidrBlock']))
+            logging.error("VPC cannot be updated, Cidr values are different, %s instead of"
+                          "%s", vpc_cidr, vpc['CidrBlock'])
 
         vpc_id = vpc['VpcId']
 
@@ -511,6 +512,7 @@ class DiscoVPC(object):
         return {"vpc-id": self.vpc['VpcId']}
 
     def update(self):
+        ''' Update an existing VPC '''
         self._update_environment()
 
     def destroy(self):
