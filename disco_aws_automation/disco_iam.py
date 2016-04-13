@@ -326,7 +326,7 @@ class DiscoIAM(object):
         """
         Current Account ID
         """
-        #return self.connection.get_user().get_user_response.get_user_result.user.arn.split(":")[4]
+        # return self.connection.get_user().get_user_response.get_user_result.user.arn.split(":")[4]
         return boto3.resource('iam').CurrentUser().arn.split(":")[4]
 
     def reapply_user_policies(self):
