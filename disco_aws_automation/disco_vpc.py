@@ -8,9 +8,6 @@ import logging
 import time
 from ConfigParser import ConfigParser
 
-import boto
-import boto.ec2
-from boto.vpc import VPCConnection
 from boto.exception import EC2ResponseError
 import boto3
 
@@ -34,6 +31,10 @@ CONFIG_FILE = "disco_vpc.ini"
 VGW_STATE_POLL_INTERVAL = 2  # seconds
 VGW_ATTACH_TIME = 600  # seconds. From observation, it takes about 300s to attach vgw
 LIVE_PEERING_STATES = ["pending-acceptance", "provisioning", "active"]
+
+
+def tag2dict(tags):
+    return {tag.get('Key'): tag.get('Value') for tag in (tags or {})}
 
 
 class DiscoVPC(object):
@@ -114,7 +115,8 @@ class DiscoVPC(object):
         """Region we're operating in"""
         if not self._region:
             # region = self.vpc.region.name <-- This doesn't work, so we use the HACK below
-            self._region = boto.ec2.EC2Connection().get_all_zones()[0].name[0:-1]
+            client = boto3.client('ec2')
+            self._region = client.describe_availability_zones()['AvailabilityZones'][0]['RegionName']
         return self._region
 
     @property
@@ -134,17 +136,17 @@ class DiscoVPC(object):
         """
         Returns an instance of this class for the specified VPC, or None if it does not exist
         """
-        vpc_conn = VPCConnection()
+        client = boto3.client('ec2')
         if vpc_id:
-            vpc = vpc_conn.get_all_vpcs(vpc_ids=[vpc_id])
+            vpc = client.describe_vpcs(Filters=[{'Name': 'vpc-id', 'Values': [vpc_id]}])
         elif environment_name:
-            vpc = vpc_conn.get_all_vpcs(filters={"tag:Name": environment_name})
+            vpc = client.describe_vpcs(Filters=[{'Name': 'tag:Name', 'Values': [environment_name]}])
         else:
             raise VPCEnvironmentError("Expect vpc_id or environment_name")
-
-        if vpc:
-            vpc = vpc[0]
-            return cls(vpc.tags["Name"], vpc.tags["type"], vpc)
+        if vpc['Vpcs']:
+            vpc = vpc['Vpcs'][0]
+            tags = tag2dict(vpc['Tags'])
+            return cls(tags["Name"], tags["type"], vpc)
         else:
             return None
 
@@ -377,6 +379,8 @@ class DiscoVPC(object):
 
     def _update_environment(self):
         """Update the disco style environment VPC"""
+        import pdb
+        pdb.set_trace()
         vpc_cidr = self.get_config("vpc_cidr")
         client = boto3.client('ec2')
         vpcs = client.describe_vpcs(Filters=[{'Name': 'tag-value', 'Values': [self.environment_name]}])
@@ -397,23 +401,37 @@ class DiscoVPC(object):
             logging.error("VPC cannot be updated, Cidr values are different, {0} instead of"
                           "{1}".format(vpc_cidr, vpc['CidrBlock']))
 
+        vpc_id = vpc['VpcId']
+
+        sgs = client.describe_security_groups(Filters=[{'Name': 'vpc-id', 'Values': [vpc_id]}])
+
+        print sgs
+        networks = self.networks
+
+        print networks
+
     def _configure_environment(self):
         """Create a new disco style environment VPC"""
         vpc_cidr = self.get_config("vpc_cidr")
 
         # Create VPC
-        vpc_conn = VPCConnection()
-        self.vpc = vpc_conn.create_vpc(self.get_config("vpc_cidr"))
-        keep_trying(300, self.vpc.add_tag, "Name", self.environment_name)
-        keep_trying(300, self.vpc.add_tag, "type", self.environment_type)
+        client = boto3.client('ec2')
+        self.vpc = client.create_vpc(CidrBlock=self.get_config("vpc_cidr"))
+        waiter = client.get_waiter('vpc_available')
+        waiter.wait(VpcIds=[self.vpc['Vpc']['VpcId']])
+        ec2 = boto3.resource('ec2')
+        vpc = ec2.Vpc(self.vpc['Vpc']['VpcId'])
+        tags = vpc.create_tags(Tags=[{'Key': 'Name', 'Value': self.environment_name},
+                                     {'Key': 'type', 'Value': self.environment_type}])
         logging.debug("vpc: %s", self.vpc)
+        logging.debug("vpc tags: %s", tags)
 
         dhcp_options = self._configure_dhcp()
         self.vpc.connection.associate_dhcp_options(dhcp_options.id, self.vpc.id)
 
         # Enable DNS
-        vpc_conn.modify_vpc_attribute(self.vpc.id, enable_dns_support=True)
-        vpc_conn.modify_vpc_attribute(self.vpc.id, enable_dns_hostnames=True)
+        vpc.modify_attribute(EnableDnsSupport={'Value': True},
+                             EnableDnsHostnames={'Value': True})
 
         # Create metanetworks (subnets, route_tables and security groups)
         for network in self.networks.itervalues():
@@ -489,7 +507,11 @@ class DiscoVPC(object):
 
     def vpc_filter(self):
         """Filter used to get only the current VPC when filtering an AWS reply by 'vpc-id'"""
-        return {"vpc-id": self.vpc.id}
+        print self.vpc
+        return {"vpc-id": self.vpc['VpcId']}
+
+    def update(self):
+        self._update_environment()
 
     def destroy(self):
         """ Delete all VPC resources in the right order and then delete the vpc itself """
@@ -627,11 +649,11 @@ class DiscoVPC(object):
     @staticmethod
     def find_vpc_id_by_name(vpc_name):
         """Find VPC by name"""
-        vpc_conn = VPCConnection()
-        vpc_ids = vpc_conn.get_all_vpcs(filters={'tag:Name': vpc_name})
-        if len(vpc_ids) == 1:
-            return vpc_ids[0].id
-        elif len(vpc_ids) == 0:
+        client = boto3.client('ec2')
+        vpcs = client.describe(Filters=[{'Name': 'tag:Name', 'Values': [vpc_name]}])
+        if len(vpcs) == 1:
+            return vpcs['Vpcs'][0]['VpcId']
+        elif len(vpcs) == 0:
             raise VPCNameNotFound("No VPC is named as {}".format(vpc_name))
         else:
             raise MultipleVPCsForVPCNameError("More than 1 VPC is named as {}".format(vpc_name))
@@ -707,7 +729,6 @@ class DiscoVPC(object):
         If vpc_id is specified, only configuration relevant to vpc_id is included.
         """
         logging.debug("Parsing peerings configuration specified in %s", CONFIG_FILE)
-        vpc_conn = VPCConnection()
         config = read_config(CONFIG_FILE)
 
         if 'peerings' not in config.sections():
@@ -727,9 +748,11 @@ class DiscoVPC(object):
                     "Syntax error in vpc peering connection. "
                     "Expected 2 space-delimited endpoints but found: '{}'".format(peering))
 
+        # vpc_conn = VPCConnection()
+        client = boto3.client('ec2')
         peering_configs = {}
         for peering in peerings:
-            peering_config = DiscoVPC.parse_peering_connection_line(peering, vpc_conn)
+            peering_config = DiscoVPC.parse_peering_connection_line(peering, client)
             vpc_ids_in_peering = [vpc.vpc.id for vpc in peering_config.get("vpc_map", {}).values()]
 
             if len(vpc_ids_in_peering) < 2:
@@ -744,36 +767,37 @@ class DiscoVPC(object):
     @staticmethod
     def create_peering_connections(peering_configs):
         """ create vpc peering configuration from the peering config dictionary"""
-        vpc_conn = VPCConnection()
+        # vpc_conn = VPCConnection()
+        client = boto3.client('ec2')
         for peering in peering_configs.keys():
             vpc_map = peering_configs[peering]['vpc_map']
             vpc_metanetwork_map = peering_configs[peering]['vpc_metanetwork_map']
             vpc_ids = [vpc.vpc.id for vpc in vpc_map.values()]
-            existing_peerings = vpc_conn.get_all_vpc_peering_connections(
-                filters=[
-                    ('status-code', 'active'),
-                    ('accepter-vpc-info.vpc-id', vpc_ids[0]),
-                    ('requester-vpc-info.vpc-id', vpc_ids[1])
+            existing_peerings = client.describe_vpc_peering_connections(
+                Filters=[
+                    {'Name': 'status-code', 'Values': ['active']},
+                    {'Name': 'accepter-vpc-info.vpc-id', 'Values': [vpc_ids[0]]},
+                    {'Name': 'requester-vpc-info.vpc-id', 'Values': [vpc_ids[1]]}
                 ]
-            ) + vpc_conn.get_all_vpc_peering_connections(
+            ) + client.describe_vpc_peering_connections(
                 filters=[
-                    ('status-code', 'active'),
-                    ('accepter-vpc-info.vpc-id', vpc_ids[1]),
-                    ('requester-vpc-info.vpc-id', vpc_ids[0])
+                    {'Name': 'status-code', 'Values': ['active']},
+                    {'Name': 'accepter-vpc-info.vpc-id', 'Values': [vpc_ids[1]]},
+                    {'Name': 'requester-vpc-info.vpc-id', 'Values': [vpc_ids[0]]}
                 ]
             )
             # create peering when peering doesn't exist
             if not existing_peerings:
-                peering_conn = vpc_conn.create_vpc_peering_connection(*vpc_ids)
-                vpc_conn.accept_vpc_peering_connection(peering_conn.id)
+                peering_conn = client.create_vpc_peering_connection(*vpc_ids)
+                client.accept_vpc_peering_connection(peering_conn.id)
                 logging.info("create new peering connection %s for %s", peering_conn.id, peering)
             else:
                 peering_conn = existing_peerings[0]
                 logging.info("peering connection %s exists for %s", existing_peerings[0].id, peering)
-            DiscoVPC.create_peering_routes(vpc_conn, vpc_map, vpc_metanetwork_map, peering_conn)
+            DiscoVPC.create_peering_routes(client, vpc_map, vpc_metanetwork_map, peering_conn)
 
     @staticmethod
-    def create_peering_routes(vpc_conn, vpc_map, vpc_metanetwork_map, peering_conn):
+    def create_peering_routes(client, vpc_map, vpc_metanetwork_map, peering_conn):
         """ create/update routes via peering connections between VPCs """
         cidr_map = {
             _: vpc_map[_].get_config("{0}_cidr".format(vpc_metanetwork_map[_]))
@@ -799,22 +823,23 @@ class DiscoVPC(object):
                     logging.info(
                         'create routes for (route_table: %s, dest_cidr: %s, connection: %s)',
                         route_table.id, cidr_map[remote_vpc_names[0]], peering_conn.id)
-                    vpc_conn.create_route(route_table_id=route_table.id,
-                                          destination_cidr_block=cidr_map[remote_vpc_names[0]],
-                                          vpc_peering_connection_id=peering_conn.id)
+                    client.create_route(RouteTableId=route_table.id,
+                                        DestinationCidrBlock=cidr_map[remote_vpc_names[0]],
+                                        VpcPeeringConnectionId=peering_conn.id)
                 else:
                     logging.info(
                         'update routes for (route_table: %s, dest_cidr: %s, connection: %s)',
                         route_table.id, cidr_map[remote_vpc_names[0]], peering_conn.id)
-                    vpc_conn.replace_route(route_table_id=route_table.id,
-                                           destination_cidr_block=cidr_map[remote_vpc_names[0]],
-                                           vpc_peering_connection_id=peering_conn.id)
+                    client.replace_route(RouteTableId=route_table.id,
+                                         DestinationCidrBlock=cidr_map[remote_vpc_names[0]],
+                                         VpcPeeringConnectionId=peering_conn.id)
 
     @staticmethod
     def list_vpcs():
         """Returns list of boto.vpc.vpc.VPC classes, one for each existing VPC"""
-        vpc_conn = VPCConnection()
-        return vpc_conn.get_all_vpcs()
+        client = boto3.client('ec2')
+        vpcs = client.describe_vpcs()
+        return [{'id': vpc['VpcId'], 'tags': tag2dict(vpc['Tags'] if 'Tags' in vpc else None)} for vpc in vpcs['Vpcs']]
 
     @staticmethod
     def list_peerings(vpc_id=None, include_failed=False):
@@ -823,30 +848,32 @@ class DiscoVPC(object):
         If vpc_id is given, return only that vpcs peerings
         Peerings that cannot be manipulated are ignored.
         """
-        vpc_conn = VPCConnection()
+        client = boto3.client('ec2')
         if vpc_id:
-            peerings = vpc_conn.get_all_vpc_peering_connections(
-                filters=[('requester-vpc-info.vpc-id', vpc_id)]
-            ) + vpc_conn.get_all_vpc_peering_connections(
-                filters=[('accepter-vpc-info.vpc-id', vpc_id)]
+            peerings = client.describe_vpc_peering_connections(
+                Filters=[{'Name': 'requester-vpc-info.vpc-id', 'Values': [vpc_id]}]
+            ) + client.describe_vpc_peering_connections(
+                Filters=[{'Name': 'acceptor-vpc-info.vpc-id', 'Values': [vpc_id]}]
             )
         else:
-            peerings = vpc_conn.get_all_vpc_peering_connections()
+            peerings = client.describe_vpc_peering_connections()
 
         peering_states = LIVE_PEERING_STATES + (["failed"] if include_failed else [])
         return [
             peering
-            for peering in peerings
-            if peering.status_code in peering_states
+            for peering in peerings['VpcPeeringConnections']
+            if peering['Status']['Code'] in peering_states
         ]
 
     @staticmethod
     def delete_peerings(vpc_id=None):
         """Delete peerings. If vpc_id is specified, delete all peerings of the VPCs only"""
-        vpc_conn = VPCConnection()
+        ec2 = boto3.resource('ec2')
         for peering in DiscoVPC.list_peerings(vpc_id):
             try:
-                logging.info('deleting peering connection %s', peering.id)
-                vpc_conn.delete_vpc_peering_connection(peering.id)
+                logging.info('deleting peering connection %s', peering['VpcPeeringConnectionId'])
+                vpc_peering_connection = ec2.VpcPeeringConnection(peering['VpcPeeringConnectionId'])
+                vpc_peering_connection.delete()
             except EC2ResponseError:
-                raise RuntimeError('Failed to delete VPC Peering connection {}'.format(peering.id))
+                raise RuntimeError('Failed to delete VPC Peering connection \
+                                    {}'.format(peering['VpcPeeringConnectionId']))

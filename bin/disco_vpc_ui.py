@@ -111,9 +111,9 @@ def update_vpc_command(args):
 def list_vpc_command(args):
     """ handle list vpcs command actions """
     for vpc_env in DiscoVPC.list_vpcs():
-        line = u"{0}\t{1:<15}".format(vpc_env.id, vpc_env.tags.get("Name", "-"))
+        line = u"{0}\t{1:<15}".format(vpc_env['id'], vpc_env['tags'].get("Name", "-"))
         if args.env_type:
-            line += u"\t{0}".format(vpc_env.tags.get("type", "-"))
+            line += u"\t{0}".format(vpc_env['tags'].get("type", "-"))
         print(line)
 
 
@@ -131,21 +131,21 @@ def proxy_peerings_command(args):
         vpc_id = None
 
     if args.list_peerings:
-        vpc_map = {vpc.id: vpc for vpc in DiscoVPC.list_vpcs()}
+        vpc_map = {vpc['id']: vpc for vpc in DiscoVPC.list_vpcs()}
         peerings = sorted(
             DiscoVPC.list_peerings(vpc_id, include_failed=True),
-            key=lambda p: vpc_map.get(p.accepter_vpc_info.vpc_id).tags.get("Name"))
+            key=lambda p: vpc_map.get(p['AccepterVpcInfo']['VpcId'])['tags'].get("Name"))
 
         for peering in peerings:
-            vpc1 = vpc_map.get(peering.accepter_vpc_info.vpc_id)
-            vpc2 = vpc_map.get(peering.requester_vpc_info.vpc_id)
+            vpc1 = vpc_map.get(peering['AccepterVpcInfo']['VpcId'])
+            vpc2 = vpc_map.get(peering['RequesterVpcInfo']['VpcId'])
 
             line = u"{0:<14} {1:<8} {2:<20} {3:<21}".format(
-                peering.id, peering.status_code, "{}<->{}".format(
-                    vpc1.tags.get("Name"), vpc2.tags.get("Name")),
+                peering['VpcPeeringConnectionId'], peering['Status']['Code'], "{}<->{}".format(
+                    vpc1['tags'].get("Name"), vpc2['tags'].get("Name")),
                 "{}<->{}".format(
-                    peering.accepter_vpc_info.cidr_block,
-                    peering.requester_vpc_info.cidr_block))
+                    peering['AccepterVpcInfo']['CidrBlock'],
+                    peering['RequesterVpcInfo']['CidrBlock']))
             print(line)
     elif args.delete_peerings:
         DiscoVPC.delete_peerings(vpc_id)
