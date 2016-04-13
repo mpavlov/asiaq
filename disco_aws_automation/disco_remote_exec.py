@@ -8,6 +8,7 @@ import os
 import stat
 import shutil
 import tempfile
+import socket
 
 from boto.exception import S3ResponseError
 
@@ -81,39 +82,20 @@ class DiscoRemoteExec(object):
                   ssh_options=(), forward_agent=None):
         """
         Runs the passed in command on a remote host, via a jump host if a jump_address
-        is provided.
+        is provided and if the address is not reachable without a jump host.
 
         Returns a tuple containing the return code and the standard output from the command.
         """
-        common_flags = ["-oConnectTimeout=10"]
-        common_flags.extend(SSH_DEFAULT_OPTIONS)
-        if logging.getLogger().getEffectiveLevel() == logging.DEBUG:
-            common_flags.append("-v")
+        is_reachable = DiscoRemoteExec._is_reachable(address)
 
-        # Build up command to get from tunnel to final dest
-        final_hop = ["ssh"]
-        final_hop.extend(common_flags)
-        if forward_agent:
-            final_hop.extend(["-A"])
-        final_hop.append("-l{0}".format(user))
-        final_hop.append(address)
-        final_hop.extend(ssh_options)
-        if jump_address:
-            final_hop.append("'{0}'".format(" ".join(remote_command)))
-        elif remote_command:
-            final_hop.extend(remote_command)
+        if not is_reachable and not jump_address and not nothrow:
+            raise CommandError('Unable to run command {0}. {1} host is not reachable'
+                               .format(remote_command, address))
 
-        if jump_address:
-            # Build up command to get to tunnel host
-            proxy_hop = ["ssh", "-A", "-t", "{0}@{1}".format(user, jump_address)]
-            proxy_hop.extend(common_flags)
-
-            command = []
-            command.extend(proxy_hop)
-            command.append(" ".join(final_hop))
-        else:
-            command = final_hop
-
+        use_jump_address = jump_address and not is_reachable
+        command = DiscoRemoteExec._get_remote_exec_command(address, remote_command, user,
+                                                           jump_address if use_jump_address else None,
+                                                           ssh_options, forward_agent)
         logging.debug("command: %s", command)
 
         # output subprocess into a file to bypass pipe buffer size limitation,
@@ -134,6 +116,53 @@ class DiscoRemoteExec(object):
                 raise CommandError("command: {0} returned {1}".format(
                     " ".join(command), process.returncode))
             return (process.returncode, stdout)
+
+    @staticmethod
+    def _get_remote_exec_command(address, remote_command, user, jump_address, ssh_options, forward_agent):
+        """
+        Get the SSH command to use to run a remote command
+        Args:
+            address (str): Address of the remote host
+            remote_command (List[str]): The command and arguments to run
+                                        or an empty list if commands will be taken from stdin
+            user (str): The user to run command as
+            jump_address (str): Address of the jump box to use if unable to connect directly to the host
+            ssh_options (List[str]): List of extra ssh options
+            forward_agent (bool): Enable forwarding agent
+
+        Returns List[str]: The ssh command and its arguments in a list
+        """
+        common_flags = ["-oConnectTimeout=10"]
+        common_flags.extend(SSH_DEFAULT_OPTIONS)
+        if logging.getLogger().getEffectiveLevel() == logging.DEBUG:
+            common_flags.append("-v")
+
+        # Build up command to get from tunnel to final dest
+        final_hop = ["ssh"]
+        final_hop.extend(common_flags)
+        if forward_agent:
+            final_hop.extend(["-A"])
+        final_hop.append("-l{0}".format(user))
+        final_hop.append(address)
+        final_hop.extend(ssh_options)
+
+        if jump_address:
+            final_hop.append("'{0}'".format(" ".join(remote_command)))
+        elif remote_command:
+            final_hop.extend(remote_command)
+
+        if jump_address:
+            # Build up command to get to tunnel host
+            proxy_hop = ["ssh", "-A", "-t", "{0}@{1}".format(user, jump_address)]
+            proxy_hop.extend(common_flags)
+
+            command = []
+            command.extend(proxy_hop)
+            command.append(" ".join(final_hop))
+        else:
+            command = final_hop
+
+        return command
 
     @staticmethod
     def rsync(address, source, destination, user, nothrow=False):
@@ -170,6 +199,19 @@ class DiscoRemoteExec(object):
         else:
             with open("/dev/null", "w") as devnull:
                 return subprocess.call(command, stdout=devnull, stderr=devnull)
+
+    @staticmethod
+    def _is_reachable(ip_address):
+        """Returns True if we can connect to port 22 at the given ip address"""
+        if not ip_address:
+            return False
+        logging.info("Probing %s", ip_address)
+        try:
+            sock = socket.create_connection((ip_address, 22), timeout=2)
+            sock.close()
+            return True
+        except (socket.timeout, socket.error):
+            return False
 
     if __name__ == "__main__":
         print("This is a library. Nothing to run.")

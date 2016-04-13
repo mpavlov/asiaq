@@ -10,6 +10,7 @@ from mock import MagicMock, create_autospec, call
 
 from disco_aws_automation import DiscoDeploy, DiscoAWS, DiscoAutoscale, DiscoBake
 from disco_aws_automation.exceptions import TimeoutError, MaintenanceModeError, IntegrationTestError
+from test.helpers.patch_disco_aws import get_mock_config
 
 # Don't limit number of tests
 # pylint: disable=R0904
@@ -45,6 +46,17 @@ MOCK_PIPELINE_DEFINITION = [
     }
 ]
 
+MOCK_CONFIG_DEFINITON = {
+    "test": {
+        "test_user": "test_user",
+        "command": "test_command",
+        "hostclass": "test_hostclass"
+    },
+    "hostclass_being_tested": {
+        "test_hostclass": "another_test_hostclass"
+    }
+}
+
 
 class DiscoDeployTests(TestCase):
     '''Test DiscoDeploy class'''
@@ -68,6 +80,7 @@ class DiscoDeployTests(TestCase):
         inst = create_autospec(boto.ec2.instance.Instance)
         inst.id = 'i-' + ''.join(random.choice("0123456789abcdef") for _ in range(8))
         inst.image_id = 'ami-' + ''.join(random.choice("0123456789abcdef") for _ in range(8))
+        inst.tags = {"hostclass": "hostclass_being_tested"}
         return inst
 
     def add_ami(self, name, stage, state=u'available'):
@@ -93,8 +106,8 @@ class DiscoDeployTests(TestCase):
         self._ci_deploy = DiscoDeploy(
             self._disco_aws, self._test_aws, self._disco_bake,
             pipeline_definition=MOCK_PIPELINE_DEFINITION,
-            test_hostclass='test_hostclass', test_user='test_user', test_command='test_command',
-            ami=None, hostclass=None, allow_any_hostclass=False)
+            ami=None, hostclass=None, allow_any_hostclass=False,
+            config=get_mock_config(MOCK_CONFIG_DEFINITON))
         self._ci_deploy._disco_aws.terminate = MagicMock()
         self._amis = []
         self._amis_by_name = {}
@@ -420,7 +433,7 @@ class DiscoDeployTests(TestCase):
     def test_set_maintenance_mode_on(self):
         '''_set_maintenance_mode makes expected remotecmd call'''
         self._ci_deploy._disco_aws.remotecmd = MagicMock(return_value=(0, ""))
-        self._ci_deploy._set_maintenance_mode(instances=["i-1"], mode_on=True)
+        self._ci_deploy._set_maintenance_mode(hostclass="mhcfoo", instances=["i-1"], mode_on=True)
         self._ci_deploy._disco_aws.remotecmd.assert_called_with(
             "i-1", ["sudo", "/opt/wgen/bin/maintenance-mode.sh", "on"],
             user="test_user", nothrow=True)
@@ -429,7 +442,7 @@ class DiscoDeployTests(TestCase):
         '''_set_maintenance_mode handles errors'''
         self._ci_deploy._disco_aws.remotecmd = MagicMock(return_value=(1, ""))
         self.assertRaises(MaintenanceModeError, self._ci_deploy._set_maintenance_mode,
-                          instances=["i-1"], mode_on=False)
+                          hostclass="foo", instances=["i-1"], mode_on=False)
         self._ci_deploy._disco_aws.remotecmd.assert_called_with(
             "i-1", ["sudo", "/opt/wgen/bin/maintenance-mode.sh", "off"],
             user="test_user", nothrow=True)
@@ -465,7 +478,7 @@ class DiscoDeployTests(TestCase):
         self._ci_deploy.wait_for_smoketests = MagicMock(return_value=True)
         self._ci_deploy._get_old_instances = MagicMock(return_value=[inst1])
         self._ci_deploy._get_new_instances = MagicMock(return_value=[inst2])
-        self._ci_deploy.get_test_host = MagicMock()
+        self._ci_deploy.get_host = MagicMock()
         self._ci_deploy.run_integration_tests = MagicMock(return_value=True)
         self._ci_deploy._disco_aws.remotecmd = MagicMock(return_value=(1, ''))
         self._ci_deploy.test_ami(ami, dry_run=False)
@@ -480,18 +493,17 @@ class DiscoDeployTests(TestCase):
         self._ci_deploy.run_integration_tests = MagicMock(return_value=False)
         self.assertRaises(Exception, self._ci_deploy.test_ami, ami, dry_run=False)
 
-    def test_get_test_host(self):
-        '''get_test_host returns a host for the testing hostclass'''
+    def test_get_host(self):
+        '''get_host returns a host for the testing hostclass'''
         self._disco_aws.instances_from_hostclasses = MagicMock(return_value=["i-12345678"])
-        self.assertEqual(self._ci_deploy.get_test_host(), "i-12345678")
-        self._disco_aws.instances_from_hostclasses.assert_called_with(['test_hostclass'])
+        self.assertEqual(self._ci_deploy.get_host(['test_hostclass']), "i-12345678")
         self.assertEqual(self._disco_aws.smoketest_once.call_count, 1)
 
-    def test_get_test_host_raises_on_failure(self):
-        '''get_test_host raises an IntegrationTestError when a host can not be found'''
+    def test_get_host_raises_on_failure(self):
+        '''get_host raises an IntegrationTestError when a host can not be found'''
         self._disco_aws.instances_from_hostclasses = MagicMock(return_value=["i-12345678"])
         self._disco_aws.smoketest_once = MagicMock(side_effect=TimeoutError)
-        self.assertRaises(IntegrationTestError, self._ci_deploy.get_test_host)
+        self.assertRaises(IntegrationTestError, self._ci_deploy.get_host, ['test_hostclass'])
 
     def test_run_integration_tests_command(self):
         '''run_integration_tests runs the correct command on the correct instance'''
@@ -504,7 +516,7 @@ class DiscoDeployTests(TestCase):
             user="test_user", nothrow=True)
 
     def test_run_integration_tests_get_host_fail(self):
-        '''run_integration_tests raises exception when a get_test_host fails to find a host'''
+        '''run_integration_tests raises exception when a get_host fails to find a host'''
         ami = self.mock_ami("mhcintegrated 1 2")
         self._ci_deploy._disco_aws.remotecmd = MagicMock(return_value=(0, ""))
         self._disco_aws.instances_from_hostclasses = MagicMock(return_value=[])
@@ -656,3 +668,10 @@ class DiscoDeployTests(TestCase):
         expected_ami = self.add_ami('mhcfoo 10', 'untested', 'pending')
         latest_ami = self._ci_deploy.get_latest_untested_amis()['mhcfoo']
         self.assertNotEqual(expected_ami.name, latest_ami.name)
+
+    def test_hostclass_specific_test_host(self):
+        '''Tests that hostclass specific test host is returned'''
+        expected_hostclass = "another_test_hostclass"
+        actual_hostclass = self._ci_deploy.hostclass_option("hostclass_being_tested",
+                                                            "test_hostclass")
+        self.assertEqual(expected_hostclass, actual_hostclass)

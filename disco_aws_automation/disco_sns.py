@@ -120,7 +120,7 @@ class DiscoSNS(object):
 
         topics_to_delete = DiscoSNS.get_topics_to_delete(existing_topics, desired_topics, env)
 
-        topics_to_delete_arn = [self.topic_arn_by_name(topic) for topic in topics_to_delete]
+        topics_to_delete_arn = [self.topic_arn_from_name(topic) for topic in topics_to_delete]
 
         subscriptions_to_delete = DiscoSNS.get_subscriptions_to_delete(existing_subscriptions_by_topic,
                                                                        desired_subscriptions_by_topic,
