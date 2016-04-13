@@ -839,7 +839,8 @@ class DiscoVPC(object):
         """Returns list of boto.vpc.vpc.VPC classes, one for each existing VPC"""
         client = boto3.client('ec2')
         vpcs = client.describe_vpcs()
-        return [{'id': vpc['VpcId'], 'tags': tag2dict(vpc['Tags'] if 'Tags' in vpc else None)} for vpc in vpcs['Vpcs']]
+        return [{'id': vpc['VpcId'], 'tags': tag2dict(vpc['Tags'] if 'Tags' in vpc else None)}
+                for vpc in vpcs['Vpcs']]
 
     @staticmethod
     def list_peerings(vpc_id=None, include_failed=False):
