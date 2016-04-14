@@ -83,6 +83,10 @@ class DiscoVPC(object):
         else:
             return default
 
+    def get_vpc_id(self):
+        ''' Returns the vpc id '''
+        return self.vpc['VpcId'] if self.vpc else None
+
     def ami_stage(self):
         '''Returns default AMI stage to deploy in a development environment'''
         return self.get_config("ami_stage")

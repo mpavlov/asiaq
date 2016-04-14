@@ -80,7 +80,7 @@ class DiscoMetaNetwork(object):
             return None
 
     def _create_route_table(self):
-        route_table = self.vpc.vpc.connection.create_route_table(self.vpc.vpc.id)
+        route_table = self.vpc.vpc.connection.create_route_table(self.vpc.get_vpc_id())
         self._tag_resource(route_table)
         logging.debug("%s route table: %s", self.name, self._route_table)
         return route_table
@@ -111,7 +111,7 @@ class DiscoMetaNetwork(object):
         security_group = self.vpc.vpc.connection.create_security_group(
             self._resource_name(),
             self.sg_description,
-            self.vpc.vpc.id
+            self.vpc.get_vpc_id()
         )
         self._tag_resource(security_group)
         logging.debug("%s security_group: %s", self.name, security_group)
@@ -149,7 +149,7 @@ class DiscoMetaNetwork(object):
         subnets = []
         for zone, cidr in zip(zones, zone_cidrs):
             logging.debug("%s %s", zone, cidr)
-            subnet = self.vpc.vpc.connection.create_subnet(self.vpc.vpc.id, cidr, zone.name)
+            subnet = self.vpc.vpc.connection.create_subnet(self.vpc.get_vpc_id(), cidr, zone.name)
             self.vpc.vpc.connection.associate_route_table(self.route_table.id, subnet.id)
             self._tag_resource(subnet, zone.name)
             subnets.append(subnet)
