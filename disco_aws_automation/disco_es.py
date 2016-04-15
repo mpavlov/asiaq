@@ -126,28 +126,28 @@ class DiscoES(object):
     def _upsert(self, generator):
         es_cluster_config = {
             'InstanceType': self.config['instance_type'],
-            'InstanceCount': self.config('instance_count'),
-            'DedicatedMasterEnabled': self.config('dedicated_master'),
-            'ZoneAwarenessEnabled': self.config('zone_awareness')
+            'InstanceCount': self.config['instance_count'],
+            'DedicatedMasterEnabled': self.config['dedicated_master'],
+            'ZoneAwarenessEnabled': self.config['zone_awareness']
         }
 
         if es_cluster_config['DedicatedMasterEnabled']:
-            es_cluster_config['DedicatedMasterType'] = self.config('dedicated_master_type')
-            es_cluster_config['DedicatedMasterCount'] = self.config('dedicated_master_count')
+            es_cluster_config['DedicatedMasterType'] = self.config['dedicated_master_type']
+            es_cluster_config['DedicatedMasterCount'] = self.config['dedicated_master_count']
 
         ebs_options = {
-            'EBSEnabled': self.config('ebs_enabled')
+            'EBSEnabled': self.config['ebs_enabled']
         }
 
         if ebs_options['EBSEnabled']:
-            ebs_options['VolumeType'] = self.config('volume_type')
-            ebs_options['VolumeSize'] = self.config('volume_size')
+            ebs_options['VolumeType'] = self.config['volume_type']
+            ebs_options['VolumeSize'] = self.config['volume_size']
 
             if ebs_options['VolumeType'] == 'io1':
-                ebs_options['Iops'] = self.config('iops')
+                ebs_options['Iops'] = self.config['iops']
 
         snapshot_options = {
-            'AutomatedSnapshotStartHour': self.config('snapshot_start_hour', 5)
+            'AutomatedSnapshotStartHour': self.config['snapshot_start_hour', 5]
         }
 
         es_kwargs = {
