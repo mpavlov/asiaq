@@ -25,6 +25,7 @@ from .disco_elasticache import DiscoElastiCache
 from .disco_sns import DiscoSNS
 from .disco_rds import DiscoRDS
 from .disco_elb import DiscoELB
+from .disco_es import DiscoES
 from .exceptions import (
     MultipleVPCsForVPCNameError, TimeoutError, VPCConfigError, VPCEnvironmentError, VPCPeeringSyntaxError,
     VPCNameNotFound)
@@ -52,7 +53,7 @@ class DiscoVPC(object):
         self._region = None  # lazily initialized
         self._networks = None  # lazily initialized
         self._alarms_config = None  # lazily initialized
-        # self.elasticsearch = DiscoES(vpc=self)
+        self.elasticsearch = DiscoES(read_config(), read_config(CONFIG_FILE), environment_name)
         self.rds = DiscoRDS(vpc=self)
         self.elb = DiscoELB(vpc=self)
         self.elasticache = DiscoElastiCache(vpc=self)

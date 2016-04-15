@@ -5,10 +5,12 @@ import logging
 import time
 import boto3
 
+from ConfigParser import NoOptionError
 from .disco_iam import DiscoIAM
 from .disco_route53 import DiscoRoute53
 from .resource_helper import throttled_call
 from .disco_aws_util import is_truthy
+from .disco_constants import DEFAULT_CONFIG_SECTION
 
 
 class DiscoES(object):
@@ -16,11 +18,10 @@ class DiscoES(object):
     A simple class to manage ElasticSearch
     """
 
-    def __init__(self, config, environment_name, aws, vpc):
+    def __init__(self, config_aws, config_vpc, environment_name):
         self.conn = boto3.client('es')
-        self.config = config
-        self.aws = aws
-        self.vpc = vpc
+        self._config_aws = config_aws
+        self._config_vpc = config_vpc
         self.environment_name = environment_name.lower()
         self.route53 = DiscoRoute53()
 
@@ -39,14 +40,14 @@ class DiscoES(object):
         while not self.get_endpoint(self._cluster_name):
             time.sleep(60)
 
-        zone = self.aws.get_default_domain_name()
+        zone = self.get_aws_option('domain_name')
         name = '{}.{}'.format(self._cluster_name, zone)
         value = self.get_endpoint(self._cluster_name)
 
         return self.route53.create_record(zone, name, 'CNAME', value)
 
     def _remove_route53(self):
-        zone = self.aws.get_default_domain_name()
+        zone = self.get_aws_option('domain_name')
         name = '{}.{}'.format(self._cluster_name, zone)
 
         return self.route53.delete_record(zone, name, 'CNAME')
@@ -88,8 +89,8 @@ class DiscoES(object):
             environment=self.environment_name,
             boto2_connection=self.aws.connection
         )
-        proxy_hostclass = self.aws.config('http_proxy_hostclass', 'disco_aws')
-        proxy_ip = self.aws.config('eip', proxy_hostclass)
+        proxy_hostclass = self.get_aws_option('http_proxy_hostclass')
+        proxy_ip = self.get_hostclass_option('eip', proxy_hostclass)
 
         policy = '''
                 {{
@@ -137,31 +138,31 @@ class DiscoES(object):
 
     def _upsert(self, generator):
         es_cluster_config = {
-            'InstanceType': self.vpc.get_config('es_instance_type', 'm3.medium.elasticsearch'),
-            'InstanceCount': int(self.vpc.get_config('es_instance_count', 1)),
-            'DedicatedMasterEnabled': bool(self.vpc.get_config('es_dedicated_master', False)),
-            'ZoneAwarenessEnabled': bool(self.vpc.get_config('es_zone_awareness', False))
+            'InstanceType': self.get_vpc_option('es_instance_type', 'm3.medium.elasticsearch'),
+            'InstanceCount': int(self.get_vpc_option('es_instance_count', 1)),
+            'DedicatedMasterEnabled': bool(self.get_vpc_option('es_dedicated_master', False)),
+            'ZoneAwarenessEnabled': bool(self.get_vpc_option('es_zone_awareness', False))
         }
 
         if is_truthy(es_cluster_config['DedicatedMasterEnabled']):
-            es_cluster_config['DedicatedMasterType'] = self.vpc.get_config('es_dedicated_master_type')
+            es_cluster_config['DedicatedMasterType'] = self.get_vpc_option('es_dedicated_master_type')
             es_cluster_config['DedicatedMasterCount'] = int(
-                self.vpc.get_config('es_dedicated_master_count')
+                self.get_vpc_option('es_dedicated_master_count')
             )
 
         ebs_option = {
-            'EBSEnabled': bool(self.vpc.get_config('es_ebs_enabled', False))
+            'EBSEnabled': bool(self.get_vpc_option('es_ebs_enabled', False))
         }
 
         if is_truthy(ebs_option['EBSEnabled']):
-            ebs_option['VolumeType'] = self.vpc.get_config('es_volume_type', 'standard')
-            ebs_option['VolumeSize'] = int(self.vpc.get_config('es_volume_size', 10))
+            ebs_option['VolumeType'] = self.get_vpc_option('es_volume_type', 'standard')
+            ebs_option['VolumeSize'] = int(self.get_vpc_option('es_volume_size', 10))
 
             if ebs_option['VolumeType'] == 'io1':
-                ebs_option['Iops'] = int(self.vpc.get_config('es_iops', 1000))
+                ebs_option['Iops'] = int(self.get_vpc_option('es_iops', 1000))
 
         snapshot_options = {
-            'AutomatedSnapshotStartHour': int(self.vpc.get_config('es_snapshot_start_hour', 5))
+            'AutomatedSnapshotStartHour': int(self.get_vpc_option('es_snapshot_start_hour', 5))
         }
 
         es_kwargs = {
@@ -173,3 +174,42 @@ class DiscoES(object):
         }
 
         throttled_call(generator, **es_kwargs)
+
+    def get_vpc_option(self, option, default=None):
+        '''Returns appropriate configuration for the current environment'''
+        env_section = "env:{0}".format(self.environment_name)
+        envtype_section = "envtype:{0}".format(self.environment_name)
+        envtype_sandbox_section = "envtype:{0}".format("sandbox")
+        peering_section = "peerings"
+
+        if self._config_vpc.has_option(env_section, option):
+            value = self._config_vpc.get(env_section, option)
+        elif self._config_vpc.has_option(envtype_section, option):
+            value = self._config_vpc.get(envtype_section, option)
+        elif self._config_vpc.has_option(envtype_sandbox_section, option):
+            value = self._config_vpc.get(envtype_sandbox_section, option)
+        elif self._config_vpc.has_option(peering_section, option):
+            value = self._config_vpc.get(peering_section, option)
+
+        return value or default
+
+    def get_aws_option(self, option, section=DEFAULT_CONFIG_SECTION, default=None):
+        """Get a value from the config"""
+        env_option = "{0}@{1}".format(option, self.environment_name)
+        default_option = "default_{0}".format(option)
+        default_env_option = "default_{0}".format(env_option)
+
+        if self._config_aws.has_option(section, env_option):
+            value = self._config_aws.get(section, env_option)
+        if self._config_aws.has_option(section, option):
+            value = self._config_aws.get(section, option)
+        elif self._config_aws.has_option(DEFAULT_CONFIG_SECTION, default_env_option):
+            value = self._config_aws.get(DEFAULT_CONFIG_SECTION, default_env_option)
+        elif self._config_aws.has_option(DEFAULT_CONFIG_SECTION, default_option):
+            value = self._config_aws.get(DEFAULT_CONFIG_SECTION, default_option)
+
+        return value or default
+
+    def get_hostclass_option(self, option, hostclass, default=None):
+        """Fetch a hostclass configuration option, if it does not exist get the default"""
+        return self.get_aws_option(option, hostclass, default)
