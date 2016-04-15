@@ -35,9 +35,9 @@ def run():
     configure_logging(args["--debug"])
 
     config = read_config()
-    env = args['--env']
+    env = args['--env'] or config.get("disco_aws", "default_environment")
     aws = DiscoAWS(config, env)
-    disco_es = DiscoES(config, aws)
+    disco_es = DiscoES(config, aws, env)
 
     if args['list']:
         for domain in disco_es.list():
