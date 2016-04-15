@@ -2,17 +2,11 @@
 Manage AWS ElasticSearch
 """
 import logging
-from ConfigParser import ConfigParser
-
 import time
 import boto3
-# import botocore
 
 from .disco_iam import DiscoIAM
 from .disco_route53 import DiscoRoute53
-
-from . import normalize_path
-# from .exceptions import CommandError
 from .resource_helper import throttled_call
 from .disco_aws_util import is_truthy
 
@@ -22,24 +16,11 @@ class DiscoES(object):
     A simple class to manage ElasticSearch
     """
 
-    def __init__(self, config_file, aws):
+    def __init__(self, config, aws):
         self.conn = boto3.client('es')
-        self.config_file = config_file
-        self._config = None  # lazily initialized
+        self.config = config
         self.aws = aws
         self.route53 = DiscoRoute53()
-
-    @property
-    def config(self):
-        """lazy load config"""
-        if not self._config:
-            try:
-                config = ConfigParser()
-                config.read(normalize_path(self.config_file))
-                self._config = config
-            except Exception:
-                return None
-        return self._config
 
     @property
     def _cluster_name(self):
