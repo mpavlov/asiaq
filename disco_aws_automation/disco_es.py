@@ -16,10 +16,11 @@ class DiscoES(object):
     A simple class to manage ElasticSearch
     """
 
-    def __init__(self, config, aws, environment_name):
+    def __init__(self, config, environment_name, aws, vpc):
         self.conn = boto3.client('es')
         self.config = config
         self.aws = aws
+        self.vpc = vpc
         self.environment_name = environment_name.lower()
         self.route53 = DiscoRoute53()
 
@@ -115,7 +116,7 @@ class DiscoES(object):
                 }}
                 '''
 
-        return policy.format(region=self.aws.vpc.region, account_id=disco_iam.account_id(),
+        return policy.format(region=self.vpc.region, account_id=disco_iam.account_id(),
                              cluster_name=self._cluster_name, proxy_ip=proxy_ip)
 
     def create(self):
@@ -136,31 +137,31 @@ class DiscoES(object):
 
     def _upsert(self, generator):
         es_cluster_config = {
-            'InstanceType': self.aws.vpc.get_config('es_instance_type', 'm3.medium.elasticsearch'),
-            'InstanceCount': int(self.aws.vpc.get_config('es_instance_count', 1)),
-            'DedicatedMasterEnabled': bool(self.aws.vpc.get_config('es_dedicated_master', False)),
-            'ZoneAwarenessEnabled': bool(self.aws.vpc.get_config('es_zone_awareness', False))
+            'InstanceType': self.vpc.get_config('es_instance_type', 'm3.medium.elasticsearch'),
+            'InstanceCount': int(self.vpc.get_config('es_instance_count', 1)),
+            'DedicatedMasterEnabled': bool(self.vpc.get_config('es_dedicated_master', False)),
+            'ZoneAwarenessEnabled': bool(self.vpc.get_config('es_zone_awareness', False))
         }
 
         if is_truthy(es_cluster_config['DedicatedMasterEnabled']):
-            es_cluster_config['DedicatedMasterType'] = self.aws.vpc.get_config('es_dedicated_master_type')
+            es_cluster_config['DedicatedMasterType'] = self.vpc.get_config('es_dedicated_master_type')
             es_cluster_config['DedicatedMasterCount'] = int(
-                self.aws.vpc.get_config('es_dedicated_master_count')
+                self.vpc.get_config('es_dedicated_master_count')
             )
 
         ebs_option = {
-            'EBSEnabled': bool(self.aws.vpc.get_config('es_ebs_enabled', False))
+            'EBSEnabled': bool(self.vpc.get_config('es_ebs_enabled', False))
         }
 
         if is_truthy(ebs_option['EBSEnabled']):
-            ebs_option['VolumeType'] = self.aws.vpc.get_config('es_volume_type', 'standard')
-            ebs_option['VolumeSize'] = int(self.aws.vpc.get_config('es_volume_size', 10))
+            ebs_option['VolumeType'] = self.vpc.get_config('es_volume_type', 'standard')
+            ebs_option['VolumeSize'] = int(self.vpc.get_config('es_volume_size', 10))
 
             if ebs_option['VolumeType'] == 'io1':
-                ebs_option['Iops'] = int(self.aws.vpc.get_config('es_iops', 1000))
+                ebs_option['Iops'] = int(self.vpc.get_config('es_iops', 1000))
 
         snapshot_options = {
-            'AutomatedSnapshotStartHour': int(self.aws.vpc.get_config('es_snapshot_start_hour', 5))
+            'AutomatedSnapshotStartHour': int(self.vpc.get_config('es_snapshot_start_hour', 5))
         }
 
         es_kwargs = {
