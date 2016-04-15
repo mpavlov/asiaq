@@ -25,7 +25,6 @@ from .disco_elasticache import DiscoElastiCache
 from .disco_sns import DiscoSNS
 from .disco_rds import DiscoRDS
 from .disco_elb import DiscoELB
-from .disco_es import DiscoES
 from .exceptions import (
     MultipleVPCsForVPCNameError, TimeoutError, VPCConfigError, VPCEnvironmentError, VPCPeeringSyntaxError,
     VPCNameNotFound)
