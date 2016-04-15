@@ -39,15 +39,16 @@ class DiscoES(object):
             time.sleep(60)
 
         zone = self.aws.get_default_domain_name()
-        value = self.get_endpoint(self._cluster_name)
         name = '{}.{}'.format(self._cluster_name, zone)
+        value = self.get_endpoint(self._cluster_name)
 
         return self.route53.create_record(zone, name, 'CNAME', value)
 
     def _remove_route53(self):
-        value = self.get_endpoint(self._cluster_name)
+        zone = self.aws.get_default_domain_name()
+        name = '{}.{}'.format(self._cluster_name, zone)
 
-        return self.route53.delete_records_by_value('CNAME', value)
+        return self.route53.delete_record(zone, name, 'CNAME')
 
     def delete(self):
         """
