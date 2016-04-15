@@ -113,7 +113,8 @@ class DiscoES(object):
             environment=self.aws.environment_name,
             boto2_connection=self.aws.connection
         )
-        s3proxy_ip = self.aws.config('eip', 'mhcs3proxy')
+        proxy_hostclass = self.aws.config('http_proxy_hostclass', 'disco_aws')
+        proxy_ip = self.aws.config('eip', proxy_hostclass)
 
         policy = '''
                 {{
@@ -125,13 +126,13 @@ class DiscoES(object):
                         "AWS": "*"
                       }},
                       "Action": "es:*",
-                      "Resource": "arn:aws:es:{0}:{1}:domain/{2}/*",
+                      "Resource": "arn:aws:es:{region}:{account_id}:domain/{cluster_name}/*",
                       "Condition": {{
                         "IpAddress": {{
                           "aws:SourceIp": [
                             "66.104.227.162",
                             "38.117.159.162",
-                            "{3}"
+                            "{proxy_ip}"
                           ]
                         }}
                       }}
@@ -140,8 +141,8 @@ class DiscoES(object):
                 }}
                 '''
 
-        return policy.format(self.aws.vpc.region, disco_iam.account_id(),
-                             self._cluster_name, s3proxy_ip)
+        return policy.format(region=self.aws.vpc.region, account_id=disco_iam.account_id(),
+                             cluster_name=self._cluster_name, proxy_ip=proxy_ip)
 
     def create(self):
         '''
