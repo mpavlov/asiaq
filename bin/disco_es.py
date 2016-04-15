@@ -35,8 +35,8 @@ def run():
 
     configure_logging(args["--debug"])
     env = args['--env']
-    config = DiscoAWSConfigReader(env)
-    disco_es = DiscoES(config)
+    config_reader = DiscoAWSConfigReader(env)
+    disco_es = DiscoES(config_reader.get_es_config())
 
     if args['list']:
         for domain in disco_es.list():

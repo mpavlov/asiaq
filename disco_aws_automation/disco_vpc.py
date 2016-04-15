@@ -43,6 +43,7 @@ class DiscoVPC(object):
     """
 
     def __init__(self, environment_name, environment_type, vpc=None, config_file=None):
+        config_reader = DiscoAWSConfigReader(environment_name)
         if config_file:
             self.config = ConfigParser()
             self.config.read(config_file)
@@ -54,7 +55,7 @@ class DiscoVPC(object):
         self._region = None  # lazily initialized
         self._networks = None  # lazily initialized
         self._alarms_config = None  # lazily initialized
-        self.elasticsearch = DiscoES(DiscoAWSConfigReader(environment_name))
+        self.elasticsearch = DiscoES(config_reader.get_es_config())
         self.rds = DiscoRDS(vpc=self)
         self.elb = DiscoELB(vpc=self)
         self.elasticache = DiscoElastiCache(vpc=self)
