@@ -34,20 +34,11 @@ class DiscoES(object):
         return sorted([domain['DomainName'] for domain in
                        response['DomainNames']])
 
-    @property
-    def _get_zone(self):
-        if self.environment_name == 'staging':
-            return 'staging.wgen.net'
-        elif self.environment_name == 'production':
-            return 'production.wgen.net'
-        else:
-            return 'aws.wgen.net'
-
     def _add_route53(self):
         while not self.get_endpoint(self._cluster_name):
             time.sleep(60)
 
-        zone = self._get_zone
+        zone = self.aws.get_default_domain_name()
         value = self.get_endpoint(self._cluster_name)
         name = '{}.{}'.format(self._cluster_name, zone)
 
