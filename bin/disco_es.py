@@ -23,7 +23,7 @@ Options:
 """
 from __future__ import print_function
 from docopt import docopt
-from disco_aws_automation import DiscoES, DiscoAWS, read_config
+from disco_aws_automation import DiscoES, DiscoAWS, DiscoVPC, read_config
 from disco_aws_automation.disco_aws_util import run_gracefully
 from disco_aws_automation.disco_logging import configure_logging
 
@@ -37,7 +37,8 @@ def run():
     config = read_config()
     env = args['--env'] or config.get("disco_aws", "default_environment")
     aws = DiscoAWS(config, env)
-    disco_es = DiscoES(config, aws, env)
+    vpc = DiscoVPC.fetch_environment(environment_name=env)
+    disco_es = DiscoES(config, env, aws, vpc)
 
     if args['list']:
         for domain in disco_es.list():
