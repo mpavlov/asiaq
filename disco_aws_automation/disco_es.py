@@ -16,15 +16,16 @@ class DiscoES(object):
     A simple class to manage ElasticSearch
     """
 
-    def __init__(self, config, aws):
+    def __init__(self, config, aws, environment_name):
         self.conn = boto3.client('es')
         self.config = config
         self.aws = aws
+        self.environment_name = environment_name.lower()
         self.route53 = DiscoRoute53()
 
     @property
     def _cluster_name(self):
-        return "{0}-log-es".format(self.aws.environment_name.lower())
+        return "{0}-log-es".format(self.environment_name)
 
     def list(self):
         """List all elasticsearch domains in an account"""
@@ -35,9 +36,9 @@ class DiscoES(object):
 
     @property
     def _get_zone(self):
-        if self.aws.environment_name == 'staging':
+        if self.environment_name == 'staging':
             return 'staging.wgen.net'
-        elif self.aws.environment_name == 'production':
+        elif self.environment_name == 'production':
             return 'production.wgen.net'
         else:
             return 'aws.wgen.net'
@@ -91,7 +92,7 @@ class DiscoES(object):
 
     def _access_policy(self):
         disco_iam = DiscoIAM(
-            environment=self.aws.environment_name,
+            environment=self.environment_name,
             boto2_connection=self.aws.connection
         )
         proxy_hostclass = self.aws.config('http_proxy_hostclass', 'disco_aws')
