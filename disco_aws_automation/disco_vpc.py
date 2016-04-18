@@ -199,9 +199,13 @@ class DiscoVPC(object):
         DhcpConfigurations.append({"Key": "domain-name-servers", "Values": [internal_dns, external_dns]})
         DhcpConfigurations.append({"Key": "ntp-servers", "Values": [ntp_server]})
 
-        dhcp_options = self.client.create_dhcp_options(DhcpConfigurations=DhcpConfigurations)
-        keep_trying(300, dhcp_options.add_tag, "Name", self.environment_name)
-        return dhcp_options
+        response = self.client.create_dhcp_options(DhcpConfigurations=DhcpConfigurations)
+        ec2 = boto3.resource('ec2')
+        dhcp_options = ec2.DhcpOptions(response['DhcpOptions']['DhcpOptionsId'])
+        dhcp_options.create_tag(Tags=[{'Key': 'Name', 'Value': self.environment_name}])
+        return self.client.describe_dhcp_options(
+                            DhcpOptionsIds=[response['DhcpOptions']['DhcpOptionsId']]
+                                                )['DhcpOptions']
 
     @staticmethod
     def _extract_port_range(port_def):
@@ -434,8 +438,9 @@ class DiscoVPC(object):
         logging.debug("vpc: %s", self.vpc)
         logging.debug("vpc tags: %s", tags)
 
-        dhcp_options = self._configure_dhcp()
-        self.vpc.connection.associate_dhcp_options(dhcp_options.id, self.vpc.id)
+        dhcp_options = self._configure_dhcp()[0]
+        self.client.associate_dhcp_options(DhcpOptionsId=dhcp_options['DhcpOptionsId'],
+                                           VpcId=self.vpc['VpcId'])
 
         # Enable DNS
         vpc.modify_attribute(EnableDnsSupport={'Value': True},
