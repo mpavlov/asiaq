@@ -54,8 +54,9 @@ class DiscoMetaNetwork(object):
 
     @property
     def _resource_filter(self):
-        resource_filter = self.vpc.vpc_filter()
-        resource_filter["tag:meta_network"] = self.name
+        resource_filter = []
+        resource_filter.append(self.vpc.vpc_filter())
+        resource_filter.append({"Name": "tag:meta_network", "Values": [self.name]})
         return resource_filter
 
     def _tag_resource(self, resource, suffix=None):
@@ -74,7 +75,7 @@ class DiscoMetaNetwork(object):
     def _find_route_table(self):
         try:
             return self.vpc.vpc.connection.get_all_route_tables(
-                filters=self._resource_filter
+                Filters=self._resource_filter
             )[0]
         except IndexError:
             return None
@@ -96,6 +97,7 @@ class DiscoMetaNetwork(object):
 
     def _find_security_group(self):
         try:
+
             return self.vpc.vpc.connection.get_all_security_groups(
                 filters=self._resource_filter
             )[0]
@@ -127,13 +129,13 @@ class DiscoMetaNetwork(object):
         return self._subnets
 
     def _find_subnets(self):
-        return self.vpc.vpc.connection.get_all_subnets(
+        return self.vpc._client.describe_subnets(
             filters=self._resource_filter
-        )
+        )['Subnets']
 
     def _create_subnets(self):
         logging.debug("creating subnets")
-        zones = self.vpc.vpc.connection.get_all_zones()
+        zones = self.vpc.client.describe_availability_zones()['AvailabilityZones']
         logging.debug("zones: %s", zones)
         # We'll need to split each subnet into smaller ones, one per zone
         # offset is how much we need to add to cidr divisor to create at least

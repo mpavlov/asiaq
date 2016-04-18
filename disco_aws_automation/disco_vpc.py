@@ -12,7 +12,7 @@ from boto.exception import EC2ResponseError
 import boto3
 
 from . import read_config
-from .resource_helper import keep_trying, wait_for_state
+from .resource_helper import keep_trying
 from .disco_log_metrics import DiscoLogMetrics
 from .disco_alarm import DiscoAlarm
 from .disco_alarm_config import DiscoAlarmsConfig
@@ -64,6 +64,7 @@ class DiscoVPC(object):
             raise VPCConfigError(
                 "VPC name {0} must not contain an underscore".format(environment_name))
 
+        self.client = boto3.client('ec2')
         if vpc:
             self.vpc = vpc
         else:
@@ -120,8 +121,7 @@ class DiscoVPC(object):
         """Region we're operating in"""
         if not self._region:
             # region = self.vpc.region.name <-- This doesn't work, so we use the HACK below
-            client = boto3.client('ec2')
-            self._region = client.describe_availability_zones()['AvailabilityZones'][0]['RegionName']
+            self._region = self.client.describe_availability_zones()['AvailabilityZones'][0]['RegionName']
         return self._region
 
     @property
@@ -169,9 +169,10 @@ class DiscoVPC(object):
 
     def find_instance_route_table(self, instance):
         """ Return route tables corresponding to instance """
-        rt_filter = self.vpc_filter()
-        rt_filter["route.instance-id"] = instance.id
-        return self.vpc.connection.get_all_route_tables(filters=rt_filter)
+        rt_filter = []
+        rt_filter.append(self.vpc_filter())
+        rt_filter.append({"Name": "route.instance-id", "Values": [instance.id]})
+        return self.client.describe_route_tables(Filters=rt_filter)['RouteTables']
 
     def get_route_table(self, metanetwork):
         """ Returns the route table for a meta network """
@@ -193,8 +194,12 @@ class DiscoVPC(object):
         ntp_server = self.get_config("ntp_server")
 
         # internal_dns server should be default, and for this reason it comes last.
-        dhcp_options = self.vpc.connection.create_dhcp_options(domain_name,
-                                                               [internal_dns, external_dns], ntp_server)
+        DhcpConfigurations = []
+        DhcpConfigurations.append({"Name": "domain-name", "Values": [domain_name]})
+        DhcpConfigurations.append({"Name": "domain-name-servers", "Values": [internal_dns, external_dns]})
+        DhcpConfigurations.append({"Name": "ntp-servers", "Values": [ntp_server]})
+
+        dhcp_options = self.client.create_dhcp_options(DhcpConfigurations=DhcpConfigurations)
         keep_trying(300, dhcp_options.add_tag, "Name", self.environment_name)
         return dhcp_options
 
@@ -387,8 +392,7 @@ class DiscoVPC(object):
         import pdb
         pdb.set_trace()
         vpc_cidr = self.get_config("vpc_cidr")
-        client = boto3.client('ec2')
-        vpcs = client.describe_vpcs(Filters=[{'Name': 'tag-value', 'Values': [self.environment_name]}])
+        vpcs = self.client.describe_vpcs(Filters=[{'Name': 'tag-value', 'Values': [self.environment_name]}])
 
         if vpcs is None:
             logging.error("Failed to find vpc : %s", self.environment_name)
@@ -408,7 +412,7 @@ class DiscoVPC(object):
 
         vpc_id = vpc['VpcId']
 
-        sgs = client.describe_security_groups(Filters=[{'Name': 'vpc-id', 'Values': [vpc_id]}])
+        sgs = self.client.describe_security_groups(Filters=[{'Name': 'vpc-id', 'Values': [vpc_id]}])
 
         print sgs
         networks = self.networks
@@ -420,9 +424,8 @@ class DiscoVPC(object):
         vpc_cidr = self.get_config("vpc_cidr")
 
         # Create VPC
-        client = boto3.client('ec2')
-        self.vpc = client.create_vpc(CidrBlock=self.get_config("vpc_cidr"))
-        waiter = client.get_waiter('vpc_available')
+        self.vpc = self.client.create_vpc(CidrBlock=self.get_config("vpc_cidr"))
+        waiter = self.client.get_waiter('vpc_available')
         waiter.wait(VpcIds=[self.vpc['Vpc']['VpcId']])
         ec2 = boto3.resource('ec2')
         vpc = ec2.Vpc(self.vpc['Vpc']['VpcId'])
@@ -512,8 +515,7 @@ class DiscoVPC(object):
 
     def vpc_filter(self):
         """Filter used to get only the current VPC when filtering an AWS reply by 'vpc-id'"""
-        print self.vpc
-        return {"vpc-id": self.vpc['VpcId']}
+        return {"Name": "vpc-id", "Values": [self.vpc['VpcId']]}
 
     def update(self):
         ''' Update an existing VPC '''
@@ -543,25 +545,28 @@ class DiscoVPC(object):
         """ Find all instances in vpc and terminate them """
         autoscale = DiscoAutoscale(environment_name=self.environment_name)
         autoscale.clean_groups(force=True)
-
         instances = [i
-                     for r in self.vpc.connection.get_all_instances(filters=self.vpc_filter())
-                     for i in r.instances]
+                     for r in self.client.describe_instances(Filters=[self.vpc_filter()])['Reservations']
+                     for i in r['Instances']]
 
         if not instances:
             logging.debug("No running instances")
             return
         logging.debug("terminating %s instance(s) %s", len(instances), instances)
 
-        for instance in instances:
-            instance.terminate()
-        for instance in instances:
-            wait_for_state(instance, u'terminated')
+        # for instance in instances:
+        #    instance.terminate()
+        # for instance in instances:
+        #    wait_for_state(instance, u'terminated')
 
+        self.client.terminate_instances(InstanceIds=instances)
+        waiter = self.client.get_waiter('instance_terminated')
+        waiter.wait(InstanceIds=instances,
+                    Filters=[{'Name': 'instance-state-name', 'Values': ['terminated']}]
+                    )
         autoscale.clean_configs()
 
         logging.debug("waiting for instance shutdown scripts")
-        time.sleep(60)  # see http://copperegg.com/hooking-into-the-aws-shutdown-flow/
 
     def _destroy_rds(self, wait=True):
         """ Delete all RDS instances/clusters. Final snapshots are automatically taken. """
@@ -569,7 +574,7 @@ class DiscoVPC(object):
 
     def _destroy_interfaces(self):
         """ Deleting interfaces explicitly lets go of subnets faster """
-        for interface in self.vpc.connection.get_all_network_interfaces(filters=self.vpc_filter()):
+        for interface in self.client.describe_network_interfaces(Filters=[self.vpc_filter()])["NetworkInterfaces"]:
             try:
                 interface.delete()
             except EC2ResponseError:
@@ -578,8 +583,8 @@ class DiscoVPC(object):
 
     def _destroy_subnets(self):
         """ Find all subnets belonging to a vpc and destroy them"""
-        for subnet in self.vpc.connection.get_all_subnets(filters=self.vpc_filter()):
-            self.vpc.connection.delete_subnet(subnet.id)
+        for subnet in self.client.describe_subnets(Filters=[self.vpc_filter()])['Subnets']:
+            self.client.delete_subnet(SubnetId=subnet.id)
 
     def _delete_security_group_rules(self):
         """ Delete all security group rules."""
@@ -607,13 +612,13 @@ class DiscoVPC(object):
     def _destroy_security_groups(self):
         """ Find all security groups belonging to vpc and destroy them."""
         for security_group in self.get_all_security_groups_for_vpc():
-            if security_group.name != u'default':
+            if security_group['GroupName'] != u'default':
                 logging.debug("deleting sg: %s", security_group)
-                self.vpc.connection.delete_security_group(group_id=security_group.id)
+                self.client.delete_security_group(GroupId=security_group['GroupId'])
 
     def get_all_security_groups_for_vpc(self):
         """ Find all security groups belonging to vpc and return them """
-        return self.vpc.connection.get_all_security_groups(filters=self.vpc_filter())
+        return self.client.describe_security_groups(Filters=[self.vpc_filter()])['SecurityGroups']
 
     def _destroy_igws(self):
         """ Find all gateways belonging to vpc and destroy them"""
