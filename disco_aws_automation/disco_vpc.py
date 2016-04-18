@@ -195,9 +195,9 @@ class DiscoVPC(object):
 
         # internal_dns server should be default, and for this reason it comes last.
         DhcpConfigurations = []
-        DhcpConfigurations.append({"Name": "domain-name", "Values": [domain_name]})
-        DhcpConfigurations.append({"Name": "domain-name-servers", "Values": [internal_dns, external_dns]})
-        DhcpConfigurations.append({"Name": "ntp-servers", "Values": [ntp_server]})
+        DhcpConfigurations.append({"Key": "domain-name", "Values": [domain_name]})
+        DhcpConfigurations.append({"Key": "domain-name-servers", "Values": [internal_dns, external_dns]})
+        DhcpConfigurations.append({"Key": "ntp-servers", "Values": [ntp_server]})
 
         dhcp_options = self.client.create_dhcp_options(DhcpConfigurations=DhcpConfigurations)
         keep_trying(300, dhcp_options.add_tag, "Name", self.environment_name)
