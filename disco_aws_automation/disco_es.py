@@ -5,7 +5,8 @@ import logging
 import time
 import boto3
 
-from .disco_route53 import DiscoRoute53
+from boto3.exceptions import Boto3Error
+from botocore.exceptions import BotoCoreError
 from .resource_helper import throttled_call
 from .disco_aws_util import is_truthy
 
@@ -15,10 +16,10 @@ class DiscoES(object):
     A simple class to manage ElasticSearch
     """
 
-    def __init__(self, config):
+    def __init__(self, config, route53):
         self.conn = boto3.client('es')
         self.config = config
-        self.route53 = DiscoRoute53()
+        self.route53 = route53
 
     @property
     def _cluster_name(self):
@@ -75,8 +76,8 @@ class DiscoES(object):
         '''
         try:
             return self._describe_es_domain(cluster_name)['DomainStatus']['Endpoint']
-        except:
-            return False
+        except (BotoCoreError, Boto3Error):
+            return None
 
     def _access_policy(self):
         """

@@ -27,6 +27,7 @@ from .disco_sns import DiscoSNS
 from .disco_rds import DiscoRDS
 from .disco_elb import DiscoELB
 from .disco_es import DiscoES
+from .disco_route53 import DiscoRoute53
 from .exceptions import (
     MultipleVPCsForVPCNameError, TimeoutError, VPCConfigError, VPCEnvironmentError, VPCPeeringSyntaxError,
     VPCNameNotFound)
@@ -37,6 +38,8 @@ VGW_ATTACH_TIME = 600  # seconds. From observation, it takes about 300s to attac
 LIVE_PEERING_STATES = ["pending-acceptance", "provisioning", "active"]
 
 
+# We have a lot of services that need to be destroyed/created alongside VPCs
+# pylint: disable=too-many-instance-attributes
 class DiscoVPC(object):
     """
     This class contains all our VPC orchestration code
@@ -54,8 +57,9 @@ class DiscoVPC(object):
         self._region = None  # lazily initialized
         self._networks = None  # lazily initialized
         self._alarms_config = None  # lazily initialized
-        config_reader = DiscoAWSConfigReader(environment_name, environment_type)
-        self.elasticsearch = DiscoES(config_reader)
+        self.route53 = DiscoRoute53()
+        self.config_reader = DiscoAWSConfigReader(environment_name, environment_type)
+        self.elasticsearch = DiscoES(self.config_reader, self.route53)
         self.rds = DiscoRDS(vpc=self)
         self.elb = DiscoELB(vpc=self)
         self.elasticache = DiscoElastiCache(vpc=self)

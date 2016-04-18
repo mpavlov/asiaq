@@ -1,3 +1,4 @@
+"""Class for reading all AWS configuration information"""
 import boto3
 
 from . import read_config
@@ -9,7 +10,7 @@ class DiscoAWSConfigReader(object):
 
     def __init__(self, environment_name, environment_type, config_aws=None, config_vpc=None):
         self._config_aws = config_aws or None  # Lazily Initialized unless passed in
-        self._config_vpc = config_aws or None  # Lazily Initialized unless passed in
+        self._config_vpc = config_vpc or None  # Lazily Initialized unless passed in
         self.environment_name = environment_name
         self.environment_type = environment_type
         self.env_specific_suffix = "@{}".format(environment_name)
@@ -19,18 +20,21 @@ class DiscoAWSConfigReader(object):
 
     @property
     def session(self):
+        """Boto3 session"""
         if not self._session:
             self._session = boto3.session.Session()
         return self._session
 
     @property
     def account_id(self):
+        """Account id of the current IAM user"""
         if not self._account_id:
             self._account_id = boto3.resource('iam').CurrentUser().arn.split(':')[4]
         return self._account_id
 
     @property
     def region(self):
+        """Current region used by Boto"""
         if not self._region:
             # Doing this requires boto3>=1.2.4
             # Could use undocumented and unsupported workaround for earlier versions:
@@ -40,18 +44,21 @@ class DiscoAWSConfigReader(object):
 
     @property
     def config_aws(self):
+        """The ConfigParser object for the AWS config"""
         if not self._config_aws:
             self._config_aws = read_config()
         return self._config_aws
 
     @property
     def config_vpc(self):
+        """The ConfigParser object for the VPC config"""
         if not self._config_vpc:
             self._config_vpc = read_config("disco_vpc.ini")
         return self._config_vpc
 
     @staticmethod
     def get_default_environment():
+        """Gets the default environment from the config objects"""
         return read_config().get("disco_aws", "default_environment")
 
     def get_es_option(self, option, default=None):
