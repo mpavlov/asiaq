@@ -55,7 +55,6 @@ class DiscoMetaNetwork(object):
         self._subnets = self.subnets
 
     def vpc_filter(self):
-        import pdb; pdb.set_trace()
         vf = self.vpc.vpc_filter()
         return {vf.get('Name'): vf.get('Values')[0]}
 
