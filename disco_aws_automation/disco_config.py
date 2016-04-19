@@ -62,11 +62,11 @@ class DiscoAWSConfigReader(object):
         return read_config().get("disco_aws", "default_environment")
 
     def get_es_option(self, option, default=None):
-        '''Returns appropriate configuration for the current environment'''
+        """Get a value from the elasticsearch config"""
         return self.get_vpc_option(option, default)
 
     def get_vpc_option(self, option, default=None):
-        '''Returns appropriate configuration for the current environment'''
+        """Get a value from the vpc config"""
         env_section = "env:{0}".format(self.environment_name)
         envtype_section = "envtype:{0}".format(self.environment_type)
         peering_section = "peerings"
@@ -83,7 +83,7 @@ class DiscoAWSConfigReader(object):
         return value or default
 
     def get_aws_option(self, option, section=DEFAULT_CONFIG_SECTION, default=None):
-        """Get a value from the config"""
+        """Get a value from the aws config"""
         env_option = "{0}@{1}".format(option, self.environment_name)
         default_option = "default_{0}".format(option)
         default_env_option = "default_{0}".format(env_option)
