@@ -202,7 +202,7 @@ class DiscoVPC(object):
         response = self.client.create_dhcp_options(DhcpConfigurations=DhcpConfigurations)
         ec2 = boto3.resource('ec2')
         dhcp_options = ec2.DhcpOptions(response['DhcpOptions']['DhcpOptionsId'])
-        dhcp_options.create_tag(Tags=[{'Key': 'Name', 'Value': self.environment_name}])
+        dhcp_options.create_tags(Tags=[{'Key': 'Name', 'Value': self.environment_name}])
         return self.client.describe_dhcp_options(
                             DhcpOptionsIds=[response['DhcpOptions']['DhcpOptionsId']]
                                                 )['DhcpOptions']
@@ -440,11 +440,13 @@ class DiscoVPC(object):
 
         dhcp_options = self._configure_dhcp()[0]
         self.client.associate_dhcp_options(DhcpOptionsId=dhcp_options['DhcpOptionsId'],
-                                           VpcId=self.vpc['VpcId'])
+                                           VpcId=self.vpc['Vpc']['VpcId'])
 
         # Enable DNS
-        vpc.modify_attribute(EnableDnsSupport={'Value': True},
-                             EnableDnsHostnames={'Value': True})
+        self.client.modify_vpc_attribute(VpcId=self.vpc['Vpc']['VpcId'],
+                                         EnableDnsSupport={'Value': True})
+        self.client.modify_vpc_attribute(VpcId=self.vpc['Vpc']['VpcId'],
+                                         EnableDnsHostnames={'Value': True})
 
         # Create metanetworks (subnets, route_tables and security groups)
         for network in self.networks.itervalues():
