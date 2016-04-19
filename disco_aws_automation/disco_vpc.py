@@ -86,7 +86,7 @@ class DiscoVPC(object):
 
     def get_vpc_id(self):
         ''' Returns the vpc id '''
-        return self.vpc['VpcId'] if self.vpc else None
+        return self.vpc['Vpc']['VpcId'] if self.vpc['Vpc'] else None
 
     def ami_stage(self):
         '''Returns default AMI stage to deploy in a development environment'''
@@ -522,7 +522,7 @@ class DiscoVPC(object):
 
     def vpc_filter(self):
         """Filter used to get only the current VPC when filtering an AWS reply by 'vpc-id'"""
-        return {"Name": "vpc-id", "Values": [self.vpc['VpcId']]}
+        return {"Name": "vpc-id", "Values": [self.vpc['Vpc']['VpcId']]}
 
     def update(self):
         ''' Update an existing VPC '''
