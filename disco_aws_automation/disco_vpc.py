@@ -25,7 +25,6 @@ from .disco_elasticache import DiscoElastiCache
 from .disco_sns import DiscoSNS
 from .disco_rds import DiscoRDS
 from .disco_elb import DiscoELB
-from .disco_es import DiscoES
 from .exceptions import (
     MultipleVPCsForVPCNameError, TimeoutError, VPCConfigError, VPCEnvironmentError, VPCPeeringSyntaxError,
     VPCNameNotFound)
@@ -53,7 +52,6 @@ class DiscoVPC(object):
         self._region = None  # lazily initialized
         self._networks = None  # lazily initialized
         self._alarms_config = None  # lazily initialized
-        self.elasticsearch = DiscoES(read_config(), read_config(CONFIG_FILE), environment_name, environment_type)
         self.rds = DiscoRDS(vpc=self)
         self.elb = DiscoELB(vpc=self)
         self.elasticache = DiscoElastiCache(vpc=self)
@@ -432,7 +430,6 @@ class DiscoVPC(object):
         self._attach_vgw()
         self.configure_notifications()
         DiscoVPC.create_peering_connections(DiscoVPC.parse_peerings_config(self.vpc.id))
-        self.elasticsearch.create()
         self.rds.update_all_clusters_in_vpc()
 
     def configure_notifications(self):
@@ -480,7 +477,6 @@ class DiscoVPC(object):
         self._destroy_instances()
         self.elb.destroy_all_elbs()
         self._destroy_rds()
-        self.elasticsearch.delete()
         self.elasticache.delete_all_cache_clusters(wait=True)
         self.elasticache.delete_all_subnet_groups()
         self._destroy_interfaces()
