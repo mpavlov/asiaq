@@ -149,8 +149,8 @@ class DiscoVPC(object):
         else:
             raise VPCEnvironmentError("Expect vpc_id or environment_name")
         if vpc['Vpcs']:
-            vpc = vpc['Vpcs'][0]
-            tags = tag2dict(vpc['Tags'])
+            tags = tag2dict(vpc['Vpcs'][0]['Tags'])
+            vpc['Vpc'] = vpc['Vpcs'][0]
             return cls(tags["Name"], tags["type"], vpc)
         else:
             return None
@@ -461,30 +461,32 @@ class DiscoVPC(object):
 
         # Allow ICMP (ping, traceroute & etc) and DNS traffic for all subnets
         for network in self.networks.itervalues():
-            self.vpc.connection.authorize_security_group(
-                group_id=network.security_group.id,
-                ip_protocol="icmp",
-                from_port=-1,
-                to_port=-1,
-                cidr_ip=vpc_cidr
+            self.client.authorize_security_group_ingress(
+                GroupId=network.security_group.id,
+                IpProtocol="icmp",
+                FromPort=-1,
+                ToPort=-1,
+                CidrIp=vpc_cidr
             )
-            self.vpc.connection.authorize_security_group(
-                group_id=network.security_group.id,
-                ip_protocol="udp",
-                from_port=53,
-                to_port=53,
-                cidr_ip=vpc_cidr
+            self.client.authorize_security_group_ingress(
+                GroupId=network.security_group.id,
+                IpProtocol="udp",
+                FromPort=53,
+                ToPort=53,
+                CidrIp=vpc_cidr
             )
 
         # Setup internet gateway
-        internet_gateway = self.vpc.connection.create_internet_gateway()
-        self.vpc.connection.attach_internet_gateway(internet_gateway.id, self.vpc.id)
+        internet_gateway = self.client.create_internet_gateway()
+        reposnse = self.client.attach_internet_gateway(InternetGatewayId=internet_gateway.id,
+                                                       VpcId=self.get_vpc_id())
+        import pdb; pdb.set_trace()
         logging.debug("internet_gateway: %s", internet_gateway)
         self._add_igw_routes(internet_gateway)
 
         self._attach_vgw()
         self.configure_notifications()
-        DiscoVPC.create_peering_connections(DiscoVPC.parse_peerings_config(self.vpc.id))
+        DiscoVPC.create_peering_connections(DiscoVPC.parse_peerings_config(self.get_vpc_id()))
         self.rds.update_all_clusters_in_vpc()
 
     def configure_notifications(self):
