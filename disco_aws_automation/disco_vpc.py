@@ -292,7 +292,7 @@ class DiscoVPC(object):
 
             for igw_route in igw_routes:
                 logging.debug("adding IGW route %s to %s", igw_route, network_name)
-                network.add_route(igw_route, internet_gateway.id)
+                network.add_route(igw_route, internet_gateway['InternetGateway']['InternetGatewayId'])
 
     def _add_vgw_routes(self, virtual_private_gateway):
         logging.debug("Adding VGW routes")
@@ -308,12 +308,12 @@ class DiscoVPC(object):
 
     def _find_vgw(self):
         """Locate VPN Gateway that corresponds to this VPN"""
-        vgw_filter = {"tag:Name": self.environment_name}
-        vgws = self.vpc.connection.get_all_vpn_gateways(filters=vgw_filter)
+        vgw_filter = [{"Name": "tag-value", "Value": self.environment_name}]
+        vgws = self.client.describe_vpn_gateways(Filters=vgw_filter)
         if not vgws:
             logging.debug("Cannot find the required VPN Gateway named %s.", self.environment_name)
             vgws = [None]
-        return vgws[0]
+        return vgws['VpnGateways'][0]
 
     def _check_vgw_states(self, state):
         """Checks if all VPN Gateways are in the desired state"""
@@ -478,9 +478,9 @@ class DiscoVPC(object):
 
         # Setup internet gateway
         internet_gateway = self.client.create_internet_gateway()
-        reposnse = self.client.attach_internet_gateway(InternetGatewayId=internet_gateway.id,
-                                                       VpcId=self.get_vpc_id())
-        import pdb; pdb.set_trace()
+        self.client.attach_internet_gateway(
+                InternetGatewayId=internet_gateway['InternetGateway']['InternetGatewayId'],
+                VpcId=self.get_vpc_id())
         logging.debug("internet_gateway: %s", internet_gateway)
         self._add_igw_routes(internet_gateway)
 
