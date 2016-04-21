@@ -308,11 +308,11 @@ class DiscoVPC(object):
 
     def _find_vgw(self):
         """Locate VPN Gateway that corresponds to this VPN"""
-        vgw_filter = [{"Name": "tag-value", "Value": self.environment_name}]
+        vgw_filter = [{"Name": "tag-value", "Values": [self.environment_name]}]
         vgws = self.client.describe_vpn_gateways(Filters=vgw_filter)
-        if not vgws:
+        if not len(vgws['VpnGateways']):
             logging.debug("Cannot find the required VPN Gateway named %s.", self.environment_name)
-            vgws = [None]
+            return None
         return vgws['VpnGateways'][0]
 
     def _check_vgw_states(self, state):
@@ -393,8 +393,6 @@ class DiscoVPC(object):
 
     def _update_environment(self):
         """Update the disco style environment VPC"""
-        import pdb
-        pdb.set_trace()
         vpc_cidr = self.get_config("vpc_cidr")
         vpcs = self.client.describe_vpcs(Filters=[{'Name': 'tag-value', 'Values': [self.environment_name]}])
 
@@ -593,7 +591,7 @@ class DiscoVPC(object):
     def _destroy_subnets(self):
         """ Find all subnets belonging to a vpc and destroy them"""
         for subnet in self.client.describe_subnets(Filters=[self.vpc_filter()])['Subnets']:
-            self.client.delete_subnet(SubnetId=subnet.id)
+            self.client.delete_subnet(SubnetId=subnet['SubnetId'])
 
     def _delete_security_group_rules(self):
         """ Delete all security group rules."""
@@ -711,7 +709,7 @@ class DiscoVPC(object):
 
         vpc_objects = {
             vpc_name: safe_get_from_list(
-                vpc_conn.get_all_vpcs(filters={'tag:Name': vpc_name}), 0)
+                vpc_conn.describe_vpcs(Filters=[{'Name': 'tag-value', 'Values': [vpc_name]}])['Vpcs'], 0)
             for vpc_name in vpc_type_map.keys()
         }
 
@@ -773,7 +771,7 @@ class DiscoVPC(object):
         peering_configs = {}
         for peering in peerings:
             peering_config = DiscoVPC.parse_peering_connection_line(peering, client)
-            vpc_ids_in_peering = [vpc.vpc.id for vpc in peering_config.get("vpc_map", {}).values()]
+            vpc_ids_in_peering = [vpc.vpc['VpcId'] for vpc in peering_config.get("vpc_map", {}).values()]
 
             if len(vpc_ids_in_peering) < 2:
                 pass  # not all vpcs were up, nothing to do

@@ -77,7 +77,7 @@ def create_vpc_command(args):
         sys.exit(1)
     else:
         vpc = DiscoVPC(args.vpc_name, args.vpc_type)
-        logging.info("VPC %s(%s) has been created", args.vpc_name, vpc.vpc.id)
+        logging.info("VPC %s(%s) has been created", args.vpc_name, vpc.get_vpc_id())
 
 
 def destroy_vpc_command(args):
