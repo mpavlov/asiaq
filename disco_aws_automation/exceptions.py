@@ -125,3 +125,12 @@ class AlarmConfigError(RuntimeError):
 class RDSEnvironmentError(RuntimeError):
     """RDS Generic Error"""
     pass
+
+
+class EIPConfigError(RuntimeError):
+    """Error in Elastic IP Configuration"""
+    pass
+
+class RouteCreationError(RuntimeError):
+    """Error tring to create a route"""
+    pass

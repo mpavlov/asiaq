@@ -13,18 +13,17 @@ from boto.ec2.networkinterface import (
 )
 from boto.exception import EC2ResponseError
 
-from .resource_helper import keep_trying
+from .disco_subnet import DiscoSubnet
+from .resource_helper import (
+    keep_trying,
+    find_or_create
+)
 from .disco_constants import NETWORKS
-from .exceptions import IPRangeError
-
-
-def find_or_create(find, create):
-    """Given a find and a create function, create a resource iff it doesn't exist"""
-    result = find()
-    if result:
-        return result
-    else:
-        return create()
+from .exceptions import (
+    IPRangeError,
+    EIPConfigError,
+    RouteCreationError
+)
 
 
 class DiscoMetaNetwork(object):
@@ -51,6 +50,22 @@ class DiscoMetaNetwork(object):
         self._route_table = self.route_table
         self._security_group = self.security_group
         self._subnets = self.subnets
+
+    def add_nat_gateways(self, allocation_ids):
+        """
+        Creates a NAT gateway in each of the metanetwork's subnet
+        :param allocation_ids: Allocation ids of the Elastic IPs that will be
+                               associated with the NAT gateways
+        """
+        if len(self.subnets) != len(allocation_ids):
+            raise EIPConfigError("The number of subnets does not match with the "
+                                 "number of NAT gateway EIPs provided for {0}: "
+                                 "{1} <> {2}"
+                                 .format(self._resource_name(),
+                                         len(self.subnets),
+                                         len(allocation_ids)))
+        for subnet, allocation_id in zip(self.subnets, allocation_ids):
+            subnet.create_nat_gateway(allocation_id)
 
     @property
     def _resource_filter(self):
@@ -149,9 +164,7 @@ class DiscoMetaNetwork(object):
         subnets = []
         for zone, cidr in zip(zones, zone_cidrs):
             logging.debug("%s %s", zone, cidr)
-            subnet = self.vpc.vpc.connection.create_subnet(self.vpc.vpc.id, cidr, zone.name)
-            self.vpc.vpc.connection.associate_route_table(self.route_table.id, subnet.id)
-            self._tag_resource(subnet, zone.name)
+            subnet = DiscoSubnet(zone.name, self, zone_cidrs)
             subnets.append(subnet)
             logging.debug("%s subnet: %s", self.name, subnet)
 
@@ -200,26 +213,15 @@ class DiscoMetaNetwork(object):
             groups=[self.security_group.id],
         )
 
-    def add_route(self, destination_cidr_block, *args, **kwargs):
-        """ Try adding a route, if fails delete matching CIDR route and try again """
-        try:
-            return self.vpc.vpc.connection.create_route(
-                self.route_table.id,
-                destination_cidr_block,
-                *args,
-                **kwargs
-            )
-        except EC2ResponseError:
-            logging.exception("Failed to create route due to conflict. Deleting old route and re-trying.")
-            self.vpc.vpc.connection.delete_route(self.route_table.id, destination_cidr_block)
-            new_route = self.vpc.vpc.connection.create_route(
-                self.route_table_id,
-                destination_cidr_block,
-                *args,
-                **kwargs
-            )
-            logging.error("Route re-created")
-            return new_route
+    def add_route(self, destination_cidr_block, gateway_id):
+        """ Add a gateway route for all subnets in the metanetwork"""
+        for subnet in self.subnets:
+            if not subnet.add_route_to_gateway(destination_cidr_block, gateway_id):
+                raise RouteCreationError("Failed to create a route for metanetwork-subnet {0}-{1}:"
+                                         "{2} -> {3}".format(self.name,
+                                                             subnet.name,
+                                                             destination_cidr_block,
+                                                             gateway_id))
 
     def add_sg_rule(self, protocol, ports, sg_source=None, cidr_source=None):
         """ Add a security rule to the network """

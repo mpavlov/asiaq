@@ -27,7 +27,7 @@ from .disco_rds import DiscoRDS
 from .disco_elb import DiscoELB
 from .exceptions import (
     MultipleVPCsForVPCNameError, TimeoutError, VPCConfigError, VPCEnvironmentError, VPCPeeringSyntaxError,
-    VPCNameNotFound)
+    VPCNameNotFound, EIPConfigError)
 
 CONFIG_FILE = "disco_vpc.ini"
 VGW_STATE_POLL_INTERVAL = 2  # seconds
@@ -227,6 +227,34 @@ class DiscoVPC(object):
                 src_security_group_group_id=self.networks["dmz"].security_group.id
             )
 
+    def _add_nat_gateways(self, network):
+        eips = self.get_config("{0}_nat_gateways".format(network.name))
+        if not eips:
+            # No config, nothing to do
+            return
+
+        eips = eips.split(",")
+        allocation_ids = []
+        for eip in eips:
+            eip = eip.strip()
+            address = self._find_eip_address(eip)
+            if not address:
+                raise EIPConfigError("Couldn't find Elastic IP: {0}".format(eip))
+
+            address.disassociate()
+            allocation_ids.append(address.allocation_id)
+
+        if not allocation_ids:
+            network.add_nat_gateways(allocation_ids)
+
+    def _find_eip_address(self, eip):
+        address_filter = self.vpc_filter()
+        address_filter['address'] = eip
+        try:
+            return self.vpc.connection.get_all_addresses(filters=address_filter)[0]
+        except IndexError:
+            return None
+
     def _add_sg_rules(self, network):
         rules = self.get_config("{0}_sg_rules".format(network.name))
         if not rules:
@@ -395,6 +423,10 @@ class DiscoVPC(object):
         # Create metanetworks (subnets, route_tables and security groups)
         for network in self.networks.itervalues():
             network.create()
+
+        # Create NAT gateways
+        for network in self.networks.values():
+            self._add_nat_gateways(network)
 
         # Configure security group rules
         for network in self.networks.values():

@@ -1,6 +1,7 @@
 """
 This module has a bunch of functions about waiting for an AWS resource to become available
 """
+import json
 import logging
 import time
 
@@ -16,6 +17,22 @@ from .exceptions import (
 STATE_POLL_INTERVAL = 2  # seconds
 INSTANCE_SSHABLE_POLL_INTERVAL = 15  # seconds
 MAX_POLL_INTERVAL = 60  # seconds
+
+
+def handle_date_format(obj):
+    def date_handler(item):
+        return item.isoformat() if hasattr(item, 'isoformat') else item
+
+    return json.loads(json.dumps(obj, default=date_handler))
+
+
+def find_or_create(find, create):
+    """Given a find and a create function, create a resource iff it doesn't exist"""
+    result = find()
+    if result:
+        return result
+    else:
+        return create()
 
 
 def keep_trying(max_time, fun, *args, **kwargs):
@@ -84,6 +101,31 @@ def throttled_call(fun, *args, **kwargs):
 
 
 def wait_for_state(resource, state, timeout=15 * 60, state_attr='state'):
+    """Wait for an AWS resource to reach a specified state"""
+    time_passed = 0
+    while True:
+        try:
+            resource.update()
+            current_state = getattr(resource, state_attr)
+            if current_state == state:
+                return
+            elif current_state in (u'failed', u'terminated'):
+                raise ExpectedTimeoutError(
+                    "{0} entered state {1} after {2}s waiting for state {3}"
+                    .format(resource, current_state, time_passed, state))
+        except EC2ResponseError:
+            pass  # These are most likely transient, we will timeout if they are not
+
+        if time_passed >= timeout:
+            raise TimeoutError(
+                "Timed out waiting for {0} to change state to {1} after {2}s."
+                .format(resource, state, time_passed))
+
+        time.sleep(STATE_POLL_INTERVAL)
+        time_passed += STATE_POLL_INTERVAL
+
+
+def wait_for_state_boto3(resource, state, timeout=15 * 60, state_attr='state'):
     """Wait for an AWS resource to reach a specified state"""
     time_passed = 0
     while True:

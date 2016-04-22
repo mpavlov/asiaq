@@ -286,6 +286,7 @@ class DiscoRDS(object):
                 not states or instance["DBInstanceStatus"] in states)]
         return vpc_instances
 
+    # TODO: refactoring opportunity, use waiters
     def _wait_for_db_instance_deletions(self, timeout=RDS_DELETE_TIMEOUT):
         instances_waiting_for = []
         time_passed = 0
