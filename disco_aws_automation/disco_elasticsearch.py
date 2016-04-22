@@ -177,9 +177,9 @@ class DiscoElasticsearch(object):
         return self.conn.describe_elasticsearch_domain(DomainName=domain_name)
 
     def get_endpoint(self, domain_name):
-        '''
+        """
         Get Elasticsearch service endpoint
-        '''
+        """
         try:
             return self._describe_es_domain(domain_name)['DomainStatus']['Endpoint']
         except (BotoCoreError, Boto3Error, KeyError):
@@ -223,9 +223,9 @@ class DiscoElasticsearch(object):
         return json.dumps(policy)
 
     def create(self, elasticsearch_name=None, es_config=None):
-        '''
+        """
         Create an ElasticSearch domain.
-        '''
+        """
         if elasticsearch_name:
             desired_elasticsearch_names = [elasticsearch_name]
         else:
@@ -247,9 +247,9 @@ class DiscoElasticsearch(object):
             self._add_route53(domain_name)
 
     def update(self, elasticsearch_name=None, es_config=None):
-        '''
+        """
         Update an ElasticSearch domain.
-        '''
+        """
         if elasticsearch_name:
             desired_elasticsearch_names = [elasticsearch_name]
         else:
@@ -356,7 +356,7 @@ class DiscoElasticsearch(object):
         return config
 
     def get_es_option(self, option, elasticsearch_name):
-        '''Returns appropriate configuration for the current environment'''
+        """Returns appropriate configuration for the current environment"""
         section = "{}:{}".format(self.environment_name, elasticsearch_name)
 
         if self.config_es.has_option(section, option):
@@ -367,7 +367,7 @@ class DiscoElasticsearch(object):
         raise NoOptionError(option, section)
 
     def get_es_option_default(self, option, elasticsearch_name, default=None):
-        '''Returns appropriate configuration for the current environment'''
+        """Returns appropriate configuration for the current environment"""
         try:
             return self.get_es_option(option, elasticsearch_name)
         except NoOptionError:
