@@ -3,6 +3,7 @@ Manage AWS ElasticSearch
 """
 import logging
 import time
+import json
 from ConfigParser import NoOptionError
 
 import boto3
@@ -193,33 +194,33 @@ class DiscoElasticsearch(object):
         proxy_hostclass = self.get_aws_option('http_proxy_hostclass')
         proxy_ip = self.get_hostclass_option('eip', proxy_hostclass)
 
-        policy = '''
-                {{
-                  "Version": "2012-10-17",
-                  "Statement": [
-                    {{
-                      "Effect": "Allow",
-                      "Principal": {{
-                        "AWS": "*"
-                      }},
-                      "Action": "es:*",
-                      "Resource": "arn:aws:es:{region}:{account_id}:domain/{domain_name}/*",
-                      "Condition": {{
-                        "IpAddress": {{
-                          "aws:SourceIp": [
-                            "66.104.227.162",
-                            "38.117.159.162",
-                            "{proxy_ip}"
-                          ]
-                        }}
-                      }}
-                    }}
-                  ]
-                }}
-                '''
+        resource = "arn:aws:es:{region}:{account}:domain/{domain_name}/*".format(region=self.region,
+                                                                                 account=self.account_id,
+                                                                                 domain_name=domain_name)
 
-        return policy.format(region=self.region, account_id=self.account_id,
-                             domain_name=domain_name, proxy_ip=proxy_ip)
+        policy = {
+            "Version": "2012-10-17",
+            "Statement": [
+                {
+                    "Effect": "Allow",
+                    "Principal": {
+                        "AWS": "*"
+                    },
+                    "Action": "es:*",
+                    "Resource": resource,
+                    "Condition": {
+                        "IpAddress": {
+                            "aws:SourceIp": [
+                                "66.104.227.162",
+                                "38.117.159.162",
+                                proxy_ip
+                            ]
+                        }
+                    }
+                }
+            ]
+        }
+        return json.dumps(policy)
 
     def create(self, elasticsearch_name=None, es_config=None):
         '''
