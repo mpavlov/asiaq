@@ -351,6 +351,8 @@ class DiscoAWSTests(TestCase):
             "public_ip": "False",
             "ip_address": None,
             "eip": None,
+            "route": None,
+            "source_dest_check": "yes",
             "domain_name": "example.com",
             "elb": "yes",
             "elb_health_check_url": "/foo"

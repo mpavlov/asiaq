@@ -1234,6 +1234,21 @@ zone.
 Just like with EIPs the `@` notation (see above) can be used to assign
 different private static IP to instance in different IPs.
 
+#### Routing
+
+An instance can be configured to become a sink for particular IP range.
+That is, any packets on the metanetwork will be routed back to an
+instance of specific hostclass. This can be used for sending VPN or
+NATing:
+
+    [myhostclass]
+    route=10.5.5.0/25
+    source_dest_check=False
+
+The source_dest_check is used to allow the instance to receive packets
+whose destination does not match the instance IP. See
+[SourceDestCheck](http://docs.aws.amazon.com/AmazonVPC/latest/UserGuide/VPC_NAT_Instance.html#EIP_Disable_SrcDestCheck)
+for more details.
 
 EBS Snapshots
 -------------
