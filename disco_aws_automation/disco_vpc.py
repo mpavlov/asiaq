@@ -73,8 +73,7 @@ class DiscoVPC(object):
         peering_section = "peerings"
         if self.config.has_option(env_section, option):
             return self.config.get(env_section, option)
-        elif self.config.has_option(envtype_section, option) and \
-                self.config.get(envtype_section, option):
+        elif self.config.has_option(envtype_section, option):
             return self.config.get(envtype_section, option)
         elif self.config.has_option(peering_section, option):
             return self.config.get(peering_section, option)
