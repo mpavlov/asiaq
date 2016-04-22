@@ -26,20 +26,31 @@ def get_parser():
     parser_list.add_argument("--endpoint", dest="endpoint", action='store_const', default=False, const=True,
                              help="Display AWS-provided endpoint")
 
-    parser_create = subparsers.add_parser("create", help="Create an ElasticSearch domain")
+    parser_create = subparsers.add_parser("create",
+                                          help="Create an ElasticSearch domain. If no options are provided, "
+                                          "default behavior is to create all ElasticSearch domains found in "
+                                          "the config.")
     parser_create.set_defaults(mode="create")
     parser_create.add_argument("--name", dest="name", type=str, action="append",
                                help="Name of the ElasticSearch domain")
 
-    parser_update = subparsers.add_parser("update", help="Update an ElasticSearch domain")
+    parser_update = subparsers.add_parser("update",
+                                          help="Update an ElasticSearch domain. If no options are provided, "
+                                          "default behavior is to update all ElasticSearch domains found in "
+                                          "the config.")
     parser_update.set_defaults(mode="update")
     parser_update.add_argument("--name", dest="name", type=str, action="append",
                                help="Name of the ElasticSearch domain")
 
-    parser_delete = subparsers.add_parser("delete", help="Delete an ElasticSearch domain")
+    parser_delete = subparsers.add_parser("delete",
+                                          help="Delete an ElasticSearch domain. If no options are provided, "
+                                          "default behavior is to delete all ElasticSearch domains found in "
+                                          "the config.")
     parser_delete.set_defaults(mode="delete")
     parser_delete.add_argument("--name", dest="name", type=str, action="append",
                                help="Name of the ElasticSearch domain")
+    parser_delete.add_argument("--all", dest="delete_all", action='store_const', default=False, const=True,
+                               help="Delete *all* ElasticSearch domains")
 
     return parser
 
@@ -53,7 +64,7 @@ def run():
     disco_es = DiscoElasticsearch(env)
 
     if args.mode == "list":
-        entries = disco_es.list(args.endpoint)
+        entries = disco_es.list(include_endpoint=args.endpoint)
         headers = ["Elastic Search Domain Name", "Internal Name", "Route 53 Endpoint"]
         format_line = u"{0:<28} {1:<15} {2:<35}"
         if args.endpoint:
@@ -81,11 +92,19 @@ def run():
             disco_es.update()
 
     elif args.mode == "delete":
+        print("Deleting an ElasticSearch domain destroys all automated snapshots of its data. Be careful!")
         if args.name:
-            for name in args.name:
-                disco_es.delete(name)
+            prompt = "Are you sure you want to delete ElasticSearch domains {}? (y/N)".format(args.name)
+            response = raw_input(prompt)
+            if response.lower().startswith("y"):
+                for name in args.name:
+                    disco_es.delete(name)
         else:
-            disco_es.delete()
+            scope = "all configured" if not args.delete_all else "*all*"
+            prompt = "Are you sure you want to delete {} ElasticSearch domains? (y/N)".format(scope)
+            response = raw_input(prompt)
+            if response.lower().startswith("y"):
+                disco_es.delete(delete_all=args.delete_all)
 
 if __name__ == "__main__":
     run_gracefully(run)
