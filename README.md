@@ -27,6 +27,7 @@ Table of Contents
   * [Route53](#route53)
   * [Chaos](#chaos)
   * [ElastiCache](#elasticache)
+  * [Elasticsearch](#elasticsearch)
   * [Testing a hostclass](#testing-hostclasses)
 
 
@@ -1827,7 +1828,7 @@ Options:
 -   `port` Port that Redis should be available on
 -   `parameter_group` The set of Redis parameters to use
 -   `num_nodes` Number of nodes in cache cluster
--   `maintenance_window` specifies the weekly time range (of atleast 1 hour) in UTC during which maintenance on the cache cluster is performed. Default maintenance window is from sat:1:00-sat:2:00 EST or sat 05:00-06:00 UTC. 
+-   `maintenance_window` specifies the weekly time range (of atleast 1 hour) in UTC during which maintenance on the cache cluster is performed. Default maintenance window is from sat:1:00-sat:2:00 EST or sat 05:00-06:00 UTC.
 
 ElastiCache also depends on some configuration from `disco_aws.ini`
 
@@ -1848,6 +1849,81 @@ Create/update the clusters in a environment from the `disco_elasticache.ini conf
 Delete a cache cluster
 
     disco_elasticache.py [--env ENV] delete --cluster CLUSTER
+
+Elasticsearch
+-------------
+
+### Introduction
+Elasticsearch is an AWS service that is capable of indexing and analysizing large amounts of data. A typical use would be analyzing and visualizing logs from instances.
+
+Elasticsearch domains can be created using `disco_elasticsearch.py`. Each environment (VPC) can have multiple Elasticsearch domains. Currently, the domain is managed independent of VPC creation/deletion. An Elasticsearch domain has a service endpoint where we can ship logs to, and interact with it via API calls.
+
+Elasticsearch Domain Name format is:
+
+`es-<elasticsearch_name>-<environment_name>`
+
+Example:
+
+`es-logs-ci`
+
+Elasticsearch Endpoint format is:
+
+`search-<cluster_name>-<cluster_id>.<region>.es.amazonaws.com`
+
+Example:
+
+`search-ci-log-es-nkcqfivhtjxy7ssl4vrr3s5cq4.us-west-2.es.amazonaws.com`
+
+After Elasticsearch cluster has been created, a CNAME record in Route53 for the endpoint is also added.
+Route 53 CNAME format:
+
+`<elasticsearch_domain_name>.<domain_name>`
+
+NOTE: `domain_name` refers to the `default_domain_name` configured in `disco_aws.ini`
+
+Example:
+
+`ci-log-es.aws.wgen.net`
+
+NOTE: Elasticsearch endpoints use an SSL certificate issued to Amazon.com for `*.us-west-2.es.amazonaws.com`. Therefore, we cannot use our CNAME as an endpoint in rsyslog configuration.
+
+### Configuration
+
+ElasticSearch configuration is read from `disco_elasticsearch.ini`.
+
+Here is an explanation of the various options.
+```ini
+# elasticsearch settings (sample config)
+[ENVIRONMENT_NAME:ELASTICSEARCH_NAME]
+instance_type=            # Instances ending in .elasticsearch (required)
+instance_count =          # Total instances number (required)
+dedicated_master=         # Dedicate cluster master
+zone_awareness=           # Use multi-AZ (if enabled min 2 nodes required)
+dedicated_master_type=    # Instances ending in .elasticsearch
+dedicated_master_count=   # Number of master instances (3 recommended for Prod)
+ebs_enabled=              # Enable EBS-base storage
+volume_type=              # standard | gp2 | io1
+volume_size=              # Min: 10(G)
+iops=                     # only for io1 volume type - Min:1000, Max:4000
+snapshot_start_hour=      # UTC format
+```
+
+Additionally, access to the Elasticsearch endpoint is restricted based on IP address via Access Policy. Instances in a VPC need to ship logs to Elasticsearch via a proxy server. This proxy server's IP is read from `disco_aws.ini`. The important options are `proxy_hostclass` in the `disco_aws` section as well as the `eip` in the hostclass section referenced from the `proxy_hostclass` option.
+
+### Kibana
+Amazon Elasticsearch provides a default installation of Kibana with every Amazon Elasticsearch domain. The Kibana interface is accessed via URL with the following format:
+
+`https://<elasticsearch_endpoint>/_plugin/kibana/`
+
+Example:
+
+`https://search-ci-log-es-nkcqfivhtjxy7ssl4vrr3s5cq4.us-west-2.es.amazonaws.com_plugin/kibana/`
+
+The CNAME provided by Route 53 can also be used:
+
+`https://ci-log-es.aws.wgen.net/_plugin/kibana/`
+
+NOTE: When using CNAME, certificate will show as invalid because it was issued for *.us-west-2.es.amazonaws.com.
 
 Testing Hostclasses
 -------------------
