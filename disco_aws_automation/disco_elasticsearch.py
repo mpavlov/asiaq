@@ -359,9 +359,7 @@ class DiscoElasticsearch(object):
         section = "{}:{}".format(self.environment_name, elasticsearch_name)
 
         if self.config_es.has_option(section, option):
-            value = self.config_es.get(section, option)
-            if value:
-                return value
+            return self.config_es.get(section, option)
 
         raise NoOptionError(option, section)
 
@@ -379,21 +377,13 @@ class DiscoElasticsearch(object):
         default_env_option = "default_{0}".format(env_option)
 
         if self.config_aws.has_option(section, env_option):
-            value = self.config_aws.get(section, env_option)
-            if value:
-                return value
+            return self.config_aws.get(section, env_option)
         if self.config_aws.has_option(section, option):
-            value = self.config_aws.get(section, option)
-            if value:
-                return value
+            return self.config_aws.get(section, option)
         elif self.config_aws.has_option(DEFAULT_CONFIG_SECTION, default_env_option):
-            value = self.config_aws.get(DEFAULT_CONFIG_SECTION, default_env_option)
-            if value:
-                return value
+            return self.config_aws.get(DEFAULT_CONFIG_SECTION, default_env_option)
         elif self.config_aws.has_option(DEFAULT_CONFIG_SECTION, default_option):
-            value = self.config_aws.get(DEFAULT_CONFIG_SECTION, default_option)
-            if value:
-                return value
+            return self.config_aws.get(DEFAULT_CONFIG_SECTION, default_option)
 
         raise NoOptionError(option, section)
 
