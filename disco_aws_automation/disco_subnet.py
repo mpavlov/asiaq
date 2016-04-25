@@ -29,6 +29,8 @@ class DiscoSubnet(object):
 
         if route_table_id:
             self._route_table = self._find_route_table_by_id(route_table_id)
+            if not self._route_table:
+                raise RuntimeError("Could not find table by the id {0}".format(route_table_id))
         else:
             self._route_table = find_or_create(
                 self._find_route_table, self._create_and_associate_route_table
@@ -95,10 +97,39 @@ class DiscoSubnet(object):
 
         self._associate_route_table(route_table)
 
-
     def create_nat_gateway(self, eip_allocation_id):
         self.eip_allocation_id = eip_allocation_id
         self._nat_gateway = self.nat_gateway
+
+    def create_peering_routes(self, peering_conn_id, cidr):
+        peering_routes_for_peering = [
+            _ for _ in self.route_table['Routes']
+            if _['VpcPeeringConnectionId'] == peering_conn_id
+        ]
+        if not peering_routes_for_peering:
+            # Create route to the peering connection
+            params = dict()
+            params['RouteTableId'] = self.route_table['RouteTableId']
+            params['DestinationCidrBlock'] = cidr
+            params['VpcPeeringConnectionId'] = peering_conn_id
+
+            peering_routes_for_cidr = [
+                _ for _ in self.route_table['Routes']
+                if _['DestinationCidrBlock'] == cidr
+            ]
+
+            if not peering_routes_for_cidr:
+                logging.info(
+                    'create routes for (route_table: %s, dest_cidr: %s, connection: %s)',
+                    params['RouteTableId'], params['DestinationCidrBlock'],
+                    params['VpcPeeringConnectionId'])
+                self.boto3_ec2.create_route(**params)
+            else:
+                logging.info(
+                    'update routes for (route_table: %s, dest_cidr: %s, connection: %s)',
+                    params['RouteTableId'], params['DestinationCidrBlock'],
+                    params['VpcPeeringConnectionId'])
+                self.boto3_ec2.replace_route(**params)
 
     def add_route_to_gateway(self, destination_cidr_block, gateway_id):
         """ Try adding a route to a gateway, if fails delete matching CIDR route and try again """

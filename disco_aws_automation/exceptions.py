@@ -131,6 +131,7 @@ class EIPConfigError(RuntimeError):
     """Error in Elastic IP Configuration"""
     pass
 
+
 class RouteCreationError(RuntimeError):
-    """Error tring to create a route"""
+    """Error trying to create a route"""
     pass

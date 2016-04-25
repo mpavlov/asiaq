@@ -783,36 +783,15 @@ class DiscoVPC(object):
             _: vpc_map[_].get_config("{0}_cidr".format(vpc_metanetwork_map[_]))
             for _ in vpc_map.keys()
         }
-        route_table_map = {
-            _: vpc_map[_].networks[vpc_metanetwork_map[_]].route_table
+        network_map = {
+            _: vpc_map[_].networks[vpc_metanetwork_map[_]]
             for _ in vpc_map.keys()
         }
-        for vpc_name, route_table in route_table_map.iteritems():
+        for vpc_name, network in network_map.iteritems():
             remote_vpc_names = vpc_map.keys()
             remote_vpc_names.remove(vpc_name)
-            peering_routes_for_peering = [
-                _ for _ in route_table.routes
-                if _.vpc_peering_connection_id == peering_conn
-            ]
-            if not peering_routes_for_peering:
-                peering_routes_for_cidr = [
-                    _ for _ in route_table.routes
-                    if _.destination_cidr_block == cidr_map[remote_vpc_names[0]]
-                ]
-                if not peering_routes_for_cidr:
-                    logging.info(
-                        'create routes for (route_table: %s, dest_cidr: %s, connection: %s)',
-                        route_table.id, cidr_map[remote_vpc_names[0]], peering_conn.id)
-                    vpc_conn.create_route(route_table_id=route_table.id,
-                                          destination_cidr_block=cidr_map[remote_vpc_names[0]],
-                                          vpc_peering_connection_id=peering_conn.id)
-                else:
-                    logging.info(
-                        'update routes for (route_table: %s, dest_cidr: %s, connection: %s)',
-                        route_table.id, cidr_map[remote_vpc_names[0]], peering_conn.id)
-                    vpc_conn.replace_route(route_table_id=route_table.id,
-                                           destination_cidr_block=cidr_map[remote_vpc_names[0]],
-                                           vpc_peering_connection_id=peering_conn.id)
+
+            network.create_peering_route(peering_conn, cidr_map[remote_vpc_names[0]])
 
     @staticmethod
     def list_vpcs():
