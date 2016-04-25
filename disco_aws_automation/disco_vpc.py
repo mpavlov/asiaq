@@ -165,10 +165,6 @@ class DiscoVPC(object):
         rt_filter["route.instance-id"] = instance.id
         return self.vpc.connection.get_all_route_tables(filters=rt_filter)
 
-    def get_route_table(self, metanetwork):
-        """ Returns the route table for a meta network """
-        return self.networks[metanetwork].route_table
-
     def delete_instance_routes(self, instance):
         """ Delete all routes associated with instance """
         route_tables = self.find_instance_route_table(instance)
@@ -241,7 +237,6 @@ class DiscoVPC(object):
             if not address:
                 raise EIPConfigError("Couldn't find Elastic IP: {0}".format(eip))
 
-            address.disassociate()
             allocation_ids.append(address.allocation_id)
 
         if not allocation_ids:
@@ -421,7 +416,7 @@ class DiscoVPC(object):
         vpc_conn.modify_vpc_attribute(self.vpc.id, enable_dns_hostnames=True)
 
         # Create metanetworks (subnets, route_tables and security groups)
-        for network in self.networks.itervalues():
+        for network in self.networks.values():
             network.create()
 
         # Create NAT gateways
@@ -436,7 +431,7 @@ class DiscoVPC(object):
         self._open_customer_ports()
 
         # Allow ICMP (ping, traceroute & etc) and DNS traffic for all subnets
-        for network in self.networks.itervalues():
+        for network in self.networks.values():
             self.vpc.connection.authorize_security_group(
                 group_id=network.security_group.id,
                 ip_protocol="icmp",

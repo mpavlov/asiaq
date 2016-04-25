@@ -272,9 +272,11 @@ class DiscoAWS(object):
             if elb_meta_network_name:
                 elb_meta_network = self.get_meta_network_by_name(elb_meta_network_name)
                 elb_subnets = elb_meta_network.subnets
+                subnets = [subnet.id for subnet in elb_subnets]
             else:
                 elb_meta_network = self.get_meta_network(hostclass)
                 elb_subnets = self.get_subnets(elb_meta_network, hostclass)
+                subnets = [subnet['SubnetId'] for subnet in elb_subnets]
 
             elb_port = int(self.hostclass_option_default(hostclass, "elb_port", 80))
             elb_protocol = self.hostclass_option_default(hostclass, "elb_protocol", None) or \
@@ -286,7 +288,7 @@ class DiscoAWS(object):
             elb = self.elb.get_or_create_elb(
                 hostclass,
                 security_groups=[elb_meta_network.security_group.id],
-                subnets=[subnet.id for subnet in elb_subnets],
+                subnets=subnets,
                 hosted_zone_name=self.hostclass_option_default(hostclass, "domain_name"),
                 health_check_url=self.hostclass_option_default(hostclass, "elb_health_check_url", "/"),
                 instance_protocol=instance_protocol, instance_port=instance_port,
@@ -374,7 +376,7 @@ class DiscoAWS(object):
 
         group = self.autoscale.get_group(
             hostclass=hostclass, launch_config=launch_config.name,
-            vpc_zone_id=",".join([subnet.id for subnet in self.get_subnets(meta_network, hostclass)]),
+            vpc_zone_id=",".join([subnet['SubnetId'] for subnet in self.get_subnets(meta_network, hostclass)]),
             min_size=DiscoAWS._size_as_minimum_int_or_none(min_size),
             max_size=DiscoAWS._size_as_maximum_int_or_none(max_size),
             desired_size=DiscoAWS._size_as_maximum_int_or_none(desired_size),

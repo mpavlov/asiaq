@@ -34,7 +34,7 @@ class DiscoMetaNetwork(object):
     def __init__(self, name, vpc):
         self.vpc = vpc
         self.name = name
-        self._route_table = None  # lazily initialized
+        self._centralized_route_table = None  # lazily initialized
         self._security_group = None  # lazily initialized
         self._subnets = None  # lazily initialized
 
@@ -47,7 +47,7 @@ class DiscoMetaNetwork(object):
         Metanetwork is initialized lazily. This forces creation of all
         components.
         """
-        self._route_table = self.route_table
+        self._centralized_route_table = self.centralized_route_table
         self._security_group = self.security_group
         self._subnets = self.subnets
 
@@ -60,10 +60,18 @@ class DiscoMetaNetwork(object):
         if len(self.subnets) != len(allocation_ids):
             raise EIPConfigError("The number of subnets does not match with the "
                                  "number of NAT gateway EIPs provided for {0}: "
-                                 "{1} <> {2}"
+                                 "{1} != {2}"
                                  .format(self._resource_name(),
                                          len(self.subnets),
                                          len(allocation_ids)))
+
+        if self.centralized_route_table:
+            for subnet in self.subnets:
+                subnet.recreate_route_table()
+
+            self.vpc.vpc.connection.delete_route_table(self.cenralized_route_table.id)
+            self.centralized_route_table = None
+
         for subnet, allocation_id in zip(self.subnets, allocation_ids):
             subnet.create_nat_gateway(allocation_id)
 
@@ -78,27 +86,22 @@ class DiscoMetaNetwork(object):
         keep_trying(300, resource.add_tag, "meta_network", self.name)
 
     @property
-    def route_table(self):
-        '''Finds or creates the route table for our metanetwork'''
-        if not self._route_table:
-            self._route_table = find_or_create(
-                self._find_route_table, self._create_route_table
-            )
-        return self._route_table
+    def centralized_route_table(self):
+        '''Finds the centralized route table for our metanetwork'''
+        if not self._centralized_route_table:
+            self._centralized_route_table = self._find_centralized_route_table()
+        return self._centralized_route_table
 
-    def _find_route_table(self):
-        try:
-            return self.vpc.vpc.connection.get_all_route_tables(
-                filters=self._resource_filter
-            )[0]
-        except IndexError:
+    def _find_centralized_route_table(self):
+        route_tables = self.vpc.vpc.connection.get_all_route_tables(
+            filters=self._resource_filter
+        )
+        if len(route_tables) != 1:
+            # If the number of route tables is more than one, it means there is
+            # one route table per subnet, therefore don't return anything.
             return None
 
-    def _create_route_table(self):
-        route_table = self.vpc.vpc.connection.create_route_table(self.vpc.vpc.id)
-        self._tag_resource(route_table)
-        logging.debug("%s route table: %s", self.name, self._route_table)
-        return route_table
+        return route_tables[0]
 
     @property
     def security_group(self):
@@ -134,17 +137,10 @@ class DiscoMetaNetwork(object):
 
     @property
     def subnets(self):
-        '''Finds or creates the subnets for our metanetwork'''
+        '''Creates the subnets for our metanetwork'''
         if not self._subnets:
-            self._subnets = find_or_create(
-                self._find_subnets, self._create_subnets
-            )
+            self._subnets = self._create_subnets()
         return self._subnets
-
-    def _find_subnets(self):
-        return self.vpc.vpc.connection.get_all_subnets(
-            filters=self._resource_filter
-        )
 
     def _create_subnets(self):
         logging.debug("creating subnets")
@@ -164,7 +160,8 @@ class DiscoMetaNetwork(object):
         subnets = []
         for zone, cidr in zip(zones, zone_cidrs):
             logging.debug("%s %s", zone, cidr)
-            subnet = DiscoSubnet(zone.name, self, zone_cidrs)
+            subnet = DiscoSubnet(zone.name, self, zone_cidrs,
+                                 self.centralized_route_table.id if self.centralized_route_table else None)
             subnets.append(subnet)
             logging.debug("%s subnet: %s", self.name, subnet)
 
@@ -174,7 +171,7 @@ class DiscoMetaNetwork(object):
         """ Return the subnet to which the ip address belongs to """
         ip_address = IPAddress(ip_address)
         for subnet in self.subnets:
-            cidr = IPNetwork(subnet.cidr_block)
+            cidr = IPNetwork(subnet['CidrBlock'])
             if ip_address >= cidr[0] and ip_address <= cidr[-1]:
                 return subnet
         raise IPRangeError("IP {0} is not in Metanetwork ({1}) range.".format(ip_address, self.name))
@@ -207,21 +204,41 @@ class DiscoMetaNetwork(object):
 
         subnet = self.subnet_by_ip(private_ip)
         return self.vpc.vpc.connection.create_network_interface(
-            subnet_id=subnet.id,
+            subnet_id=subnet['SubnetId'],
             private_ip_address=private_ip,
             description="floating interface",
             groups=[self.security_group.id],
         )
 
     def add_route(self, destination_cidr_block, gateway_id):
-        """ Add a gateway route for all subnets in the metanetwork"""
-        for subnet in self.subnets:
-            if not subnet.add_route_to_gateway(destination_cidr_block, gateway_id):
-                raise RouteCreationError("Failed to create a route for metanetwork-subnet {0}-{1}:"
-                                         "{2} -> {3}".format(self.name,
-                                                             subnet.name,
-                                                             destination_cidr_block,
-                                                             gateway_id))
+        """ Add a gateway route to the centralized route table or to all the
+        subnets' route tables"""
+
+        if self.centralized_route_table:
+            try:
+                return self.vpc.vpc.connection.create_route(
+                    self.route_table.id,
+                    destination_cidr_block,
+                    gateway_id
+                )
+            except EC2ResponseError:
+                logging.exception("Failed to create route due to conflict. Deleting old route and re-trying.")
+                self.vpc.vpc.connection.delete_route(self.route_table.id, destination_cidr_block)
+                new_route = self.vpc.vpc.connection.create_route(
+                    self.route_table_id,
+                    destination_cidr_block,
+                    gateway_id
+                )
+                logging.error("Route re-created")
+                return new_route
+        else:
+            for subnet in self.subnets:
+                if not subnet.add_route_to_gateway(destination_cidr_block, gateway_id):
+                    raise RouteCreationError("Failed to create a route for metanetwork-subnet {0}-{1}:"
+                                             "{2} -> {3}".format(self.name,
+                                                                 subnet.name,
+                                                                 destination_cidr_block,
+                                                                 gateway_id))
 
     def add_sg_rule(self, protocol, ports, sg_source=None, cidr_source=None):
         """ Add a security rule to the network """
