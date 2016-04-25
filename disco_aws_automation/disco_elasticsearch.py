@@ -121,20 +121,19 @@ class DiscoElasticsearch(object):
         """
         domain_infos = []
         for domain_name in self._list():
-            try:
-                # Somewhat annoying logic to handle the fact that elasticsearch names are allowed to have '-'
-                # in them.
-                domain_name_components = domain_name.split("-")
-                prefix = domain_name_components[0]
-                environment_name = domain_name_components[-1]
-                elasticsearch_name = "-".join(domain_name_components[1:-1])
-            except (ValueError, KeyError):
-                logging.info("Could not parse ElasticSearch domain %s, expected format 'es-$name-$env'")
-                continue
+            # Somewhat annoying logic to handle the fact that elasticsearch names are allowed to have '-'
+            # in them.
+            domain_name_components = domain_name.split("-")
+            prefix = domain_name_components[0]
+            environment_name = domain_name_components[-1]
+            elasticsearch_name = "-".join(domain_name_components[1:-1])
             if prefix != "es":
-                logging.info("Could not parse ElasticSearch domain %s, expected format 'es-$name-$env'")
+                logging.info("Could not parse ElasticSearch domain %s, expected format 'es-$name-$env'",
+                             domain_name)
+                continue
             if environment_name != self.environment_name:
-                logging.debug("ElasticSearch domain %s is associated with a different environment, ignoring")
+                logging.debug("ElasticSearch domain %s is associated with a different environment, ignoring",
+                              domain_name)
                 continue
 
             domain_info = {}
