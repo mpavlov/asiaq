@@ -274,8 +274,7 @@ class DiscoRDS(object):
         keep_trying(RDS_STATE_POLL_INTERVAL,
                     self.client.reboot_db_instance,
                     DBInstanceIdentifier=instance_params["DBInstanceIdentifier"],
-                    ForceFailover=False
-                   )
+                    ForceFailover=False)
 
     def get_db_instances(self, status=None):
         """
