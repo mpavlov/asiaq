@@ -6,6 +6,7 @@ import random
 from unittest import TestCase
 from mock import MagicMock
 from disco_aws_automation import DiscoElasticsearch
+from disco_aws_automation.disco_aws_util import is_truthy
 from test.helpers.patch_disco_aws import get_mock_config
 
 MOCK_AWS_CONFIG_DEFINITON = {
@@ -21,10 +22,15 @@ MOCK_AWS_CONFIG_DEFINITON = {
 MOCK_ELASTICSEARCH_CONFIG_DEFINITON = {
     "foo:logs": {
         "instance_type": "t2.medium.elasticsearch",
-        "instance_count": "1",
-        "ebs_enabled": "True",
-        "volume_type": "standard",
+        "instance_count": "3",
+        "dedicated_master": "yes",
+        "zone_awareness": "true",
+        "dedicated_master_type": "t2.medium.elasticsearch",
+        "dedicated_master_count": "1",
+        "ebs_enabled": "true",
+        "volume_type": "io1",
         "volume_size": "10",
+        "iops": "10000",
         "snapshot_start_hour": "5"
     },
     "foo:other-logs": {
@@ -136,6 +142,24 @@ class DiscoElastiSearchTests(TestCase):
         self._es.create("logs")
         self.assertEquals(["logs"], [info["internal_name"] for info in self._es.list()])
 
+    def test_list_domains_with_domain_from_different_environment(self):
+        """If we list domains with a domain from a different environment, we shouldn't see that domain"""
+        es_config = self._es._get_es_config("logs")
+        self._es.create("logs", es_config)
+        es_config["DomainName"] = "es-other-logs-bar"
+        self._es.conn.create_elasticsearch_domain(**es_config)
+        self.assertEquals(["logs"], [info["internal_name"] for info in self._es.list()])
+
+    def test_list_domains_with_domain_with_a_bad_format(self):
+        """If we list domains with a domain with a bad format, we shouldn't see that domain"""
+        es_config = self._es._get_es_config("logs")
+        self._es.create("logs", es_config)
+        es_config["DomainName"] = "someother_format"
+        self._es.conn.create_elasticsearch_domain(**es_config)
+        es_config["DomainName"] = "someotherprefix-other-logs-foo"
+        self._es.conn.create_elasticsearch_domain(**es_config)
+        self.assertEquals(["logs"], [info["internal_name"] for info in self._es.list()])
+
     def test_list_domains_with_endpoints(self):
         """If we list domains with endpoints, we should get endpoints"""
         self._es.create("logs")
@@ -172,7 +196,24 @@ class DiscoElastiSearchTests(TestCase):
                           MOCK_ELASTICSEARCH_CONFIG_DEFINITON[config_section]["instance_type"])
         self.assertEquals(domain_config["ElasticsearchClusterConfig"]["InstanceCount"],
                           int(MOCK_ELASTICSEARCH_CONFIG_DEFINITON[config_section]["instance_count"]))
-        # TODO: Check all config options
+        self.assertEquals(domain_config["ElasticsearchClusterConfig"]["DedicatedMasterEnabled"],
+                          is_truthy(MOCK_ELASTICSEARCH_CONFIG_DEFINITON[config_section]["dedicated_master"]))
+        self.assertEquals(domain_config["ElasticsearchClusterConfig"]["ZoneAwarenessEnabled"],
+                          is_truthy(MOCK_ELASTICSEARCH_CONFIG_DEFINITON[config_section]["zone_awareness"]))
+        self.assertEquals(domain_config["ElasticsearchClusterConfig"]["DedicatedMasterType"],
+                          MOCK_ELASTICSEARCH_CONFIG_DEFINITON[config_section]["dedicated_master_type"])
+        self.assertEquals(domain_config["ElasticsearchClusterConfig"]["DedicatedMasterCount"],
+                          int(MOCK_ELASTICSEARCH_CONFIG_DEFINITON[config_section]["dedicated_master_count"]))
+        self.assertEquals(domain_config["EBSOptions"]["EBSEnabled"],
+                          is_truthy(MOCK_ELASTICSEARCH_CONFIG_DEFINITON[config_section]["ebs_enabled"]))
+        self.assertEquals(domain_config["EBSOptions"]["Iops"],
+                          int(MOCK_ELASTICSEARCH_CONFIG_DEFINITON[config_section]["iops"]))
+        self.assertEquals(domain_config["EBSOptions"]["VolumeSize"],
+                          int(MOCK_ELASTICSEARCH_CONFIG_DEFINITON[config_section]["volume_size"]))
+        self.assertEquals(domain_config["EBSOptions"]["VolumeType"],
+                          MOCK_ELASTICSEARCH_CONFIG_DEFINITON[config_section]["volume_type"])
+        self.assertEquals(domain_config["SnapshotOptions"]["AutomatedSnapshotStartHour"],
+                          int(MOCK_ELASTICSEARCH_CONFIG_DEFINITON[config_section]["snapshot_start_hour"]))
 
     def test_create_domain_twice_is_idempotent(self):
         """Verify that creating a domain twice is ignored and has no effect"""
@@ -232,6 +273,21 @@ class DiscoElastiSearchTests(TestCase):
         desired_instance_type = "m3.xlarge.elasticsearch"
         es_config["ElasticsearchClusterConfig"]["InstanceType"] = desired_instance_type
         self._es.update(elasticsearch_name, es_config)
+        new_config = self._es._describe_es_domain(self._es.get_domain_name(elasticsearch_name))
+        new_instance_type = new_config["DomainStatus"]["ElasticsearchClusterConfig"]["InstanceType"]
+        self.assertNotEquals(original_instance_type, new_instance_type)
+        self.assertEquals(new_instance_type, desired_instance_type)
+
+    def test_can_create_and_then_update_all_domains(self):
+        """Verify that a domain can be created and then updated"""
+        elasticsearch_name = "logs"
+        es_config = self._es._get_es_config(elasticsearch_name)
+        self._es.create(elasticsearch_name, es_config)
+        original_config = self._es._describe_es_domain(self._es.get_domain_name(elasticsearch_name))
+        original_instance_type = original_config["DomainStatus"]["ElasticsearchClusterConfig"]["InstanceType"]
+        desired_instance_type = "m3.xlarge.elasticsearch"
+        es_config["ElasticsearchClusterConfig"]["InstanceType"] = desired_instance_type
+        self._es.update(es_config=es_config)
         new_config = self._es._describe_es_domain(self._es.get_domain_name(elasticsearch_name))
         new_instance_type = new_config["DomainStatus"]["ElasticsearchClusterConfig"]["InstanceType"]
         self.assertNotEquals(original_instance_type, new_instance_type)
