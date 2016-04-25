@@ -47,7 +47,7 @@ class DiscoSubnet(object):
 
     @property
     def subnet(self):
-        '''Finds or creates the AWS subnet'''
+        """Finds or creates the AWS subnet"""
         if not self._subnet:
             self._subnet = find_or_create(
                 self._find_subnet, self._create_subnet
@@ -56,12 +56,12 @@ class DiscoSubnet(object):
 
     @property
     def route_table(self):
-        '''Returns the route table for our subnet'''
+        """Returns the route table for our subnet"""
         return self._route_table
 
     @property
     def nat_gateway(self):
-        '''Finds or creates the NAT gateway for our subnet if needed'''
+        """Finds or creates the NAT gateway for our subnet if needed"""
         # TODO: make sure nat_eip_allocation_id matches with the one currently in nat_gateway
 
         if self.nat_eip_allocation_id and not self._nat_gateway:
@@ -81,6 +81,7 @@ class DiscoSubnet(object):
         return resource_filter
 
     def recreate_route_table(self):
+        """ Re-create the route table with all the routes from the current route table """
         route_table = self._create_route_table()
 
         if self.route_table:
@@ -98,10 +99,12 @@ class DiscoSubnet(object):
         self._associate_route_table(route_table)
 
     def create_nat_gateway(self, eip_allocation_id):
+        """ Create a NAT gateway for the subnet"""
         self.eip_allocation_id = eip_allocation_id
         self._nat_gateway = self.nat_gateway
 
     def create_peering_routes(self, peering_conn_id, cidr):
+        """ create/update a route between the peering connection and the current subnet. """
         peering_routes_for_peering = [
             _ for _ in self.route_table['Routes']
             if _['VpcPeeringConnectionId'] == peering_conn_id

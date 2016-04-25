@@ -258,6 +258,9 @@ class DiscoMetaNetwork(object):
                                                                  gateway_id))
 
     def create_peering_route(self, peering_conn, cidr):
+        """ create/update a route between the peering connection and all the subnets.
+        If a centralized route table is used, add the rout there. If not, add the route
+        to all the subnets. """
         if self.centralized_route_table:
             peering_routes_for_peering = [
                 _ for _ in self.centralized_route_table.routes
