@@ -125,31 +125,6 @@ def wait_for_state(resource, state, timeout=15 * 60, state_attr='state'):
         time_passed += STATE_POLL_INTERVAL
 
 
-def wait_for_state_boto3(resource, state, timeout=15 * 60, state_attr='state'):
-    """Wait for an AWS resource to reach a specified state"""
-    time_passed = 0
-    while True:
-        try:
-            resource.update()
-            current_state = getattr(resource, state_attr)
-            if current_state == state:
-                return
-            elif current_state in (u'failed', u'terminated'):
-                raise ExpectedTimeoutError(
-                    "{0} entered state {1} after {2}s waiting for state {3}"
-                    .format(resource, current_state, time_passed, state))
-        except EC2ResponseError:
-            pass  # These are most likely transient, we will timeout if they are not
-
-        if time_passed >= timeout:
-            raise TimeoutError(
-                "Timed out waiting for {0} to change state to {1} after {2}s."
-                .format(resource, state, time_passed))
-
-        time.sleep(STATE_POLL_INTERVAL)
-        time_passed += STATE_POLL_INTERVAL
-
-
 def wait_for_sshable(remotecmd, instance, timeout=15 * 60, quiet=False):
     """Returns True when host is up and sshable
     returns False on timeout
