@@ -154,13 +154,6 @@ class DiscoAWS(object):
         data["floating_ip"] = data["floating_ips"].split()[0] if data["floating_ips"] else ""
         smoketest_termination = is_truthy(self.hostclass_option(hostclass, "smoketest_termination"))
         data["smoketest_termination"] = "1" if smoketest_termination else "0"
-        route = self.hostclass_option_default(hostclass, "route")
-        if route:
-            meta_network = self.hostclass_option(hostclass, "meta_network")
-            _tmp = [[self.vpc.get_route_table(meta_network).id, cidr] for cidr in route.split()]
-            for _ in xrange(0, len(_tmp)):
-                data["route_table_id_{0}".format(_)] = _tmp[_][0]
-                data["destination_cidr_block_{0}".format(_)] = _tmp[_][1]
         data["project_name"] = self.config("project_name")
         logging.debug("userdata: %s", data)
         return data
