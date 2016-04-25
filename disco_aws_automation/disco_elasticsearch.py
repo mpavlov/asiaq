@@ -184,7 +184,7 @@ class DiscoElasticsearch(object):
         except (BotoCoreError, Boto3Error, KeyError):
             return None
 
-    def _access_policy(self, domain_name):
+    def _access_policy(self, domain_name, allowed_source_ips):
         """
         Construct an access policy for the new Elasticsearch cluster. Needs to be dynamically created because
         it will use the environment's proxy hostclass to forward requests to the elasticsearch cluster and the
@@ -192,6 +192,8 @@ class DiscoElasticsearch(object):
         """
         proxy_hostclass = self.get_aws_option('http_proxy_hostclass')
         proxy_ip = self.get_hostclass_option('eip', proxy_hostclass)
+
+        allowed_source_ips.append(proxy_ip)
 
         resource = "arn:aws:es:{region}:{account}:domain/{domain_name}/*".format(region=self.region,
                                                                                  account=self.account_id,
@@ -209,11 +211,7 @@ class DiscoElasticsearch(object):
                     "Resource": resource,
                     "Condition": {
                         "IpAddress": {
-                            "aws:SourceIp": [
-                                "66.104.227.162",
-                                "38.117.159.162",
-                                proxy_ip
-                            ]
+                            "aws:SourceIp": allowed_source_ips
                         }
                     }
                 }
@@ -344,11 +342,14 @@ class DiscoElasticsearch(object):
 
         domain_name = self.get_domain_name(elasticsearch_name)
 
+        # Treat 'allowed_source_ips' as a space separated list of IP addresses and make it into a list
+        allowed_source_ips = self.get_es_option_default("allowed_source_ips", elasticsearch_name, "").split()
+
         config = {
             'DomainName': domain_name,
             'ElasticsearchClusterConfig': es_cluster_config,
             'EBSOptions': ebs_option,
-            'AccessPolicies': self._access_policy(domain_name),
+            'AccessPolicies': self._access_policy(domain_name, allowed_source_ips),
             'SnapshotOptions': snapshot_options
         }
 

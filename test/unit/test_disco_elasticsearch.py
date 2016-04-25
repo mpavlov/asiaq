@@ -2,6 +2,7 @@
 Tests of disco_elasticache
 """
 import random
+import json
 
 from unittest import TestCase
 from mock import MagicMock
@@ -19,19 +20,20 @@ MOCK_AWS_CONFIG_DEFINITON = {
     }
 }
 
-MOCK_ELASTICSEARCH_CONFIG_DEFINITON = {
+MOCK_ES_CONFIG_DEFINITON = {
     "foo:logs": {
-        "instance_type": "t2.medium.elasticsearch",
+        "instance_type": "m3.medium.elasticsearch",
         "instance_count": "3",
         "dedicated_master": "yes",
         "zone_awareness": "true",
-        "dedicated_master_type": "t2.medium.elasticsearch",
+        "dedicated_master_type": "m3.medium.elasticsearch",
         "dedicated_master_count": "1",
         "ebs_enabled": "true",
         "volume_type": "io1",
         "volume_size": "10",
         "iops": "10000",
-        "snapshot_start_hour": "5"
+        "snapshot_start_hour": "5",
+        "allowed_source_ips": "192.0.2.100 192.0.2.200"
     },
     "foo:other-logs": {
         "instance_type": "t2.medium.elasticsearch",
@@ -64,7 +66,7 @@ class DiscoElastiSearchTests(TestCase):
         self.mock_route_53 = _get_mock_route53()
 
         config_aws = get_mock_config(MOCK_AWS_CONFIG_DEFINITON)
-        config_es = get_mock_config(MOCK_ELASTICSEARCH_CONFIG_DEFINITON)
+        config_es = get_mock_config(MOCK_ES_CONFIG_DEFINITON)
         self.account_id = ''.join(random.choice("0123456789") for _ in range(12))
         self.region = "us-west-2"
         self.environment_name = "foo"
@@ -193,27 +195,32 @@ class DiscoElastiSearchTests(TestCase):
         self.assertIn(domain_name, self._es._list())
         domain_config = self._es._describe_es_domain(domain_name)["DomainStatus"]
         self.assertEquals(domain_config["ElasticsearchClusterConfig"]["InstanceType"],
-                          MOCK_ELASTICSEARCH_CONFIG_DEFINITON[config_section]["instance_type"])
+                          MOCK_ES_CONFIG_DEFINITON[config_section]["instance_type"])
         self.assertEquals(domain_config["ElasticsearchClusterConfig"]["InstanceCount"],
-                          int(MOCK_ELASTICSEARCH_CONFIG_DEFINITON[config_section]["instance_count"]))
+                          int(MOCK_ES_CONFIG_DEFINITON[config_section]["instance_count"]))
         self.assertEquals(domain_config["ElasticsearchClusterConfig"]["DedicatedMasterEnabled"],
-                          is_truthy(MOCK_ELASTICSEARCH_CONFIG_DEFINITON[config_section]["dedicated_master"]))
+                          is_truthy(MOCK_ES_CONFIG_DEFINITON[config_section]["dedicated_master"]))
         self.assertEquals(domain_config["ElasticsearchClusterConfig"]["ZoneAwarenessEnabled"],
-                          is_truthy(MOCK_ELASTICSEARCH_CONFIG_DEFINITON[config_section]["zone_awareness"]))
+                          is_truthy(MOCK_ES_CONFIG_DEFINITON[config_section]["zone_awareness"]))
         self.assertEquals(domain_config["ElasticsearchClusterConfig"]["DedicatedMasterType"],
-                          MOCK_ELASTICSEARCH_CONFIG_DEFINITON[config_section]["dedicated_master_type"])
+                          MOCK_ES_CONFIG_DEFINITON[config_section]["dedicated_master_type"])
         self.assertEquals(domain_config["ElasticsearchClusterConfig"]["DedicatedMasterCount"],
-                          int(MOCK_ELASTICSEARCH_CONFIG_DEFINITON[config_section]["dedicated_master_count"]))
+                          int(MOCK_ES_CONFIG_DEFINITON[config_section]["dedicated_master_count"]))
         self.assertEquals(domain_config["EBSOptions"]["EBSEnabled"],
-                          is_truthy(MOCK_ELASTICSEARCH_CONFIG_DEFINITON[config_section]["ebs_enabled"]))
+                          is_truthy(MOCK_ES_CONFIG_DEFINITON[config_section]["ebs_enabled"]))
         self.assertEquals(domain_config["EBSOptions"]["Iops"],
-                          int(MOCK_ELASTICSEARCH_CONFIG_DEFINITON[config_section]["iops"]))
+                          int(MOCK_ES_CONFIG_DEFINITON[config_section]["iops"]))
         self.assertEquals(domain_config["EBSOptions"]["VolumeSize"],
-                          int(MOCK_ELASTICSEARCH_CONFIG_DEFINITON[config_section]["volume_size"]))
+                          int(MOCK_ES_CONFIG_DEFINITON[config_section]["volume_size"]))
         self.assertEquals(domain_config["EBSOptions"]["VolumeType"],
-                          MOCK_ELASTICSEARCH_CONFIG_DEFINITON[config_section]["volume_type"])
+                          MOCK_ES_CONFIG_DEFINITON[config_section]["volume_type"])
         self.assertEquals(domain_config["SnapshotOptions"]["AutomatedSnapshotStartHour"],
-                          int(MOCK_ELASTICSEARCH_CONFIG_DEFINITON[config_section]["snapshot_start_hour"]))
+                          int(MOCK_ES_CONFIG_DEFINITON[config_section]["snapshot_start_hour"]))
+        expected_source_ips = MOCK_ES_CONFIG_DEFINITON[config_section]["allowed_source_ips"].split()
+        expected_source_ips.append(MOCK_AWS_CONFIG_DEFINITON["mhcproxy"]["eip"])
+        access_policy = json.loads(domain_config["AccessPolicies"])
+        actual_source_ips = access_policy["Statement"][0]["Condition"]["IpAddress"]["aws:SourceIp"]
+        self.assertEquals(set(actual_source_ips), set(expected_source_ips))
 
     def test_create_domain_twice_is_idempotent(self):
         """Verify that creating a domain twice is ignored and has no effect"""

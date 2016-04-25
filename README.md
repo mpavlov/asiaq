@@ -1906,6 +1906,7 @@ volume_type=              # standard | gp2 | io1
 volume_size=              # Min: 10(G)
 iops=                     # only for io1 volume type - Min:1000, Max:4000
 snapshot_start_hour=      # UTC format
+allowed_source_ips=       # A space separated list of IPs that allowed to interact with the ElasticSearch domain.
 ```
 
 Additionally, access to the Elasticsearch endpoint is restricted based on IP address via Access Policy. Instances in a VPC need to ship logs to Elasticsearch via a proxy server. This proxy server's IP is read from `disco_aws.ini`. The important options are `proxy_hostclass` in the `disco_aws` section as well as the `eip` in the hostclass section referenced from the `proxy_hostclass` option.
