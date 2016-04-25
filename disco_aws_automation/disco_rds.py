@@ -275,7 +275,7 @@ class DiscoRDS(object):
                     self.client.reboot_db_instance,
                     DBInstanceIdentifier=instance_params["DBInstanceIdentifier"],
                     ForceFailover=False
-                    )
+                   )
 
     def get_db_instances(self, status=None):
         """
