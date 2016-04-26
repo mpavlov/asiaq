@@ -26,14 +26,6 @@ def get_parser():
     parser_list.add_argument("--endpoint", dest="endpoint", action='store_const', default=False, const=True,
                              help="Display AWS-provided endpoint")
 
-    parser_create = subparsers.add_parser("create",
-                                          help="Create an ElasticSearch domain. If no options are provided, "
-                                          "default behavior is to create all ElasticSearch domains found in "
-                                          "the config.")
-    parser_create.set_defaults(mode="create")
-    parser_create.add_argument("--name", dest="name", type=str, action="append",
-                               help="Name of the ElasticSearch domain")
-
     parser_update = subparsers.add_parser("update",
                                           help="Update an ElasticSearch domain. If no options are provided, "
                                           "default behavior is to update all ElasticSearch domains found in "

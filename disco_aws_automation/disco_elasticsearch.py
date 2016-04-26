@@ -219,56 +219,70 @@ class DiscoElasticsearch(object):
         }
         return json.dumps(policy)
 
-    def create(self, elasticsearch_name=None, es_config=None):
-        """
-        Create an ElasticSearch domain.
-        """
-        if elasticsearch_name:
-            desired_elasticsearch_names = [elasticsearch_name]
-        else:
-            desired_elasticsearch_names = self._get_elasticsearch_names()
-
-        all_elasticsearch_names = [domain_info["internal_name"] for domain_info in self.list()]
-
-        for elasticsearch_name in desired_elasticsearch_names:
-            domain_name = self.get_domain_name(elasticsearch_name)
-            if elasticsearch_name in all_elasticsearch_names:
-                logging.info('ElasticSearch domain %s already exists. Try updating it instead.', domain_name)
-                continue
-
-            logging.info('Creating ElasticSearch domain %s', domain_name)
-            # Get the latest elasticsearch cluster config.
-            desired_es_config = es_config or self._get_es_config(elasticsearch_name)
-            # Create a new elasticsearch config using the latest config.
-            throttled_call(self.conn.create_elasticsearch_domain, **desired_es_config)
-            self._add_route53(domain_name)
-
     def update(self, elasticsearch_name=None, es_config=None):
         """
-        Update an ElasticSearch domain.
+        Update/Create an Elasticsearch Domain.
+
+        If the Elasticsearch Domain does not exist, it is created. If it already exists, it is updated.
+
+        Params:
+
+        elasticsearch_name: The internal name of the elasticsearch domain to update. If none is provided,
+        the configuration file is parsed for all configured elasticsearch domains and all are created and/or
+        updated as needed.
+
+        es_config: The Elasticsearch configuration object to use for updating the elasticsearch domain. If not
+        provided, the configuration is looked up from the configuration file. Overrides the value of the
+        elasticsearch_name parameter.
         """
-        if elasticsearch_name:
+        configured_elasticsearch_names = self._get_elasticsearch_names()
+
+        if es_config:
+            domain_name_components = es_config["DomainName"].split("-")
+            desired_elasticsearch_names = ["-".join(domain_name_components[1:-1])]
+        elif elasticsearch_name:
+            # If the elasticsearch_name exists, only update that one
             desired_elasticsearch_names = [elasticsearch_name]
         else:
-            desired_elasticsearch_names = self._get_elasticsearch_names()
+            # Otherwise, update all configured elasticsearch domains
+            desired_elasticsearch_names = configured_elasticsearch_names
 
+        # Get a list of all the elasticsearch_names that exist in the current environment
         all_elasticsearch_names = [domain_info["internal_name"] for domain_info in self.list()]
 
-        for elasticsearch_name in desired_elasticsearch_names:
-            domain_name = self.get_domain_name(elasticsearch_name)
-            if elasticsearch_name not in all_elasticsearch_names:
-                logging.info('ElasticSearch domain %s does not exist. Try creating it instead.', domain_name)
+        for desired_elasticsearch_name in desired_elasticsearch_names:
+            domain_name = self.get_domain_name(desired_elasticsearch_name)
+
+            # If no configuration was provided and the desired elasticsearch name isn't configured, ignore it
+            if not es_config and desired_elasticsearch_name not in configured_elasticsearch_names:
+                logging.info("Cannot create or update unconfigured Elasticsearch domain %s", domain_name)
                 continue
-            logging.info('Updating ElasticSearch domain %s', domain_name)
-            # Get the latest elasticsearch cluster config.
-            desired_es_config = es_config or self._get_es_config(elasticsearch_name)
-            # Update the elasticsearch cluster config to be the latest one.
-            throttled_call(self.conn.update_elasticsearch_domain_config, **desired_es_config)
+
+            # Get the latest elasticsearch config.
+            desired_es_config = es_config or self._get_es_config(desired_elasticsearch_name)
+
+            if desired_elasticsearch_name in all_elasticsearch_names:
+                logging.info('Updating ElasticSearch domain %s', domain_name)
+                throttled_call(self.conn.update_elasticsearch_domain_config, **desired_es_config)
+            else:
+                logging.info('Creating ElasticSearch domain %s', domain_name)
+                throttled_call(self.conn.create_elasticsearch_domain, **desired_es_config)
+
+            # Add the Route 53 entry
             self._add_route53(domain_name)
 
     def delete(self, elasticsearch_name=None, delete_all=False):
         """
         Delete an ElasticSearch domain.
+
+        Params:
+
+        elasticsearch_name: The internal name of the elasticsearch domain to delete. If none if provided,
+        the configuration file is parsed for all configured elasticsearch domains and all are deleted.
+
+        delete_all: If true, all elasticsearch domains for the current environment are deleted, regardless of
+        whether or not they exist in the configuration file. Useful for when destroying a VPC. Generally
+        should not be used. Also causes the value of elasticsearch_name to be ignored.
         """
         all_elasticsearch_names = [domain_info["internal_name"] for domain_info in self.list()]
         if delete_all:

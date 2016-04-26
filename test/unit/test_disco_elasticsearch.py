@@ -141,13 +141,13 @@ class DiscoElastiSearchTests(TestCase):
 
     def test_list_domains_with_a_domain(self):
         """If we list domains with one domain created, we should get only that domain back"""
-        self._es.create("logs")
+        self._es.update("logs")
         self.assertEquals(["logs"], [info["internal_name"] for info in self._es.list()])
 
     def test_list_domains_with_domain_from_different_environment(self):
         """If we list domains with a domain from a different environment, we shouldn't see that domain"""
         es_config = self._es._get_es_config("logs")
-        self._es.create("logs", es_config)
+        self._es.update("logs", es_config)
         es_config["DomainName"] = "es-other-logs-bar"
         self._es.conn.create_elasticsearch_domain(**es_config)
         self.assertEquals(["logs"], [info["internal_name"] for info in self._es.list()])
@@ -155,7 +155,7 @@ class DiscoElastiSearchTests(TestCase):
     def test_list_domains_with_domain_with_a_bad_format(self):
         """If we list domains with a domain with a bad format, we shouldn't see that domain"""
         es_config = self._es._get_es_config("logs")
-        self._es.create("logs", es_config)
+        self._es.update("logs", es_config)
         es_config["DomainName"] = "someother_format"
         self._es.conn.create_elasticsearch_domain(**es_config)
         es_config["DomainName"] = "someotherprefix-other-logs-foo"
@@ -164,14 +164,14 @@ class DiscoElastiSearchTests(TestCase):
 
     def test_list_domains_with_endpoints(self):
         """If we list domains with endpoints, we should get endpoints"""
-        self._es.create("logs")
+        self._es.update("logs")
         self.assertIn("elasticsearch_endpoint", self._es.list(include_endpoint=True)[0])
 
     def test_get_endpoint_with_a_domain(self):
         """Verify that get_endpoint returns the correct endpoint for a domain"""
         elasticsearch_name = "logs"
         domain_name = self._es.get_domain_name(elasticsearch_name)
-        self._es.create(elasticsearch_name)
+        self._es.update(elasticsearch_name)
         expected_endpoint = self._get_endpoint(domain_name)
         actual_endpoint = self._es.get_endpoint(domain_name)
         self.assertEquals(actual_endpoint, expected_endpoint)
@@ -183,14 +183,14 @@ class DiscoElastiSearchTests(TestCase):
     def test_create_can_create_all(self):
         """Verify that when create is called with no arguments, it creates all configured domains"""
         expected_domain_names = ["es-logs-foo", "es-other-logs-foo"]
-        self._es.create()
+        self._es.update()
         self.assertEquals(self._es._list(), expected_domain_names)
 
     def test_create_domain_respects_config_files(self):
         """Verify that create respects the configuration file"""
         elasticsearch_name = "logs"
         config_section = "{}:{}".format(self.environment_name, elasticsearch_name)
-        self._es.create(elasticsearch_name)
+        self._es.update(elasticsearch_name)
         domain_name = self._es.get_domain_name(elasticsearch_name)
         self.assertIn(domain_name, self._es._list())
         domain_config = self._es._describe_es_domain(domain_name)["DomainStatus"]
@@ -225,18 +225,18 @@ class DiscoElastiSearchTests(TestCase):
     def test_create_domain_twice_is_idempotent(self):
         """Verify that creating a domain twice is ignored and has no effect"""
         elasticsearch_name = "logs"
-        self._es.create(elasticsearch_name)
+        self._es.update(elasticsearch_name)
         self.assertEquals(len(self._es.list()), 1)
         original_domain_config = self._es._describe_es_domain(self._es.get_domain_name(elasticsearch_name))
-        self._es.create(elasticsearch_name)
+        self._es.update(elasticsearch_name)
         self.assertEquals(len(self._es.list()), 1)
         new_domain_config = self._es._describe_es_domain(self._es.get_domain_name(elasticsearch_name))
         self.assertEquals(original_domain_config.viewitems(), new_domain_config.viewitems())
 
     def test_create_and_delete_a_domain(self):
-        """Verify that delete and delete a domain after its been created"""
+        """Verify that a domain can be deleted after its been created"""
         elasticsearch_name = "logs"
-        self._es.create(elasticsearch_name)
+        self._es.update(elasticsearch_name)
         self.assertEquals(len(self._es.list()), 1)
         self._es.delete(elasticsearch_name)
         self.assertEquals(len(self._es.list()), 0)
@@ -245,14 +245,14 @@ class DiscoElastiSearchTests(TestCase):
         """Verify that deleting a domain that does not exist throws no exception and has no effect"""
         elasticsearch_names = ["logs", "other-logs"]
         for elasticsearch_name in elasticsearch_names:
-            self._es.create(elasticsearch_name)
+            self._es.update(elasticsearch_name)
         self.assertEquals(set(elasticsearch_names), set([info["internal_name"] for info in self._es.list()]))
         self._es.delete("a-domain-that-doesnt-exist")
         self.assertEquals(set(elasticsearch_names), set([info["internal_name"] for info in self._es.list()]))
 
     def test_delete_deletes_all_config_domains(self):
         """Verify that calling delete with no arguments deletes all configured domains"""
-        self._es.create()
+        self._es.update()
         self.assertEquals(len(self._es.list()), 2)
         self._es.delete()
         self.assertEquals(len(self._es.list()), 0)
@@ -263,7 +263,7 @@ class DiscoElastiSearchTests(TestCase):
         elasticsearch_names = ["logs", "other-logs", "another-one"]
         for elasticsearch_name in elasticsearch_names:
             es_config["DomainName"] = self._es.get_domain_name(elasticsearch_name)
-            self._es.create(elasticsearch_name, es_config)
+            self._es.update(elasticsearch_name, es_config)
         self.assertEquals(set(elasticsearch_names), set([info["internal_name"] for info in self._es.list()]))
         self._es.delete()
         self.assertEquals(["another-one"], [info["internal_name"] for info in self._es.list()])
@@ -274,7 +274,7 @@ class DiscoElastiSearchTests(TestCase):
         """Verify that a domain can be created and then updated"""
         elasticsearch_name = "logs"
         es_config = self._es._get_es_config(elasticsearch_name)
-        self._es.create(elasticsearch_name, es_config)
+        self._es.update(elasticsearch_name, es_config)
         original_config = self._es._describe_es_domain(self._es.get_domain_name(elasticsearch_name))
         original_instance_type = original_config["DomainStatus"]["ElasticsearchClusterConfig"]["InstanceType"]
         desired_instance_type = "m3.xlarge.elasticsearch"
@@ -286,10 +286,10 @@ class DiscoElastiSearchTests(TestCase):
         self.assertEquals(new_instance_type, desired_instance_type)
 
     def test_can_create_and_then_update_all_domains(self):
-        """Verify that a domain can be created and then updated"""
+        """Verify that all domains can be created and then one updated"""
         elasticsearch_name = "logs"
         es_config = self._es._get_es_config(elasticsearch_name)
-        self._es.create(elasticsearch_name, es_config)
+        self._es.update(elasticsearch_name, es_config)
         original_config = self._es._describe_es_domain(self._es.get_domain_name(elasticsearch_name))
         original_instance_type = original_config["DomainStatus"]["ElasticsearchClusterConfig"]["InstanceType"]
         desired_instance_type = "m3.xlarge.elasticsearch"
@@ -302,10 +302,10 @@ class DiscoElastiSearchTests(TestCase):
 
     def test_update_nonexistant_domain(self):
         """Verify that calling update on a nonexistant domain has no effect on existing domains"""
-        self._es.create("logs")
+        self._es.update("logs")
         logs_config_before_update = self._es._describe_es_domain(self._es.get_domain_name("logs"))
         self.assertEquals(len(self._es.list()), 1)
-        self._es.update("other-logs")
+        self._es.update("some-other-logs")
         self.assertEquals(len(self._es.list()), 1)
         logs_config_after_update = self._es._describe_es_domain(self._es.get_domain_name("logs"))
         self.assertEquals(logs_config_before_update, logs_config_after_update)
