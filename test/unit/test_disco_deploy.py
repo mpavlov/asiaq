@@ -164,7 +164,8 @@ class DiscoDeployTests(TestCase):
                           self._amis_by_name["mhcfoo 7"],
                           self._amis_by_name["mhcintegrated 1"],
                           self._amis_by_name["mhcintegrated 2"],
-                          self._amis_by_name["mhcintegrated 3"]])
+                          self._amis_by_name["mhcintegrated 3"],
+                          self._amis_by_name["mhctimedautoscale 1"]])
 
     def test_filter_by_hostclass_beats_pipeline(self):
         '''Tests that filter overrides pipeline filtering when hostclass is set'''
