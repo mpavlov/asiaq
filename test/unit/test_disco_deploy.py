@@ -43,6 +43,14 @@ MOCK_PIPELINE_DEFINITION = [
         'desired_size': 1,
         'integration_test': None,
         'deployable': 'no'
+    },
+    {
+        'hostclass': 'mhcfancysizes',
+        'min_size': '1@30 16 * * 1-5:2@00 17 * * 1-5',
+        'desired_size': '3@30 16 * * 1-5:4@00 17 * * 1-5',
+        'max_size': '3@30 16 * * 1-5:4@00 17 * * 1-5',
+        'integration_test': None,
+        'deployable': 'yes'
     }
 ]
 
