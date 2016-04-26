@@ -10,6 +10,7 @@ from boto.exception import EC2ResponseError
 
 from . import DiscoBake, read_config
 from .exceptions import TimeoutError, MaintenanceModeError, IntegrationTestError, SmokeTestError
+from .disco_aws import DiscoAWS
 from .disco_aws_util import is_truthy
 from .disco_constants import DEFAULT_CONFIG_SECTION
 
@@ -51,9 +52,15 @@ class DiscoDeploy(object):
         hostclasses = {entry["hostclass"]: entry for entry in pipeline_definition}
 
         for hostclass, entry in hostclasses.iteritems():
-            for definition in ["max_size", "desired_size", "min_size"]:
-                if definition in entry:
-                    hostclasses[hostclass][definition] = int(entry[definition])
+            if "min_size" in entry:
+                hostclasses[hostclass]["min_size"] =\
+                    int(DiscoAWS._size_as_minimum_int_or_none(entry["min_size"]))
+            if "desired_size" in entry:
+                hostclasses[hostclass]["desired_size"] =\
+                    int(DiscoAWS._size_as_maximum_int_or_none(entry["desired_size"]))
+            if "max_size" in entry:
+                hostclasses[hostclass]["max_size"] =\
+                    int(DiscoAWS._size_as_maximum_int_or_none(entry["max_size"]))
 
         return hostclasses
 
