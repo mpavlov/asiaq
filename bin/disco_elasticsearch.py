@@ -6,7 +6,7 @@ from __future__ import print_function
 import argparse
 import sys
 from disco_aws_automation import DiscoElasticsearch
-from disco_aws_automation.disco_aws_util import run_gracefully
+from disco_aws_automation.disco_aws_util import run_gracefully, is_truthy
 from disco_aws_automation.disco_logging import configure_logging
 
 
@@ -62,6 +62,7 @@ def run():
     configure_logging(args.debug)
     env = args.env
     disco_es = DiscoElasticsearch(env)
+    interactive_shell = sys.__stdin__.isatty()
 
     if args.mode == "list":
         entries = disco_es.list(include_endpoint=args.endpoint)
@@ -92,18 +93,16 @@ def run():
             disco_es.update()
 
     elif args.mode == "delete":
-        print("Deleting an ElasticSearch domain destroys all automated snapshots of its data. Be careful!")
+        prompt = "Deleting an ElasticSearch domain destroys all of its automated snapshots. Be careful!\n"
         if args.name:
-            prompt = "Are you sure you want to delete ElasticSearch domains {}? (y/N)".format(args.name)
-            response = raw_input(prompt)
-            if response.lower().startswith("y"):
+            prompt += "Are you sure you want to delete ElasticSearch domains {}? (y/N)".format(args.name)
+            if not interactive_shell or is_truthy(raw_input(prompt)):
                 for name in args.name:
                     disco_es.delete(name)
         else:
             scope = "all configured" if not args.delete_all else "*all*"
-            prompt = "Are you sure you want to delete {} ElasticSearch domains? (y/N)".format(scope)
-            response = raw_input(prompt)
-            if response.lower().startswith("y"):
+            prompt += "Are you sure you want to delete {} ElasticSearch domains? (y/N)".format(scope)
+            if not interactive_shell or is_truthy(raw_input(prompt)):
                 disco_es.delete(delete_all=args.delete_all)
 
 if __name__ == "__main__":
