@@ -257,7 +257,7 @@ class DiscoDeployTests(TestCase):
     def test_get_test_amis_from_pipeline(self):
         '''Tests that we can find the next untested ami to test for each hostclass restricted to pipeline'''
         self.assertEqual([ami.name for ami in self._ci_deploy.get_test_amis()],
-                         ['mhcfoo 6'])
+                         ['mhcfoo 6', 'mhctimedautoscale 1'])
 
     def test_get_failed_amis(self):
         '''Tests that we can find the next untested ami to test for each hostclass'''
