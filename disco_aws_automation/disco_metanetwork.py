@@ -174,7 +174,7 @@ class DiscoMetaNetwork(object):
         for subnet in self.subnets:
             cidr = IPNetwork(subnet.subnet['CidrBlock'])
             if ip_address >= cidr[0] and ip_address <= cidr[-1]:
-                return subnet
+                return subnet.subnet
         raise IPRangeError("IP {0} is not in Metanetwork ({1}) range.".format(ip_address, self.name))
 
     def create_interfaces_specification(self, subnet_ids=None, public_ip=False):

@@ -212,10 +212,9 @@ class DiscoAWS(object):
         subnet_ips = self._get_hostclass_ip_address(hostclass)
 
         if not subnet_ips:
-            return meta_network.subnets
+            return [subnet.subnet for subnet in meta_network.subnets]
 
-        subnets = {meta_network.subnet_by_ip(subnet_ip) for subnet_ip in subnet_ips.split(' ')}
-        return list(subnets)
+        return [meta_network.subnet_by_ip(subnet_ip) for subnet_ip in subnet_ips.split(' ')]
 
     def get_block_device_mappings(self, hostclass, ami=None,
                                   extra_space=None, extra_disk=None, iops=None,
@@ -376,7 +375,7 @@ class DiscoAWS(object):
 
         group = self.autoscale.get_group(
             hostclass=hostclass, launch_config=launch_config.name,
-            vpc_zone_id=",".join([subnet.subnet['SubnetId'] for subnet in self.get_subnets(meta_network, hostclass)]),
+            vpc_zone_id=",".join([subnet['SubnetId'] for subnet in self.get_subnets(meta_network, hostclass)]),
             min_size=DiscoAWS._size_as_minimum_int_or_none(min_size),
             max_size=DiscoAWS._size_as_maximum_int_or_none(max_size),
             desired_size=DiscoAWS._size_as_maximum_int_or_none(desired_size),

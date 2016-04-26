@@ -29,7 +29,7 @@ class DiscoSubnet(object):
 
         if route_table_id:
             # Centralized route table is being used here
-            self._subnet = self._find_subnet_by_az_name(name)
+            self._subnet = self._find_subnet()
             if not self._subnet:
                 raise RuntimeError("Could not find subnet by the AZ "
                                    "name '{0}' for metanetwork '{1}'".format(name,
@@ -165,9 +165,11 @@ class DiscoSubnet(object):
         return self.boto3_ec2.create_route(**params)['Return']
 
     def _find_subnet(self):
+        filters = copy.copy(self._resource_filter)
+        filters['Filters'].append({'Name': 'availabilityZone', 'Values': [self.name]})
         try:
             return handle_date_format(
-                self.boto3_ec2.describe_subnets(**self._resource_filter)
+                self.boto3_ec2.describe_subnets(**filters)
             )['Subnets'][0]
         except IndexError:
             return None
@@ -189,16 +191,6 @@ class DiscoSubnet(object):
             return handle_date_format(
                 self.boto3_ec2.describe_route_tables(**params)
             )['RouteTables'][0]
-        except IndexError:
-            return None
-
-    def _find_subnet_by_az_name(self, az_name):
-        filters = copy.copy(self._resource_filter)
-        filters['Filters'].append({'Name': 'availabilityZone', 'Values': [az_name]})
-        try:
-            return handle_date_format(
-                self.boto3_ec2.describe_subnets(**filters)
-            )['Subnets'][0]
         except IndexError:
             return None
 
