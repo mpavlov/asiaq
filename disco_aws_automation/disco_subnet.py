@@ -50,7 +50,7 @@ class DiscoSubnet(object):
     @property
     def boto3_ec2(self):
         """
-        Lazily creates boto3 IAM connection
+        Lazily creates boto3 EC2 connection
         """
         if not self._boto3_connection:
             self._boto3_connection = boto3.client('ec2')
@@ -248,10 +248,12 @@ class DiscoSubnet(object):
         # TODO: refactor the waiter logic out
         waiter = self.boto3_ec2.get_waiter('nat_gateway_available')
         waiter.wait(NatGatewayIds=[nat_gateway['NatGatewayId']])
-        self.add_route_to_gateway("0.0.0.0/0", nat_gateway['NatGatewayId'])
 
-        logging.debug("%s route table: %s", self.name, nat_gateway)
-        return nat_gateway
+        # Add default route to the new NAT gateway
+        self.add_route_to_gateway("0.0.0.0/0", nat_gateway['NatGatewayId'])
+        logging.debug("Added default route to %s", nat_gateway)
+
+        return self._find_nat_gateway()
 
     def _resource_name(self, suffix=None):
         suffix = "_{0}".format(suffix) if suffix else ""
