@@ -47,7 +47,7 @@ class DiscoMetaNetwork(object):
         Metanetwork is initialized lazily. This forces creation of all
         components.
         """
-        self._centralized_route_table = self._find_centralized_route_table()
+        self._centralized_route_table = self.centralized_route_table
         self._security_group = self.security_group
         self._subnets = self.subnets
 
@@ -63,8 +63,10 @@ class DiscoMetaNetwork(object):
 
     @property
     def centralized_route_table(self):
-        '''Returns the centralized route table for our metanetwork,
+        '''Finds and returns the centralized route table for our metanetwork,
         which could be None'''
+        if not self._centralized_route_table:
+            self._centralized_route_table = self._find_centralized_route_table()
         return self._centralized_route_table
 
     def _find_centralized_route_table(self):
@@ -159,7 +161,7 @@ class DiscoMetaNetwork(object):
         subnets = []
         for zone, cidr in zip(zones, zone_cidrs):
             logging.debug("%s %s", zone, cidr)
-            subnet = DiscoSubnet(zone.name, self, zone_cidrs,
+            subnet = DiscoSubnet(str(zone.name), self, str(cidr),
                                  self.centralized_route_table.id if self.centralized_route_table else None)
             subnets.append(subnet)
             logging.debug("%s subnet: %s", self.name, subnet)

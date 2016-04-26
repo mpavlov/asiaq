@@ -376,7 +376,7 @@ class DiscoAWS(object):
 
         group = self.autoscale.get_group(
             hostclass=hostclass, launch_config=launch_config.name,
-            vpc_zone_id=",".join([subnet['SubnetId'] for subnet in self.get_subnets(meta_network, hostclass)]),
+            vpc_zone_id=",".join([subnet.subnet['SubnetId'] for subnet in self.get_subnets(meta_network, hostclass)]),
             min_size=DiscoAWS._size_as_minimum_int_or_none(min_size),
             max_size=DiscoAWS._size_as_maximum_int_or_none(max_size),
             desired_size=DiscoAWS._size_as_maximum_int_or_none(desired_size),

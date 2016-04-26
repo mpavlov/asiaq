@@ -2,6 +2,7 @@
 Subnet abstraction
 """
 
+import copy
 import boto3
 import logging
 import uuid
@@ -22,16 +23,26 @@ class DiscoSubnet(object):
         self.name = name
         self.metanetwork = metanetwork
         self.cidr = cidr
-        self.eip_allocation_id = None
+        self.nat_eip_allocation_id = None
         self._boto3_connection = boto3_connection
         self._nat_gateway = None
-        self._subnet = self.subnet
 
         if route_table_id:
+            # Centralized route table is being used here
+            self._subnet = self._find_subnet_by_az_name(name)
+            if not self._subnet:
+                raise RuntimeError("Could not find subnet by the AZ "
+                                   "name '{0}' for metanetwork '{1}'".format(name,
+                                                                             self.metanetwork.name))
+            # Have to add new tags going forward
+            self._tag_resource(self._subnet['SubnetId'])
+
             self._route_table = self._find_route_table_by_id(route_table_id)
             if not self._route_table:
                 raise RuntimeError("Could not find table by the id {0}".format(route_table_id))
         else:
+            self._subnet = find_or_create(self._find_subnet, self._create_subnet)
+
             self._route_table = find_or_create(
                 self._find_route_table, self._create_and_associate_route_table
             )
@@ -47,11 +58,7 @@ class DiscoSubnet(object):
 
     @property
     def subnet(self):
-        """Finds or creates the AWS subnet"""
-        if not self._subnet:
-            self._subnet = find_or_create(
-                self._find_subnet, self._create_subnet
-            )
+        """Returns the AWS subnet"""
         return self._subnet
 
     @property
@@ -74,9 +81,9 @@ class DiscoSubnet(object):
     @property
     def _resource_filter(self):
         resource_filter = dict()
-        resource_filter['Filter'] = []
-        resource_filter['Filter'].append({'Name': 'tag:metanetwork', 'Values': [self.metanetwork.name]})
-        resource_filter['Filter'].append({'Name': 'tag:subnet', 'Values': [self.name]})
+        resource_filter['Filters'] = []
+        resource_filter['Filters'].append({'Name': 'vpc-id', 'Values': [str(self.metanetwork.vpc.vpc.id)]})
+        resource_filter['Filters'].append({'Name': 'tag:meta_network', 'Values': [self.metanetwork.name]})
 
         return resource_filter
 
@@ -100,7 +107,7 @@ class DiscoSubnet(object):
 
     def create_nat_gateway(self, eip_allocation_id):
         """ Create a NAT gateway for the subnet"""
-        self.eip_allocation_id = eip_allocation_id
+        self.nat_eip_allocation_id = eip_allocation_id
         self._nat_gateway = self.nat_gateway
 
     def create_peering_routes(self, peering_conn_id, cidr):
@@ -185,10 +192,22 @@ class DiscoSubnet(object):
         except IndexError:
             return None
 
-    def _find_route_table(self):
+    def _find_subnet_by_az_name(self, az_name):
+        filters = copy.copy(self._resource_filter)
+        filters['Filters'].append({'Name': 'availabilityZone', 'Values': [az_name]})
         try:
             return handle_date_format(
-                self.boto3_ec2.describe_route_tables(**self._resource_filter)
+                self.boto3_ec2.describe_subnets(**filters)
+            )['Subnets'][0]
+        except IndexError:
+            return None
+
+    def _find_route_table(self):
+        filters = copy.copy(self._resource_filter)
+        filters['Filters'].append({'Name': 'tag:subnet', 'Values': [self.name]})
+        try:
+            return handle_date_format(
+                self.boto3_ec2.describe_route_tables(**filters)
             )['RouteTables'][0]
         except IndexError:
             return None
@@ -215,9 +234,13 @@ class DiscoSubnet(object):
         return route_table
 
     def _find_nat_gateway(self):
+        params = dict()
+        params['Filters'] = []
+        params['Filters'].append({'Name': 'subnet-id', 'Values': [self.subnet['SubnetId']]})
+        params['Filters'].append({'Name': 'vpc-id', 'Values': [self.metanetwork.vpc.vpc.id]})
         try:
             return handle_date_format(
-                    self.boto3_ec2.describe_nat_gateways(**self._resource_filter)
+                    self.boto3_ec2.describe_nat_gateways(**params)
             )['NatGateways'][0]
         except IndexError:
             return None
@@ -227,10 +250,14 @@ class DiscoSubnet(object):
         params['SubnetId'] = self.subnet['SubnetId']
         params['AllocationId'] = self.nat_eip_allocation_id
         params['ClientToken'] = str(uuid.uuid4())
+        logging.debug("Creating NAT gateway: %s", self.nat_eip_allocation_id)
         nat_gateway = handle_date_format(self.boto3_ec2.create_nat_gateway(**params))['NatGateway']
+
+        # TODO: refactor the waiter logic out
+        waiter = self.boto3_ec2.get_waiter('nat_gateway_available')
+        waiter.wait(NatGatewayIds=[nat_gateway['NatGatewayId']])
         self.add_route_to_gateway("0.0.0.0/0", nat_gateway['NatGatewayId'])
 
-        self._tag_resource(nat_gateway['NatGatewayId'])
         logging.debug("%s route table: %s", self.name, nat_gateway)
         return nat_gateway
 
@@ -243,7 +270,7 @@ class DiscoSubnet(object):
     def _tag_resource(self, resource_id, suffix=None):
         tag_params = dict()
         tag_params['Resources'] = [resource_id]
-        tag_params['Tags'] = [{'Name': self._resource_name(suffix)},
-                              {'meta_network': self.metanetwork.name},
-                              {'subnet': self.name}]
+        tag_params['Tags'] = [{'Key': 'Name', 'Value': self._resource_name(suffix)},
+                              {'Key': 'meta_network', 'Value': self.metanetwork.name},
+                              {'Key': 'subnet', 'Value': self.name}]
         keep_trying(300, self.boto3_ec2.create_tags, **tag_params)

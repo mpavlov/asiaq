@@ -239,12 +239,12 @@ class DiscoVPC(object):
 
             allocation_ids.append(address.allocation_id)
 
-        if not allocation_ids:
+        if allocation_ids:
             network.add_nat_gateways(allocation_ids)
 
     def _find_eip_address(self, eip):
-        address_filter = self.vpc_filter()
-        address_filter['address'] = eip
+        address_filter = dict()
+        address_filter['public-ip'] = eip
         try:
             return self.vpc.connection.get_all_addresses(filters=address_filter)[0]
         except IndexError:
@@ -419,10 +419,6 @@ class DiscoVPC(object):
         for network in self.networks.values():
             network.create()
 
-        # Create NAT gateways
-        for network in self.networks.values():
-            self._add_nat_gateways(network)
-
         # Configure security group rules
         for network in self.networks.values():
             self._add_sg_rules(network)
@@ -451,6 +447,11 @@ class DiscoVPC(object):
         internet_gateway = self.vpc.connection.create_internet_gateway()
         self.vpc.connection.attach_internet_gateway(internet_gateway.id, self.vpc.id)
         logging.debug("internet_gateway: %s", internet_gateway)
+
+        # Create NAT gateways
+        for network in self.networks.values():
+            self._add_nat_gateways(network)
+
         self._add_igw_routes(internet_gateway)
 
         self._attach_vgw()
