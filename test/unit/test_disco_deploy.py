@@ -45,10 +45,10 @@ MOCK_PIPELINE_DEFINITION = [
         'deployable': 'no'
     },
     {
-        'hostclass': 'mhcfancysizes',
-        'min_size': '1@30 16 * * 1-5:2@00 17 * * 1-5',
-        'desired_size': '3@30 16 * * 1-5:4@00 17 * * 1-5',
-        'max_size': '3@30 16 * * 1-5:4@00 17 * * 1-5',
+        'hostclass': 'mhctimedautoscale',
+        'min_size': '3@30 16 * * 1-5:4@00 17 * * 1-5',
+        'desired_size': '5@30 16 * * 1-5:6@00 17 * * 1-5',
+        'max_size': '5@30 16 * * 1-5:6@00 17 * * 1-5',
         'integration_test': None,
         'deployable': 'yes'
     }
@@ -132,6 +132,7 @@ class DiscoDeployTests(TestCase):
         self.add_ami('mhcintegrated 1', None)
         self.add_ami('mhcintegrated 2', 'tested')
         self.add_ami('mhcintegrated 3', None)
+        self.add_ami('mhctimedautoscale 1', 'untested')
         self._ci_deploy._disco_bake.list_amis = MagicMock(return_value=self._amis)
 
     def test_filter_with_ami_restriction(self):
@@ -188,7 +189,8 @@ class DiscoDeployTests(TestCase):
                           self._amis_by_name["mhcfoo 7"],
                           self._amis_by_name["mhcintegrated 1"],
                           self._amis_by_name["mhcintegrated 2"],
-                          self._amis_by_name["mhcintegrated 3"]])
+                          self._amis_by_name["mhcintegrated 3"],
+                          self._amis_by_name["mhctimedautoscale 1"]])
 
     def test_get_newest_in_either_map(self):
         '''Tests that get_newest_in_either_map works with simple input'''
