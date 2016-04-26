@@ -441,6 +441,23 @@ class DiscoDeployTests(TestCase):
                     'desired_size': 2, 'max_size': 2, 'hostclass': 'mhcsmokey',
                     'smoke_test': 'no'}])])
 
+    def test_timed_autoscaling_ami_success(self):
+        '''Timed autoscaling instances are promoted and correct autoscaling sizes updated on success'''
+        ami = MagicMock()
+        ami.name = "mhctimedautoscale 1 2"
+        ami.id = "ami-12345678"
+        self._existing_group.desired_capacity = 2
+        self._ci_deploy.wait_for_smoketests = MagicMock(return_value=True)
+        self._ci_deploy.test_ami(ami, dry_run=False)
+        self._disco_bake.promote_ami.assert_called_with(ami, 'tested')
+        self._disco_aws.spinup.assert_has_calls(
+                [call([{'ami': 'ami-12345678', 'sequence': 1, 'deployable': 'yes',
+                        'min_size': 2, 'integration_test': None, 'desired_size': 4,
+                        'smoke_test': 'no', 'max_size': 4, 'hostclass': 'mhctimedautoscale'}]),
+                 call([{'ami': 'ami-12345678', 'sequence': 1, 'deployable': 'yes',
+                        'min_size': 3, 'integration_test': None, 'desired_size': 3,
+                        'smoke_test': 'no', 'max_size': 6, 'hostclass': 'mhctimedautoscale'}])])
+
     def test_set_maintenance_mode_on(self):
         '''_set_maintenance_mode makes expected remotecmd call'''
         self._ci_deploy._disco_aws.remotecmd = MagicMock(return_value=(0, ""))
