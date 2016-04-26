@@ -775,10 +775,10 @@ class DiscoVPC(object):
             else:
                 peering_conn = existing_peerings[0]
                 logging.info("peering connection %s exists for %s", existing_peerings[0].id, peering)
-            DiscoVPC.create_peering_routes(vpc_conn, vpc_map, vpc_metanetwork_map, peering_conn)
+            DiscoVPC.create_peering_routes(vpc_map, vpc_metanetwork_map, peering_conn)
 
     @staticmethod
-    def create_peering_routes(vpc_conn, vpc_map, vpc_metanetwork_map, peering_conn):
+    def create_peering_routes(vpc_map, vpc_metanetwork_map, peering_conn):
         """ create/update routes via peering connections between VPCs """
         cidr_map = {
             _: vpc_map[_].get_config("{0}_cidr".format(vpc_metanetwork_map[_]))

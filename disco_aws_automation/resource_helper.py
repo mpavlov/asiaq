@@ -20,7 +20,14 @@ MAX_POLL_INTERVAL = 60  # seconds
 
 
 def handle_date_format(obj):
+    """
+    Helper function that properly handles date object returned from AWS.
+    Only used with boto3
+    """
     def date_handler(item):
+        """
+        The actual date handling logic is here
+        """
         return item.isoformat() if hasattr(item, 'isoformat') else item
 
     return json.loads(json.dumps(obj, default=date_handler))

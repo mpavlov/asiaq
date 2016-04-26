@@ -3,9 +3,10 @@ Subnet abstraction
 """
 
 import copy
-import boto3
 import logging
 import uuid
+
+import boto3
 
 from .resource_helper import (
     handle_date_format,
@@ -184,9 +185,9 @@ class DiscoSubnet(object):
         logging.debug("%s subnet: %s", self.name, subnet)
         return subnet
 
-    def _find_route_table_by_id(self, id):
+    def _find_route_table_by_id(self, route_table_id):
         params = dict()
-        params['RouteTableIds'] = [id]
+        params['RouteTableIds'] = [route_table_id]
         try:
             return handle_date_format(
                 self.boto3_ec2.describe_route_tables(**params)
@@ -232,7 +233,7 @@ class DiscoSubnet(object):
         params['Filters'].append({'Name': 'vpc-id', 'Values': [self.metanetwork.vpc.vpc.id]})
         try:
             return handle_date_format(
-                    self.boto3_ec2.describe_nat_gateways(**params)
+                self.boto3_ec2.describe_nat_gateways(**params)
             )['NatGateways'][0]
         except IndexError:
             return None
