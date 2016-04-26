@@ -451,12 +451,12 @@ class DiscoDeployTests(TestCase):
         self._ci_deploy.test_ami(ami, dry_run=False)
         self._disco_bake.promote_ami.assert_called_with(ami, 'tested')
         self._disco_aws.spinup.assert_has_calls(
-                [call([{'ami': 'ami-12345678', 'sequence': 1, 'deployable': 'yes',
-                        'min_size': 2, 'integration_test': None, 'desired_size': 4,
-                        'smoke_test': 'no', 'max_size': 4, 'hostclass': 'mhctimedautoscale'}]),
-                 call([{'ami': 'ami-12345678', 'sequence': 1, 'deployable': 'yes',
-                        'min_size': 3, 'integration_test': None, 'desired_size': 3,
-                        'smoke_test': 'no', 'max_size': 6, 'hostclass': 'mhctimedautoscale'}])])
+            [call([{'ami': 'ami-12345678', 'sequence': 1, 'deployable': 'yes',
+                    'min_size': 2, 'integration_test': None, 'desired_size': 4,
+                    'smoke_test': 'no', 'max_size': 4, 'hostclass': 'mhctimedautoscale'}]),
+             call([{'ami': 'ami-12345678', 'sequence': 1, 'deployable': 'yes',
+                    'min_size': 3, 'integration_test': None, 'desired_size': 3,
+                    'smoke_test': 'no', 'max_size': 6, 'hostclass': 'mhctimedautoscale'}])])
 
     def test_set_maintenance_mode_on(self):
         '''_set_maintenance_mode makes expected remotecmd call'''
