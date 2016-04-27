@@ -27,9 +27,9 @@ def get_parser():
                              help="Display AWS-provided endpoint")
 
     parser_update = subparsers.add_parser("update",
-                                          help="Update an ElasticSearch domain. If no options are provided, "
-                                          "default behavior is to update all ElasticSearch domains found in "
-                                          "the config.")
+                                          help="Create or update an ElasticSearch domain. If no names are "
+                                          "provided, default behavior is to create/update all ElasticSearch "
+                                          "domains found in the config.")
     parser_update.set_defaults(mode="update")
     parser_update.add_argument("--name", dest="names", type=str, action="append",
                                help="Name of the ElasticSearch domain")
