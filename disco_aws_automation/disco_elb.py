@@ -57,6 +57,8 @@ class DiscoELB(object):
         if not health_check_url and instance_protocol in ('http', 'https'):
             logging.warning("No health check url configured for ELB %s", elb_name)
             health_check_url = '/'
+        else:
+            health_check_url = ''
 
         target = '{}:{}{}'.format(instance_protocol, instance_port, health_check_url)
 
