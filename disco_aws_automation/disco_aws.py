@@ -281,7 +281,7 @@ class DiscoAWS(object):
                 security_groups=[elb_meta_network.security_group.id],
                 subnets=[subnet.id for subnet in elb_subnets],
                 hosted_zone_name=self.hostclass_option_default(hostclass, "domain_name"),
-                health_check_url=self.hostclass_option_default(hostclass, "elb_health_check_url", "/"),
+                health_check_url=self.hostclass_option_default(hostclass, "elb_health_check_url"),
                 instance_protocol=instance_protocol, instance_port=instance_port,
                 elb_protocol=elb_protocol, elb_port=elb_port,
                 elb_public=is_truthy(self.hostclass_option_default(hostclass, "elb_public", "no")),
