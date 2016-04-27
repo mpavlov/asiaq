@@ -69,21 +69,12 @@ def run():
             if args.endpoint:
                 values.append(entry["elasticsearch_endpoint"] or u"-")
             print(format_line.format(*values))
-
-    elif args.mode == "create":
-        if args.name:
-            for name in args.name:
-                disco_es.create(name)
-        else:
-            disco_es.create()
-
     elif args.mode == "update":
         if args.name:
             for name in args.name:
                 disco_es.update(name)
         else:
             disco_es.update()
-
     elif args.mode == "delete":
         prompt = "Deleting an ElasticSearch domain destroys all of its automated snapshots. Be careful!\n"
         if args.name:
