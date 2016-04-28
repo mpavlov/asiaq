@@ -56,7 +56,7 @@ class DiscoELB(object):
     def _setup_health_check(self, elb_name, health_check_url, instance_protocol, instance_port):
         if not health_check_url:
             logging.warning("No health check url configured for ELB %s", elb_name)
-            if instance_protocol in ('http', 'https'):
+            if instance_protocol in ('HTTP', 'HTTPS'):
                 health_check_url = '/'
             else:
                 health_check_url = ''
