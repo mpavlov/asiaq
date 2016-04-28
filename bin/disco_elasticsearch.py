@@ -78,7 +78,7 @@ def run():
     elif args.mode == "delete":
         prompt = "Deleting an ElasticSearch domain destroys all of its automated snapshots. Be careful!\n"
         if args.names:
-            prompt += "Are you sure you want to delete ElasticSearch domains {}? (y/N)".format(args.name)
+            prompt += "Are you sure you want to delete ElasticSearch domains {}? (y/N)".format(args.names)
             if not interactive_shell or is_truthy(raw_input(prompt)):
                 for name in args.names:
                     disco_es.delete(name)
