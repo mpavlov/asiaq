@@ -8,6 +8,8 @@ TEST_ENV_NAME = 'unittestenv'
 TEST_HOSTCLASS = 'mhcunit'
 TEST_VPC_ID = 'vpc-56e10e3d'  # the hard coded VPC Id that moto will always return
 TEST_DOMAIN_NAME = 'test.example.com'
+TEST_CERTIFICATE_ARN_ACM = "arn:aws:acm::123:blah"
+TEST_CERTIFICATE_ARN_IAM = "arn:aws:acm::123:blah"
 
 
 def _get_vpc_mock():
@@ -22,9 +24,12 @@ class DiscoELBTests(TestCase):
     """Test DiscoELB"""
 
     def setUp(self):
-        self.disco_elb = DiscoELB(_get_vpc_mock(), route53=MagicMock(), acm=MagicMock(), iam=MagicMock())
-        self.disco_elb.acm.get_certificate_arn = MagicMock(return_value="arn:aws:acm::123:blah")
-        self.disco_elb.iam.get_certificate_arn = MagicMock(return_value="arn:aws:iam::123:blah")
+        self.route53 = MagicMock()
+        self.acm = MagicMock()
+        self.iam = MagicMock()
+        self.disco_elb = DiscoELB(_get_vpc_mock(), route53=self.route53, acm=self.acm, iam=self.iam)
+        self.acm.get_certificate_arn.return_value = TEST_CERTIFICATE_ARN_ACM
+        self.iam.get_certificate_arn.return_value = TEST_CERTIFICATE_ARN_IAM
 
     # pylint: disable=too-many-arguments
     def _create_elb(self, hostclass=None, public=False, tls=False,
@@ -50,13 +55,13 @@ class DiscoELBTests(TestCase):
     @mock_elb
     def test_get_certificate_arn_prefers_acm(self):
         '''get_certificate_arn() prefers an ACM provided certificate'''
-        self.assertEqual(self.disco_elb.get_certificate_arn("dummy"), "arn:aws:acm::123:blah")
+        self.assertEqual(self.disco_elb.get_certificate_arn("dummy"), TEST_CERTIFICATE_ARN_ACM)
 
     @mock_elb
     def test_get_certificate_arn_fallback_to_iam(self):
         '''get_certificate_arn() uses an IAM certificate if no ACM cert available'''
-        self.disco_elb.acm.get_certificate_arn = MagicMock(return_value=None)
-        self.assertEqual(self.disco_elb.get_certificate_arn("dummy"), "arn:aws:iam::123:blah")
+        self.acm.get_certificate_arn.return_value = None
+        self.assertEqual(self.disco_elb.get_certificate_arn("dummy"), TEST_CERTIFICATE_ARN_IAM)
 
     @mock_elb
     def test_get_cname(self):
@@ -91,8 +96,7 @@ class DiscoELBTests(TestCase):
                 'Protocol': 'HTTP',
                 'LoadBalancerPort': 80,
                 'InstanceProtocol': 'HTTP',
-                'InstancePort': 80,
-                'SSLCertificateId': 'arn:aws:acm::123:blah'
+                'InstancePort': 80
             }],
             Subnets=['sub-1'],
             SecurityGroups=['sec-1'],
@@ -101,8 +105,8 @@ class DiscoELBTests(TestCase):
     @mock_elb
     def test_get_elb_internal_no_tls(self):
         """Test creation an internal private ELB"""
-        self.disco_elb.acm.get_certificate_arn = MagicMock(return_value=None)
-        self.disco_elb.iam.get_certificate_arn = MagicMock(return_value=None)
+        self.acm.get_certificate_arn.return_value = None
+        self.iam.get_certificate_arn.return_value = None
         elb_client = self.disco_elb.elb_client
         elb_client.create_load_balancer = MagicMock(wraps=elb_client.create_load_balancer)
         self._create_elb()
@@ -112,8 +116,7 @@ class DiscoELBTests(TestCase):
                 'Protocol': 'HTTP',
                 'LoadBalancerPort': 80,
                 'InstanceProtocol': 'HTTP',
-                'InstancePort': 80,
-                'SSLCertificateId': ''
+                'InstancePort': 80
             }],
             Subnets=['sub-1'],
             SecurityGroups=['sec-1'],
@@ -131,8 +134,7 @@ class DiscoELBTests(TestCase):
                 'Protocol': 'HTTP',
                 'LoadBalancerPort': 80,
                 'InstanceProtocol': 'HTTP',
-                'InstancePort': 80,
-                'SSLCertificateId': 'arn:aws:acm::123:blah'
+                'InstancePort': 80
             }],
             Subnets=['sub-1'],
             SecurityGroups=['sec-1'])
@@ -150,7 +152,7 @@ class DiscoELBTests(TestCase):
                 'LoadBalancerPort': 443,
                 'InstanceProtocol': 'HTTP',
                 'InstancePort': 80,
-                'SSLCertificateId': 'arn:aws:acm::123:blah'
+                'SSLCertificateId': TEST_CERTIFICATE_ARN_ACM
             }],
             Subnets=['sub-1'],
             SecurityGroups=['sec-1'],
@@ -169,8 +171,7 @@ class DiscoELBTests(TestCase):
                 'Protocol': 'TCP',
                 'LoadBalancerPort': 25,
                 'InstanceProtocol': 'TCP',
-                'InstancePort': 25,
-                'SSLCertificateId': 'arn:aws:acm::123:blah'
+                'InstancePort': 25
             }],
             Subnets=['sub-1'],
             SecurityGroups=['sec-1'],
