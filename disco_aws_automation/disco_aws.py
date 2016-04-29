@@ -20,7 +20,12 @@ from .disco_elb import DiscoELB
 from .disco_alarm import DiscoAlarm
 from .disco_alarm_config import DiscoAlarmsConfig
 from .disco_autoscale import DiscoAutoscale
-from .disco_aws_util import is_truthy
+from .disco_aws_util import (
+    is_truthy,
+    size_as_recurrence_map,
+    size_as_minimum_int_or_none,
+    size_as_maximum_int_or_none
+)
 from .disco_bake import DiscoBake
 from .disco_constants import (
     DEFAULT_CONFIG_SECTION,
@@ -159,23 +164,6 @@ class DiscoAWS(object):
         return data
 
     @staticmethod
-    def _size_as_recurrence_map(size, sentinel=''):
-        if not size:
-            return {sentinel: None}
-        else:
-            return {sentinel: int(size)} if str(size).isdigit() else {
-                part.split('@')[1]: int(part.split('@')[0])
-                for part in str(size).split(':')}
-
-    @staticmethod
-    def _size_as_minimum_int_or_none(size):
-        return min(DiscoAWS._size_as_recurrence_map(size).values())
-
-    @staticmethod
-    def _size_as_maximum_int_or_none(size):
-        return max(DiscoAWS._size_as_recurrence_map(size).values())
-
-    @staticmethod
     def _nonify(value):
         return None if (isinstance(value, basestring) and value.lower() == "none") or not value else value
 
@@ -239,9 +227,9 @@ class DiscoAWS(object):
         """Create autoscaling schedule"""
         self.autoscale.delete_all_recurring_group_actions(hostclass)
         maps = [
-            DiscoAWS._size_as_recurrence_map(min_size, sentinel=None),
-            DiscoAWS._size_as_recurrence_map(desired_size, sentinel=None),
-            DiscoAWS._size_as_recurrence_map(max_size, sentinel=None),
+            size_as_recurrence_map(min_size, sentinel=None),
+            size_as_recurrence_map(desired_size, sentinel=None),
+            size_as_recurrence_map(max_size, sentinel=None),
         ]
         times = set([item for sublist in [a_map.keys() for a_map in maps] for item in sublist])
         combined_map = {time: [maps[0].get(time), maps[1].get(time), maps[2].get(time)]
@@ -368,9 +356,9 @@ class DiscoAWS(object):
         group = self.autoscale.get_group(
             hostclass=hostclass, launch_config=launch_config.name,
             vpc_zone_id=",".join([subnet.id for subnet in self.get_subnets(meta_network, hostclass)]),
-            min_size=DiscoAWS._size_as_minimum_int_or_none(min_size),
-            max_size=DiscoAWS._size_as_maximum_int_or_none(max_size),
-            desired_size=DiscoAWS._size_as_maximum_int_or_none(desired_size),
+            min_size=size_as_minimum_int_or_none(min_size),
+            max_size=size_as_maximum_int_or_none(max_size),
+            desired_size=size_as_maximum_int_or_none(desired_size),
             termination_policies=termination_policies,
             tags={"hostclass": hostclass,
                   "owner": user_data["owner"],
@@ -382,7 +370,7 @@ class DiscoAWS(object):
         self.create_scaling_schedule(hostclass, min_size, desired_size, max_size)
 
         logging.info("Spun up %s instances of %s from %s",
-                     DiscoAWS._size_as_maximum_int_or_none(desired_size), hostclass, ami.id)
+                     size_as_maximum_int_or_none(desired_size), hostclass, ami.id)
 
         return {
             "hostclass": hostclass,

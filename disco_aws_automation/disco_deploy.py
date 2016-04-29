@@ -10,7 +10,7 @@ from boto.exception import EC2ResponseError
 
 from . import DiscoBake, read_config
 from .exceptions import TimeoutError, MaintenanceModeError, IntegrationTestError, SmokeTestError
-from .disco_aws_util import is_truthy
+from .disco_aws_util import is_truthy, size_as_minimum_int_or_none, size_as_maximum_int_or_none
 from .disco_constants import DEFAULT_CONFIG_SECTION
 
 
@@ -50,10 +50,13 @@ class DiscoDeploy(object):
         ''' Return hostclasses from pipeline definitions, validating numeric input '''
         hostclasses = {entry["hostclass"]: entry for entry in pipeline_definition}
 
-        for hostclass, entry in hostclasses.iteritems():
-            for definition in ["max_size", "desired_size", "min_size"]:
-                if definition in entry:
-                    hostclasses[hostclass][definition] = int(entry[definition])
+        for entry in hostclasses.itervalues():
+            if "min_size" in entry:
+                entry["min_size"] = int(size_as_minimum_int_or_none(entry["min_size"]))
+            if "desired_size" in entry:
+                entry["desired_size"] = int(size_as_maximum_int_or_none(entry["desired_size"]))
+            if "max_size" in entry:
+                entry["max_size"] = int(size_as_maximum_int_or_none(entry["max_size"]))
 
         return hostclasses
 
