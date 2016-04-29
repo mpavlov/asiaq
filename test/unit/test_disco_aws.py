@@ -19,7 +19,6 @@ from test.helpers.patch_disco_aws import (patch_disco_aws,
 
 def _get_meta_network_mock():
     ret = MagicMock()
-    ret = MagicMock()
     ret.security_group = MagicMock()
     ret.security_group.id = "sg-1234abcd"
     ret.subnets = [MagicMock() for _ in xrange(3)]
