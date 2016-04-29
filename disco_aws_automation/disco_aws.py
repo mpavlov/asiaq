@@ -20,7 +20,12 @@ from .disco_elb import DiscoELB
 from .disco_alarm import DiscoAlarm
 from .disco_alarm_config import DiscoAlarmsConfig
 from .disco_autoscale import DiscoAutoscale
-from .disco_aws_util import is_truthy, size_as_recurrence_map, size_as_minimum_int_or_none, size_as_maximum_int_or_none
+from .disco_aws_util import (
+    is_truthy,
+    size_as_recurrence_map,
+    size_as_minimum_int_or_none,
+    size_as_maximum_int_or_none
+)
 from .disco_bake import DiscoBake
 from .disco_constants import (
     DEFAULT_CONFIG_SECTION,

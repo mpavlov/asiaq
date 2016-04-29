@@ -9,7 +9,6 @@ from disco_aws_automation import disco_aws_util
 class DiscoAWSUtilTests(TestCase):
     '''Test disco_aws_util.py'''
 
-
     def test_size_as_rec_map_with_none(self):
         """_size_as_recurrence_map works with None"""
         self.assertEqual(disco_aws_util.size_as_recurrence_map(None), {"": None})
