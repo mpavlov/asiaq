@@ -26,7 +26,10 @@ class DiscoELBTests(TestCase):
         self.disco_elb.acm.get_certificate_arn = MagicMock(return_value="arn:aws:acm::123:blah")
         self.disco_elb.iam.get_certificate_arn = MagicMock(return_value="arn:aws:iam::123:blah")
 
+    # pylint: disable=too-many-arguments
     def _create_elb(self, hostclass=None, public=False, tls=False,
+                    instance_protocol='HTTP', instance_port=80,
+                    elb_protocol='HTTP', elb_port=80,
                     idle_timeout=None, connection_draining_timeout=None,
                     sticky_app_cookie=None):
         return self.disco_elb.get_or_create_elb(
@@ -34,11 +37,11 @@ class DiscoELBTests(TestCase):
             security_groups=['sec-1'],
             subnets=['sub-1'],
             hosted_zone_name=TEST_DOMAIN_NAME,
-            health_check_url="/",
-            instance_protocol="HTTP",
-            instance_port=80,
-            elb_protocol="HTTPS" if tls else "HTTP",
-            elb_port=443 if tls else 80,
+            health_check_url="/" if instance_protocol in ('HTTP', 'HTTPS') else "",
+            instance_protocol=instance_protocol,
+            instance_port=instance_port,
+            elb_protocol="HTTPS" if tls else elb_protocol,
+            elb_port=443 if tls else elb_port,
             elb_public=public,
             sticky_app_cookie=sticky_app_cookie,
             idle_timeout=idle_timeout,
@@ -147,6 +150,26 @@ class DiscoELBTests(TestCase):
                 'LoadBalancerPort': 443,
                 'InstanceProtocol': 'HTTP',
                 'InstancePort': 80,
+                'SSLCertificateId': 'arn:aws:acm::123:blah'
+            }],
+            Subnets=['sub-1'],
+            SecurityGroups=['sec-1'],
+            Scheme='internal')
+
+    @mock_elb
+    def test_get_elb_with_tcp(self):
+        """Test creation an ELB with TCP"""
+        elb_client = self.disco_elb.elb_client
+        elb_client.create_load_balancer = MagicMock(wraps=elb_client.create_load_balancer)
+        self._create_elb(instance_protocol='TCP', instance_port=25,
+                         elb_protocol='TCP', elb_port=25)
+        elb_client.create_load_balancer.assert_called_once_with(
+            LoadBalancerName='unittestenv-mhcunit',
+            Listeners=[{
+                'Protocol': 'TCP',
+                'LoadBalancerPort': 25,
+                'InstanceProtocol': 'TCP',
+                'InstancePort': 25,
                 'SSLCertificateId': 'arn:aws:acm::123:blah'
             }],
             Subnets=['sub-1'],
