@@ -48,3 +48,20 @@ def run_gracefully(main_function):
         if logging.getLogger().isEnabledFor(logging.DEBUG):
             raise
         sys.exit(1)
+
+
+def size_as_recurrence_map(size, sentinel=''):
+    if not size:
+        return {sentinel: None}
+    else:
+        return {sentinel: int(size)} if str(size).isdigit() else {
+            part.split('@')[1]: int(part.split('@')[0])
+            for part in str(size).split(':')}
+
+
+def size_as_minimum_int_or_none(size):
+    return min(size_as_recurrence_map(size).values())
+
+
+def size_as_maximum_int_or_none(size):
+    return max(size_as_recurrence_map(size).values())

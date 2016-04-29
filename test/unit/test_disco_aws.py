@@ -39,28 +39,6 @@ class DiscoAWSTests(TestCase):
         self.instance.tags = create_autospec(boto.ec2.tag.TagSet)
         self.instance.id = "i-12345678"
 
-    def test_size_as_rec_map_with_none(self):
-        """_size_as_recurrence_map works with None"""
-        self.assertEqual(DiscoAWS._size_as_recurrence_map(None), {"": None})
-        self.assertEqual(DiscoAWS._size_as_recurrence_map(''), {"": None})
-
-    def test_size_as_rec_map_with_int(self):
-        """_size_as_recurrence_map works with simple integer"""
-        self.assertEqual(DiscoAWS._size_as_recurrence_map(5, sentinel="0 0 * * *"),
-                         {"0 0 * * *": 5})
-
-    def test_size_as_rec_map_with_map(self):
-        """_size_as_recurrence_map works with a map"""
-        map_as_string = "2@1 0 * * *:3@6 0 * * *"
-        map_as_dict = {"1 0 * * *": 2, "6 0 * * *": 3}
-        self.assertEqual(DiscoAWS._size_as_recurrence_map(map_as_string), map_as_dict)
-
-    def test_size_as_rec_map_with_duped_map(self):
-        """_size_as_recurrence_map works with a duped map"""
-        map_as_string = "2@1 0 * * *:3@6 0 * * *:3@6 0 * * *"
-        map_as_dict = {"1 0 * * *": 2, "6 0 * * *": 3}
-        self.assertEqual(DiscoAWS._size_as_recurrence_map(map_as_string), map_as_dict)
-
     @patch_disco_aws
     def test_create_scaling_schedule_only_desired(self, mock_config, **kwargs):
         """test create_scaling_schedule with only desired schedule"""
