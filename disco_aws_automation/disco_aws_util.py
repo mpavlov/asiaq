@@ -51,6 +51,13 @@ def run_gracefully(main_function):
 
 
 def size_as_recurrence_map(size, sentinel=''):
+    """
+    :return: dict, size as "recurrence" map. For example:
+             - size = no value, will return: {<sentinel>: None}
+             - size = simple int value of 5, will return: {<sentinel>: 5}
+             - size = timed interval(s), like "2@0 22 * * *:24@0 10 * * *", will return: {'0 10 * * *': 24,
+                                                                                          '0 22 * * *': 2}
+    """
     if not size:
         return {sentinel: None}
     else:
@@ -60,8 +67,20 @@ def size_as_recurrence_map(size, sentinel=''):
 
 
 def size_as_minimum_int_or_none(size):
+    """
+    :return: int, max_size as max int or None. For example:
+             - size = no value, will return: None
+             - size = simple int value of 5, will return: 5
+             - size = timed interval(s), like "2@0 22 * * *:24@0 10 * * *", will return: 2
+    """
     return min(size_as_recurrence_map(size).values())
 
 
 def size_as_maximum_int_or_none(size):
+    """
+    :return: int, max_size as max int or None. For example:
+             - size = no value, will return: None
+             - size = simple int value of 5, will return: 5
+             - size = timed interval(s), like "2@0 22 * * *:24@0 10 * * *", will return: 24
+    """
     return max(size_as_recurrence_map(size).values())
