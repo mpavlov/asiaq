@@ -40,8 +40,16 @@ class DiscoELB(object):
         return self._elb_client
 
     def get_certificate_arn(self, dns_name):
-        """Returns a Certificate from ACM if available with fallback to the legacy IAM server certs"""
-        return self.acm.get_certificate_arn(dns_name) or self.iam.get_certificate_arn(dns_name)
+        """
+        Returns a Certificate from ACM if available with fallback to the legacy IAM server certs
+
+        If no certificate is found from either ACM or IAM, returns None.
+        """
+        try:
+            return self.acm.get_certificate_arn(dns_name) or self.iam.get_certificate_arn(dns_name)
+        except Exception:
+            logging.info("Unable to find a SSL certificate for DNS entry %s", dns_name)
+            return None
 
     def list(self):
         """Returns all of the ELBs for the current environment"""
@@ -122,9 +130,12 @@ class DiscoELB(object):
                 'Protocol': elb_protocol,
                 'LoadBalancerPort': elb_port,
                 'InstanceProtocol': instance_protocol,
-                'InstancePort': instance_port,
-                'SSLCertificateId': self.get_certificate_arn(cname) or ''
+                'InstancePort': instance_port
             }
+
+            # Only try to lookup a cert if we are using a secure protocol for the ELB
+            if elb_protocol.upper() in ["HTTPS", "SSL"]:
+                listener['SSLCertificateId'] = self.get_certificate_arn(cname) or ''
 
             elb_args = {
                 'LoadBalancerName': elb_name,
