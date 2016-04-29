@@ -450,13 +450,26 @@ class DiscoDeployTests(TestCase):
         self._ci_deploy.wait_for_smoketests = MagicMock(return_value=True)
         self._ci_deploy.test_ami(ami, dry_run=False)
         self._disco_bake.promote_ami.assert_called_with(ami, 'tested')
+        # NOTE: the following expected  values were calculated by using values in MOCK_PIPELINE_DEFINITION
+        #       for mhctimedautoscale in conjunction with what's done in
+        #       disco_deploy.py:DiscoDeploy.handle_test_ami()
+        expected_tested_ami_min_size = 2
+        expected_tested_ami_desired_size = 4
+        expected_tested_ami_max_size = 4
+        expected_new_ami_min_size = 3
+        expected_new_ami_desired_size = 3
+        expected_new_ami_max_size = 6
         self._disco_aws.spinup.assert_has_calls(
             [call([{'ami': 'ami-12345678', 'sequence': 1, 'deployable': 'yes',
-                    'min_size': 2, 'integration_test': None, 'desired_size': 4,
-                    'smoke_test': 'no', 'max_size': 4, 'hostclass': 'mhctimedautoscale'}]),
+                    'integration_test': None, 'smoke_test': 'no', 'hostclass': 'mhctimedautoscale',
+                    'min_size': expected_tested_ami_min_size,
+                    'desired_size': expected_tested_ami_desired_size,
+                    'max_size': expected_tested_ami_max_size}]),
              call([{'ami': 'ami-12345678', 'sequence': 1, 'deployable': 'yes',
-                    'min_size': 3, 'integration_test': None, 'desired_size': 3,
-                    'smoke_test': 'no', 'max_size': 6, 'hostclass': 'mhctimedautoscale'}])])
+                    'integration_test': None, 'smoke_test': 'no', 'hostclass': 'mhctimedautoscale',
+                    'min_size': expected_new_ami_min_size,
+                    'desired_size': expected_new_ami_desired_size,
+                    'max_size': expected_new_ami_max_size}])])
 
     def test_set_maintenance_mode_on(self):
         '''_set_maintenance_mode makes expected remotecmd call'''
