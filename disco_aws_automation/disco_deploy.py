@@ -10,7 +10,6 @@ from boto.exception import EC2ResponseError
 
 from . import DiscoBake, read_config
 from .exceptions import TimeoutError, MaintenanceModeError, IntegrationTestError, SmokeTestError
-from .disco_aws import DiscoAWS
 from .disco_aws_util import is_truthy, size_as_minimum_int_or_none, size_as_maximum_int_or_none
 from .disco_constants import DEFAULT_CONFIG_SECTION
 
