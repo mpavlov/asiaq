@@ -51,15 +51,15 @@ class DiscoDeploy(object):
         ''' Return hostclasses from pipeline definitions, validating numeric input '''
         hostclasses = {entry["hostclass"]: entry for entry in pipeline_definition}
 
-        for hostclass, entry in hostclasses.iteritems():
+        for entry in hostclasses.itervalues():
             if "min_size" in entry:
-                hostclasses[hostclass]["min_size"] =\
+                entry["min_size"] =\
                     int(DiscoAWS._size_as_minimum_int_or_none(entry["min_size"]))
             if "desired_size" in entry:
-                hostclasses[hostclass]["desired_size"] =\
+                entry["desired_size"] =\
                     int(DiscoAWS._size_as_maximum_int_or_none(entry["desired_size"]))
             if "max_size" in entry:
-                hostclasses[hostclass]["max_size"] =\
+                entry["max_size"] =\
                     int(DiscoAWS._size_as_maximum_int_or_none(entry["max_size"]))
 
         return hostclasses
