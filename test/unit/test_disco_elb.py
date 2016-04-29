@@ -37,7 +37,7 @@ class DiscoELBTests(TestCase):
             security_groups=['sec-1'],
             subnets=['sub-1'],
             hosted_zone_name=TEST_DOMAIN_NAME,
-            health_check_url="/" if instance_protocol in ('HTTP', 'HTTPS') else "",
+            health_check_url="/" if instance_protocol.upper() in ('HTTP', 'HTTPS') else "",
             instance_protocol=instance_protocol,
             instance_port=instance_port,
             elb_protocol="HTTPS" if tls else elb_protocol,
