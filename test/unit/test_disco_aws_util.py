@@ -76,4 +76,3 @@ class DiscoAWSUtilTests(TestCase):
         map_as_string = "2@1 0 * * *:3@6 0 * * *:3@6 0 * * *"
         expected_size = 3
         self.assertEqual(size_as_maximum_int_or_none(map_as_string), expected_size)
-
