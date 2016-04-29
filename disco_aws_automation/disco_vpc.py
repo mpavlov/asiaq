@@ -12,6 +12,7 @@ import boto
 import boto.ec2
 from boto.vpc import VPCConnection
 from boto.exception import EC2ResponseError
+import boto3
 
 from . import read_config
 from .resource_helper import keep_trying, wait_for_state
@@ -507,6 +508,7 @@ class DiscoVPC(object):
         self.elasticache.delete_all_cache_clusters(wait=True)
         self.elasticache.delete_all_subnet_groups()
         self._destroy_interfaces()
+        self._destroy_nat_gateways()
         self._destroy_subnets()
         self._delete_security_group_rules()
         keep_trying(60, self._destroy_security_groups)
@@ -552,6 +554,16 @@ class DiscoVPC(object):
             except EC2ResponseError:
                 # Occasionally we get InvalidNetworkInterfaceID.NotFound, not sure why.
                 logging.exception("Skipping error deleting network.")
+
+    def _destroy_nat_gateways(self):
+        """ Find all NAT gateways belonging to a vpc and destroy them"""
+        ec2_client = boto3.client('ec2')
+        nat_gateways = ec2_client.describe_nat_gateways(
+            Filters=[{'Name': 'vpc-id', 'Values':[self.vpc.id]}]
+        )['NatGateways']
+        for nat_gateway in nat_gateways:
+            ec2_client.delete_nat_gateway(NatGatewayId=nat_gateway['NatGatewayId'])
+        # TODO: need to wait for the NAT gateways to be deleted
 
     def _destroy_subnets(self):
         """ Find all subnets belonging to a vpc and destroy them"""
