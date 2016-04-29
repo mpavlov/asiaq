@@ -24,9 +24,12 @@ class DiscoELBTests(TestCase):
     """Test DiscoELB"""
 
     def setUp(self):
-        self.disco_elb = DiscoELB(_get_vpc_mock(), route53=MagicMock(), acm=MagicMock(), iam=MagicMock())
-        self.disco_elb.acm.get_certificate_arn = MagicMock(return_value=TEST_CERTIFICATE_ARN_ACM)
-        self.disco_elb.iam.get_certificate_arn = MagicMock(return_value=TEST_CERTIFICATE_ARN_IAM)
+        self.route53 = MagicMock()
+        self.acm = MagicMock()
+        self.iam = MagicMock()
+        self.disco_elb = DiscoELB(_get_vpc_mock(), route53=self.route53, acm=self.acm, iam=self.iam)
+        self.acm.get_certificate_arn.return_value = TEST_CERTIFICATE_ARN_ACM
+        self.iam.get_certificate_arn.return_value = TEST_CERTIFICATE_ARN_IAM
 
     # pylint: disable=too-many-arguments
     def _create_elb(self, hostclass=None, public=False, tls=False,
@@ -57,7 +60,7 @@ class DiscoELBTests(TestCase):
     @mock_elb
     def test_get_certificate_arn_fallback_to_iam(self):
         '''get_certificate_arn() uses an IAM certificate if no ACM cert available'''
-        self.disco_elb.acm.get_certificate_arn = MagicMock(return_value=None)
+        self.acm.get_certificate_arn.return_value = None
         self.assertEqual(self.disco_elb.get_certificate_arn("dummy"), TEST_CERTIFICATE_ARN_IAM)
 
     @mock_elb
@@ -102,8 +105,8 @@ class DiscoELBTests(TestCase):
     @mock_elb
     def test_get_elb_internal_no_tls(self):
         """Test creation an internal private ELB"""
-        self.disco_elb.acm.get_certificate_arn = MagicMock(return_value=None)
-        self.disco_elb.iam.get_certificate_arn = MagicMock(return_value=None)
+        self.acm.get_certificate_arn.return_value = None
+        self.iam.get_certificate_arn.return_value = None
         elb_client = self.disco_elb.elb_client
         elb_client.create_load_balancer = MagicMock(wraps=elb_client.create_load_balancer)
         self._create_elb()
