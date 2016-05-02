@@ -135,8 +135,8 @@ class DiscoMetaNetwork(object):
             for subnet in self.subnets:
                 subnet.recreate_route_table()
 
-            self.vpc.vpc.connection.delete_route_table(self.cenralized_route_table.id)
-            self.centralized_route_table = None
+            self.vpc.vpc.connection.delete_route_table(self.centralized_route_table.id)
+            self._centralized_route_table = None
 
         for subnet, allocation_id in zip(self.subnets, allocation_ids):
             subnet.create_nat_gateway(allocation_id)
@@ -233,17 +233,17 @@ class DiscoMetaNetwork(object):
         if self.centralized_route_table:
             try:
                 return self.vpc.vpc.connection.create_route(
-                    self.centralized_route_table.id,
-                    destination_cidr_block,
-                    gateway_id
+                    route_table_id=self.centralized_route_table.id,
+                    destination_cidr_block=destination_cidr_block,
+                    gateway_id=gateway_id
                 )
             except EC2ResponseError:
                 logging.exception("Failed to create route due to conflict. Deleting old route and re-trying.")
                 self.vpc.vpc.connection.delete_route(self.centralized_route_table.id, destination_cidr_block)
                 new_route = self.vpc.vpc.connection.create_route(
-                    self.centralized_route_table.id,
-                    destination_cidr_block,
-                    gateway_id
+                    route_table_id=self.centralized_route_table.id,
+                    destination_cidr_block=destination_cidr_block,
+                    gateway_id=gateway_id
                 )
                 logging.error("Route re-created")
                 return new_route
