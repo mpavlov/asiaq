@@ -274,23 +274,22 @@ class DiscoDeploy(object):
             self._disco_aws.terminate(self._get_new_instances(ami.id), use_autoscaling=True)
             self._disco_aws.spinup([rollback_hostclass_dict])
         else:
-            self._disco_aws.autoscale.delete_group(rollback_hostclass_dict["hostclass"], force=True)
+            self._disco_aws.autoscale.delete_groups(hostclass=rollback_hostclass_dict["hostclass"],
+                                                    force=True)
 
     def _get_old_instances(self, new_ami_id):
         '''Returns instances of the hostclass of new_ami_id that are not running new_ami_id'''
         hostclass = DiscoBake.ami_hostclass(self._disco_bake.connection.get_image(new_ami_id))
-        group_name = self._disco_aws.autoscale.get_groupname(hostclass)
         all_instance_ids = [inst.instance_id for inst in self._disco_aws.autoscale.get_instances()
-                            if inst.group_name == group_name]
+                            if self._disco_aws.autoscale.get_hostclass(inst.group_name) == hostclass]
         all_instances = self._disco_aws.instances(instance_ids=all_instance_ids)
         return [inst for inst in all_instances if inst.image_id != new_ami_id]
 
     def _get_new_instances(self, new_ami_id):
         '''Returns instances running new_ami_id'''
         hostclass = DiscoBake.ami_hostclass(self._disco_bake.connection.get_image(new_ami_id))
-        group_name = self._disco_aws.autoscale.get_groupname(hostclass)
         all_instance_ids = [inst.instance_id for inst in self._disco_aws.autoscale.get_instances()
-                            if inst.group_name == group_name]
+                            if self._disco_aws.autoscale.get_hostclass(inst.group_name) == hostclass]
         return self._disco_aws.instances(filters={"image_id": [new_ami_id]}, instance_ids=all_instance_ids)
 
     def _get_latest_other_image_id(self, new_ami_id):

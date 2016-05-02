@@ -1,6 +1,7 @@
 '''Contains DiscoAutoscale class that orchestrates AWS Autoscaling'''
 import logging
 import random
+import time
 
 import boto
 import boto.ec2
@@ -27,9 +28,9 @@ class DiscoAutoscale(object):
         )
         self.boto3_autoscale = boto3_autoscaling_connection or boto3.client('autoscaling')
 
-    def get_groupname(self, hostclass):
-        '''Returns the autoscaling group name when given a hostclass'''
-        return self.environment_name + '_' + hostclass
+    def get_new_groupname(self, hostclass):
+        '''Returns a new autoscaling group name when given a hostclass'''
+        return self.environment_name + '_' + hostclass + "_" + str(int(time.time()))
 
     def _filter_by_environment(self, items):
         '''Filters autoscaling groups and launch configs by environment'''
@@ -46,7 +47,7 @@ class DiscoAutoscale(object):
 
     def get_hostclass(self, groupname):
         '''Returns the hostclass when given an autoscaling group name'''
-        return groupname.replace(self.environment_name + '_', '')
+        return groupname.split('_')[1]
 
     def _get_group_generator(self):
         '''Yields groups in current environment'''
@@ -59,10 +60,6 @@ class DiscoAutoscale(object):
             next_token = groups.next_token
             if not next_token:
                 break
-
-    def get_groups(self):
-        '''Returns Autoscaling groups in current environment'''
-        return list(self._get_group_generator())
 
     def _get_instance_generator(self, instance_ids=None):
         '''Yields autoscaled instances in current environment'''
@@ -117,32 +114,25 @@ class DiscoAutoscale(object):
             except BotoServerError:
                 pass
 
-    def delete_group(self, hostclass, force=False):
+    def delete_groups(self, hostclass=None, group_name=None, force=False):
         '''Delete a specific Autoscaling Group'''
-        throttled_call(self.connection.delete_auto_scaling_group,
-                       self.get_groupname(hostclass), force_delete=force)
-
-    def clean_groups(self, force=False):
-        '''Delete unused Autoscaling Groups in current environment'''
-        for group in self._filter_by_environment(self.get_groups()):
+        groups = self.get_existing_groups(hostclass=hostclass, group_name=group_name)
+        for group in groups:
             try:
-                self.delete_group(self.get_hostclass(group.name), force)
+                logging.info("Deleting group %s", group.name)
+                throttled_call(group.delete, force_delete=force)
             except BotoServerError:
                 pass
 
-    def scaledown_group(self, hostclass):
-        '''Scales down number of instances in Autoscaling group to zero'''
-        group_list = throttled_call(self.connection.get_all_groups,
-                                    names=[self.get_groupname(hostclass)])
-        if group_list:
-            group = group_list[0]
-            group.min_size = group.max_size = group.desired_capacity = 0
-            throttled_call(group.update)
+    def clean_groups(self, force=False):
+        '''Delete unused Autoscaling Groups in current environment'''
+        self.delete_groups(force=force)
 
-    def has_group(self, hostclass):
-        '''Returns True iff current environment has an autoscaling group a hostclass'''
-        return len(throttled_call(self.connection.get_all_groups,
-                                  names=[self.get_groupname(hostclass)])) != 0
+    def scaledown_group(self, hostclass=None, group_name=None):
+        '''Scales down number of instances in a hostclass's most recent autoscaling group to zero'''
+        group = self.get_existing_group(hostclass=hostclass, group_name=group_name)
+        group.min_size = group.max_size = group.desired_capacity = 0
+        throttled_call(group.update)
 
     @staticmethod
     def create_autoscale_tags(group_name, tags):
@@ -190,7 +180,7 @@ class DiscoAutoscale(object):
         _max_size = max([min_size, max_size, desired_size, 0])
         _desired_capacity = desired_size or max_size
         termination_policies = termination_policies or DEFAULT_TERMINATION_POLICIES
-        group_name = self.get_groupname(hostclass)
+        group_name = self.get_new_groupname(hostclass)
         group = boto.ec2.autoscale.group.AutoScalingGroup(
             connection=self.connection,
             name=group_name,
@@ -222,7 +212,7 @@ class DiscoAutoscale(object):
         NOTE: Deleting tags is not currently supported.
         NOTE: Detaching ELB is not currently supported.
         '''
-        group = self.get_existing_group(hostclass)
+        group = self.get_existing_group(hostclass=hostclass)
         if group:
             return self.update_group(
                 group=group, launch_config=launch_config, vpc_zone_id=vpc_zone_id,
@@ -234,11 +224,36 @@ class DiscoAutoscale(object):
                 min_size=min_size, max_size=max_size, desired_size=desired_size,
                 termination_policies=termination_policies, tags=tags, load_balancers=load_balancers)
 
-    def get_existing_group(self, hostclass):
-        """Returns autoscaling group for a hostclass iff it already exists"""
-        group_name = self.get_groupname(hostclass)
-        group_list = throttled_call(self.connection.get_all_groups, names=[group_name])
-        return group_list[0] if group_list else None
+    def get_existing_groups(self, hostclass=None, group_name=None):
+        """
+        Returns all autoscaling groups for a given hostclass, sorted by most recent creation. If no
+        autoscaling groups can be found, returns an empty list.
+        """
+        groups = list(self._get_group_generator())
+        filtered_groups = []
+        for group in groups:
+            filters = [
+                not hostclass or self.get_hostclass(group.name) == hostclass,
+                not group_name or group.name == group_name]
+            if all(filters):
+                filtered_groups.append(group)
+        filtered_groups.sort(key=lambda group: group.name, reverse=True)
+        return filtered_groups
+
+    def get_existing_group(self, hostclass=None, group_name=None):
+        """
+        Returns the autoscaling group object for the given hostclass or group name, or None if no autoscaling
+        group exists.
+
+        If multiple autoscaling groups for the hostclass exist, then an error is thrown.
+        """
+        groups = self.get_existing_groups(hostclass=hostclass, group_name=group_name)
+        if not groups:
+            return None
+        elif len(groups) == 1:
+            return groups[0]
+        else:
+            raise RuntimeError("There are too many autoscaling groups for {}.".format(hostclass))
 
     def terminate(self, instance_id, decrement_capacity=True):
         """
@@ -250,13 +265,16 @@ class DiscoAutoscale(object):
         throttled_call(self.connection.terminate_instance,
                        instance_id, decrement_capacity=decrement_capacity)
 
-    def get_launch_config_for_hostclass(self, hostclass):
-        """Returns an launch configuration for a hostclass if it exists, None otherwise"""
-        group_list = throttled_call(self.connection.get_all_groups,
-                                    names=[self.get_groupname(hostclass)])
-        if not group_list:
-            return None
-        config_list = self.get_configs(names=[group_list[0].launch_config_name])
+    def get_launch_configs(self, hostclass=None, group_name=None):
+        """Returns all launch configurations for a hostclass if any exist, None otherwise"""
+        group_list = self.get_existing_groups(hostclass=hostclass, group_name=group_name)
+        if group_list:
+            return self.get_configs(names=[group.launch_config_name for group in group_list])
+        return None
+
+    def get_launch_config(self, hostclass=None, group_name=None):
+        """Returns all launch configurations for a hostclass if any exist, None otherwise"""
+        config_list = self.get_launch_configs(hostclass=hostclass, group_name=group_name)
         return config_list[0] if config_list else None
 
     def list_policies(self):
@@ -273,26 +291,28 @@ class DiscoAutoscale(object):
         """Deletes an autoscaling policy"""
         return throttled_call(self.connection.delete_policy, policy_name, group_name)
 
-    def delete_all_recurring_group_actions(self, hostclass):
+    def delete_all_recurring_group_actions(self, hostclass=None, group_name=None):
         """Deletes all recurring scheduled actions for a hostclass"""
-        as_group = self.get_groupname(hostclass)
-        actions = throttled_call(self.connection.get_all_scheduled_actions, as_group=as_group)
-        recurring_actions = [action for action in actions if action.recurrence is not None]
-        for action in recurring_actions:
-            throttled_call(self.connection.delete_scheduled_action,
-                           scheduled_action_name=action.name, autoscale_group=as_group)
+        groups = self.get_existing_groups(hostclass=hostclass, group_name=group_name)
+        for group in groups:
+            actions = throttled_call(self.connection.get_all_scheduled_actions, as_group=group.name)
+            recurring_actions = [action for action in actions if action.recurrence is not None]
+            for action in recurring_actions:
+                throttled_call(self.connection.delete_scheduled_action,
+                               scheduled_action_name=action.name, autoscale_group=group.name)
 
-    def create_recurring_group_action(self, hostclass, recurrance,
-                                      min_size=None, desired_capacity=None, max_size=None):
+    def create_recurring_group_action(self, recurrance, min_size=None, desired_capacity=None, max_size=None,
+                                      hostclass=None, group_name=None):
         """Creates a recurring scheduled action for a hostclass"""
-        as_group = self.get_groupname(hostclass)
-        action_name = "{0}_{1}".format(as_group, recurrance.replace('*', 'star').replace(' ', '_'))
-        throttled_call(self.connection.create_scheduled_group_action,
-                       as_group=as_group, name=action_name,
-                       min_size=min_size,
-                       desired_capacity=desired_capacity,
-                       max_size=max_size,
-                       recurrence=recurrance)
+        groups = self.get_existing_groups(hostclass=hostclass, group_name=group_name)
+        for group in groups:
+            action_name = "{0}_{1}".format(group.name, recurrance.replace('*', 'star').replace(' ', '_'))
+            throttled_call(self.connection.create_scheduled_group_action,
+                           as_group=group.name, name=action_name,
+                           min_size=min_size,
+                           desired_capacity=desired_capacity,
+                           max_size=max_size,
+                           recurrence=recurrance)
 
     @staticmethod
     def _get_snapshot_dev(launch_config, hostclass):
@@ -319,32 +339,34 @@ class DiscoAutoscale(object):
             user_data=launch_config.user_data,
             associate_public_ip_address=launch_config.associate_public_ip_address)
 
-    def update_snapshot(self, hostclass, snapshot_id, snapshot_size):
-        '''Updates an existing autoscaling group to use a different snapshot'''
-        launch_config = self.get_launch_config_for_hostclass(hostclass)
+    def update_snapshot(self, snapshot_id, snapshot_size, hostclass=None, group_name=None):
+        '''Updates all of a hostclasses existing autoscaling groups to use a different snapshot'''
+        launch_config = self.get_launch_config(hostclass=hostclass, group_name=group_name)
         if not launch_config:
-            raise Exception("Can't locate hostclass {0}".format(hostclass))
+            raise Exception("Can't locate hostclass {0}".format(hostclass or group_name))
         snapshot_bdm = launch_config.block_device_mappings[
             DiscoAutoscale._get_snapshot_dev(launch_config, hostclass)]
         if snapshot_bdm.snapshot_id != snapshot_id:
             old_snapshot_id = snapshot_bdm.snapshot_id
             snapshot_bdm.snapshot_id = snapshot_id
             snapshot_bdm.size = snapshot_size
-            self.update_group(self.get_existing_group(hostclass),
+            self.update_group(self.get_existing_group(hostclass=hostclass, group_name=group_name),
                               self._create_new_launchconfig(hostclass, launch_config).name)
             logging.info(
-                "Updating %s group's snapshot from %s to %s", hostclass, old_snapshot_id, snapshot_id)
+                "Updating %s group's snapshot from %s to %s", hostclass or group_name, old_snapshot_id,
+                snapshot_id)
         else:
             logging.debug(
-                "Autoscaling group %s is already referencing latest snapshot %s", hostclass, snapshot_id)
+                "Autoscaling group %s is already referencing latest snapshot %s", hostclass or group_name,
+                snapshot_id)
 
-    def update_elb(self, hostclass, elb_names):
+    def update_elb(self, elb_names, hostclass=None, group_name=None):
         '''Updates an existing autoscaling group to use a different set of load balancers'''
-        group = self.get_existing_group(hostclass)
+        group = self.get_existing_group(hostclass=hostclass, group_name=group_name)
 
         if not group:
             logging.warning("Auto Scaling group %s does not exist. Cannot change %s ELB(s)",
-                            hostclass, ', '.join(elb_names))
+                            hostclass or group_name, ', '.join(elb_names))
             return (set(), set())
 
         new_lbs = set(elb_names) - set(group.load_balancers)

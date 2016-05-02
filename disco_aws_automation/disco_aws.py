@@ -169,7 +169,7 @@ class DiscoAWS(object):
 
     def get_instance_type(self, hostclass):
         """Pull in instance_type existing launch configuration"""
-        old_config = self.autoscale.get_launch_config_for_hostclass(hostclass)
+        old_config = self.autoscale.get_launch_config(hostclass=hostclass)
         return old_config.instance_type if old_config else DEFAULT_INSTANCE_TYPE
 
     def get_meta_network_by_name(self, meta_network_name):
@@ -205,7 +205,7 @@ class DiscoAWS(object):
         Create new BDM if parameters are specified, else create a device
         mapping from existing configuration.
         """
-        old_config = self.autoscale.get_launch_config_for_hostclass(hostclass)
+        old_config = self.autoscale.get_launch_config(hostclass=hostclass)
         if not old_config or any([extra_space, extra_disk, iops]):
             block_device_mappings = [self.disco_storage.configure_storage(
                 hostclass=hostclass, ami_id=ami.id,
@@ -225,7 +225,7 @@ class DiscoAWS(object):
 
     def create_scaling_schedule(self, hostclass, min_size, desired_size, max_size):
         """Create autoscaling schedule"""
-        self.autoscale.delete_all_recurring_group_actions(hostclass)
+        self.autoscale.delete_all_recurring_group_actions(hostclass=hostclass)
         maps = [
             size_as_recurrence_map(min_size, sentinel=None),
             size_as_recurrence_map(desired_size, sentinel=None),
@@ -236,7 +236,7 @@ class DiscoAWS(object):
                         for time in times if time is not None}
         for recurrence, sizes in combined_map.items():
             self.autoscale.create_recurring_group_action(
-                hostclass, str(recurrence),
+                str(recurrence), hostclass=hostclass,
                 min_size=sizes[0], desired_capacity=sizes[1], max_size=sizes[2])
 
     def _default_protocol_for_port(self, port):
@@ -363,14 +363,15 @@ class DiscoAWS(object):
             tags={"hostclass": hostclass,
                   "owner": user_data["owner"],
                   "environment": self.environment_name,
-                  "chaos": chaos},
+                  "chaos": chaos,
+                  "is_testing": testing},
             load_balancers=[elb['LoadBalancerName']] if elb else []
         )
 
         self.create_scaling_schedule(hostclass, min_size, desired_size, max_size)
 
-        logging.info("Spun up %s instances of %s from %s",
-                     size_as_maximum_int_or_none(desired_size), hostclass, ami.id)
+        logging.info("Spun up %s instances of %s from %s into group %s",
+                     DiscoAWS._size_as_maximum_int_or_none(desired_size), hostclass, ami.id, group.name)
 
         return {
             "hostclass": hostclass,
@@ -516,8 +517,7 @@ class DiscoAWS(object):
         """
         disco_alarm = DiscoAlarm()
         for hostclass in hostclasses:
-            if self.autoscale.has_group(hostclass):
-                self.autoscale.delete_group(hostclass, force=True)
+            self.autoscale.delete_groups(hostclass=hostclass, force=True)
 
             self.elb.delete_elb(hostclass)
 
@@ -632,7 +632,7 @@ class DiscoAWS(object):
         start_time = time.time()
         max_time = start_time + timeout
 
-        name_to_group = {group.name: group for group in self.autoscale.get_groups()}
+        name_to_group = {group.name: group for group in self.autoscale.get_existing_groups()}
         yet_to_scale = group_names = set([meta["group_name"] for meta in metadata_list])
 
         while True:

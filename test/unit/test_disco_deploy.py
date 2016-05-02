@@ -388,7 +388,7 @@ class DiscoDeployTests(TestCase):
         self._disco_aws.spinup.assert_called_once_with(
             [{'ami': 'ami-12345678', 'sequence': 1, 'min_size': 0, 'desired_size': 1,
               'smoke_test': 'no', 'max_size': 1, 'hostclass': 'mhcnewscarey'}], testing=True)
-        self._disco_aws.autoscale.delete_group.assert_called_once_with('mhcnewscarey', force=True)
+        self._disco_aws.autoscale.delete_groups.assert_called_once_with(hostclass='mhcnewscarey', force=True)
 
     def test_nodeploy_ami_failure(self):
         '''No deploy instances are failed and not promoted when smoketest fails'''
