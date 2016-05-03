@@ -200,10 +200,11 @@ class DiscoAutoscale(object):
         throttled_call(self.connection.create_auto_scaling_group, group)
         return group
 
+    # pylint: disable=too-many-arguments
     def get_group(self, hostclass, launch_config, vpc_zone_id=None,
                   min_size=None, max_size=None, desired_size=None,
                   termination_policies=None, tags=None,
-                  load_balancers=None):
+                  load_balancers=None, create_if_exists=False):
         '''
         Returns autoscaling group.
         This updates an existing autoscaling group if it exists,
@@ -212,16 +213,16 @@ class DiscoAutoscale(object):
         NOTE: Deleting tags is not currently supported.
         NOTE: Detaching ELB is not currently supported.
         '''
-        group = self.get_existing_group(hostclass=hostclass)
-        if group:
-            return self.update_group(
-                group=group, launch_config=launch_config, vpc_zone_id=vpc_zone_id,
-                min_size=min_size, max_size=max_size, desired_size=desired_size,
-                termination_policies=termination_policies, tags=tags, load_balancers=load_balancers)
-        else:
+        group = self.get_existing_group(hostclass=hostclass, return_only_first=create_if_exists)
+        if create_if_exists or not group:
             return self.create_group(
                 hostclass=hostclass, launch_config=launch_config, vpc_zone_id=vpc_zone_id,
                 min_size=min_size, max_size=max_size, desired_size=desired_size,
+                termination_policies=termination_policies, tags=tags, load_balancers=load_balancers)
+        else:
+            return self.update_group(
+                group=group, launch_config=launch_config,
+                vpc_zone_id=vpc_zone_id, min_size=min_size, max_size=max_size, desired_size=desired_size,
                 termination_policies=termination_policies, tags=tags, load_balancers=load_balancers)
 
     def get_existing_groups(self, hostclass=None, group_name=None):
@@ -240,7 +241,7 @@ class DiscoAutoscale(object):
         filtered_groups.sort(key=lambda group: group.name, reverse=True)
         return filtered_groups
 
-    def get_existing_group(self, hostclass=None, group_name=None):
+    def get_existing_group(self, hostclass=None, group_name=None, return_only_first=False):
         """
         Returns the autoscaling group object for the given hostclass or group name, or None if no autoscaling
         group exists.
@@ -250,10 +251,10 @@ class DiscoAutoscale(object):
         groups = self.get_existing_groups(hostclass=hostclass, group_name=group_name)
         if not groups:
             return None
-        elif len(groups) == 1:
-            return groups[0]
-        else:
+        elif len(groups) != 1 and not return_only_first:
             raise RuntimeError("There are too many autoscaling groups for {}.".format(hostclass))
+        else:
+            return groups[0]
 
     def terminate(self, instance_id, decrement_capacity=True):
         """

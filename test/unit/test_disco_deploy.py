@@ -111,8 +111,9 @@ class DiscoDeployTests(TestCase):
         self._disco_bake.promote_ami = MagicMock()
         self._disco_bake.ami_stages = MagicMock(return_value=['untested', 'failed', 'tested'])
         self._disco_bake.get_ami_creation_time = DiscoBake.extract_ami_creation_time_from_ami_name
+        self._disco_autoscale = MagicMock()
         self._ci_deploy = DiscoDeploy(
-            self._disco_aws, self._test_aws, self._disco_bake,
+            self._disco_aws, self._test_aws, self._disco_bake, self._disco_autoscale,
             pipeline_definition=MOCK_PIPELINE_DEFINITION,
             ami=None, hostclass=None, allow_any_hostclass=False,
             config=get_mock_config(MOCK_CONFIG_DEFINITON))
@@ -643,7 +644,6 @@ class DiscoDeployTests(TestCase):
         self._existing_group.desired_capacity = 2
         self._ci_deploy.handle_nodeploy_ami = MagicMock()
         self._ci_deploy.test_ami(ami, dry_run=False)
-        print(self._ci_deploy.handle_nodeploy_ami.mock_calls)
         self._ci_deploy.handle_nodeploy_ami.assert_has_calls([call(None, ami, 0, dry_run=False)])
 
     def test_update_ami_not_in_pipeline(self):
@@ -673,7 +673,6 @@ class DiscoDeployTests(TestCase):
         self._ci_deploy.update_ami(ami, dry_run=False)
         self.assertEqual(self._ci_deploy.is_deployable.call_count, 1)
         self._ci_deploy._disco_aws.autoscale.get_existing_group.assert_called_with("mhcscarey")
-        print(self._ci_deploy.handle_nodeploy_ami.mock_calls)
         self._ci_deploy.handle_nodeploy_ami.assert_called_with(
             {'min_size': 1, 'integration_test': None, 'deployable': 'no',
              'desired_size': 1, 'hostclass': 'mhcscarey'}, ami, 1, dry_run=False)

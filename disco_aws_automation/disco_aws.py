@@ -290,7 +290,7 @@ class DiscoAWS(object):
                   no_destroy=False,
                   min_size=None, desired_size=None, max_size=None,
                   testing=False, termination_policies=None,
-                  chaos=None):
+                  chaos=None, create_if_exists=False):
         # TODO move key, instance_type, monitoring enabled, extra_space, extra_disk into config file.
         # Pylint thinks this function has too many arguments and too many local variables
         # pylint: disable=R0913, R0914
@@ -365,13 +365,14 @@ class DiscoAWS(object):
                   "environment": self.environment_name,
                   "chaos": chaos,
                   "is_testing": testing},
-            load_balancers=[elb['LoadBalancerName']] if elb else []
+            load_balancers=[elb['LoadBalancerName']] if elb else [],
+            create_if_exists=create_if_exists
         )
 
         self.create_scaling_schedule(hostclass, min_size, desired_size, max_size)
 
         logging.info("Spun up %s instances of %s from %s into group %s",
-                     DiscoAWS._size_as_maximum_int_or_none(desired_size), hostclass, ami.id, group.name)
+                     size_as_maximum_int_or_none(desired_size), hostclass, ami.id, group.name)
 
         return {
             "hostclass": hostclass,
@@ -539,7 +540,7 @@ class DiscoAWS(object):
             hostclass_alarms = disco_alarm_config.get_alarms(hostclass)
             disco_alarm.create_alarms(hostclass_alarms)
 
-    def spinup(self, hostclass_dicts, stage=None, no_smoke=False, testing=False):
+    def spinup(self, hostclass_dicts, stage=None, no_smoke=False, testing=False, create_if_exists=False):
         # Pylint thinks this function has too many local variables
         # pylint: disable=R0914,R0912
         """
@@ -614,7 +615,8 @@ class DiscoAWS(object):
                     min_size=hdict.get("min_size"), max_size=hdict.get("max_size"),
                     desired_size=hdict.get("desired_size"), testing=testing,
                     termination_policies=termination_policies.split() if termination_policies else None,
-                    chaos=hdict.get("chaos"))
+                    chaos=hdict.get("chaos"),
+                    create_if_exists=create_if_exists)
                 for (hostclass, termination_policies, hdict) in hostclass_iter]
 
             self.smoketest(self.wait_for_autoscaling_instances(
