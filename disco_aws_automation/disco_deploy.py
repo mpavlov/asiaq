@@ -11,10 +11,7 @@ from boto.exception import EC2ResponseError
 from . import DiscoBake, read_config
 from .exceptions import TimeoutError, MaintenanceModeError, IntegrationTestError, SmokeTestError
 from .disco_aws_util import is_truthy, size_as_minimum_int_or_none, size_as_maximum_int_or_none
-from .disco_constants import DEFAULT_CONFIG_SECTION
-
-DEPLOYMENT_STRATEGY_BLUE_GREEN = "blue_green"
-DEPLOYMENT_STRATEGY_CLASSIC = "classic"
+from .disco_constants import DEFAULT_CONFIG_SECTION, DEPLOYMENT_STRATEGY_BLUE_GREEN, DEPLOYMENT_STRATEGY_CLASSIC
 
 
 def snap_to_range(val, mini, maxi):
