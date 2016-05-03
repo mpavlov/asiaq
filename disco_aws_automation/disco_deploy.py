@@ -406,12 +406,12 @@ class DiscoDeploy(object):
         if dry_run:
             return
 
-        desired_size = old_group.desired_capacity or pipeline_dict["desired_size"]
+        desired_size = old_group.desired_capacity if old_group else pipeline_dict["desired_size"]
         hostclass = pipeline_dict["hostclass"]
         new_group_config = copy.deepcopy(pipeline_dict)
         new_group_config["sequence"] = 1
-        new_group_config["max_size"] = old_group.max_size or pipeline_dict["max_size"]
-        new_group_config["min_size"] = old_group.min_size or pipeline_dict["min_size"]
+        new_group_config["max_size"] = old_group.max_size if old_group else pipeline_dict["max_size"]
+        new_group_config["min_size"] = old_group.min_size if old_group else pipeline_dict["min_size"]
         new_group_config["desired_size"] = desired_size
         new_group_config["smoke_test"] = "no"
         new_group_config["ami"] = ami.id
@@ -429,9 +429,11 @@ class DiscoDeploy(object):
                 if deployable and self._set_testing_mode(hostclass, self._get_new_instances(ami.id), False):
                     # TODO: Update ELBs
                     # we can destroy the old group
-                    logging.info("Successfully left testing mode for group %s, destroying %s",
-                                 new_group.name, old_group.name)
-                    old_group.delete(force_delete=True)
+                    logging.info("Successfully left testing mode for group %s",
+                                 new_group.name)
+                    if old_group:
+                        logging.info("Destroying %s", old_group.name)
+                        old_group.delete(force_delete=True)
                 else:
                     # Otherwise, we need to keep the old group and destroy the new one
                     if deployable:
@@ -446,8 +448,7 @@ class DiscoDeploy(object):
         except (MaintenanceModeError, IntegrationTestError):
             logging.exception("Failed to run integration test")
 
-        logging.info("Destroying new autoscaling group %s and keeping old group %s",
-                     new_group.name, old_group.name)
+        logging.info("Destroying new autoscaling group %s", new_group.name)
         new_group.delete(force_delete=True)
 
     def _set_maintenance_mode(self, hostclass, instances, mode_on):
@@ -567,7 +568,7 @@ class DiscoDeploy(object):
         deployable = self.is_deployable(hostclass)
         testable = bool(self.get_integration_test(hostclass))
 
-        if deployment_strategy is not None:
+        if deployment_strategy:
             desired_deployment_strategy = deployment_strategy
         else:
             desired_deployment_strategy = self.hostclass_option_default(hostclass, 'deployment_strategy',
