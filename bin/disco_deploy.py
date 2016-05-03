@@ -5,8 +5,9 @@ Deploys newly baked hostclasses
 Usage:
     disco_deploy.py [options] test --pipeline PIPELINE
                     [--environment ENV] [--ami AMI | --hostclass HOSTCLASS] [--allow-any-hostclass]
+                    [--strategy STRATEGY]
     disco_deploy.py [options] update --pipeline PIPELINE --environment ENV
-                    [--ami AMI | --hostclass HOSTCLASS] [--allow-any-hostclass]
+                    [--ami AMI | --hostclass HOSTCLASS] [--allow-any-hostclass] [--strategy STRATEGY]
     disco_deploy.py [options] list (--tested|--untested|--failed|--failures|--testable)
                     [--pipeline PIPELINE] [--environment ENV] [--ami AMI | --hostclass HOSTCLASS]
                     [--allow-any-hostclass]
@@ -28,6 +29,7 @@ Options:
      --hostclass HOSTCLASS  Limit command to a specific hostclass
      --environment ENV      Environment to operate in
      --allow-any-hostclass  Do not limit command to hostclasses defined in pipeline
+     --strategy STRATEGY    The deployment strategy to use. Currently supported: 'classic' or 'blue_green'.
 
      --tested               List of latest tested AMI for each hostclass
      --untested             List of latest untested AMI for each hostclass
@@ -83,9 +85,9 @@ def run():
         allow_any_hostclass=args["--allow-any-hostclass"])
 
     if args["test"]:
-        deploy.test(dry_run=args["--dry-run"])
+        deploy.test(dry_run=args["--dry-run"], deployment_strategy=args["--strategy"])
     elif args["update"]:
-        deploy.update(dry_run=args["--dry-run"])
+        deploy.update(dry_run=args["--dry-run"], deployment_strategy=args["--strategy"])
     elif args["list"]:
         missing = "-" if len(pipeline_definition) else ""
         if args["--tested"]:
