@@ -11,6 +11,7 @@ from boto.ec2.cloudwatch import MetricAlarm
 from . import disco_aws_util
 from . import read_config
 from .exceptions import AlarmConfigError
+from .disco_elb import DiscoELB
 
 
 NOTIFICATION_LEVELS = ["critical", "info"]
@@ -82,6 +83,9 @@ class DiscoAlarmConfig(object):
             # Format is {vpc}-{DbInstanceId} Underscore is not allowed in RDS instance name
             value = "-".join([self.environment, self.hostclass])
             return {key: value}
+
+        if self.namespace == 'AWS/ELB':
+            return {'LoadBalancerName': DiscoELB.get_elb_name(self.environment, self.hostclass)}
 
         value = "_".join([self.environment, self.hostclass])
         if self.custom_metric:

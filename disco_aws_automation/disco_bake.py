@@ -24,6 +24,7 @@ from .disco_remote_exec import DiscoRemoteExec, SSH_DEFAULT_OPTIONS
 from .disco_vpc import DiscoVPC
 from .exceptions import CommandError, AMIError, WrongPathError, EarlyExitException
 from .disco_constants import DEFAULT_CONFIG_SECTION
+from .disco_aws_util import is_truthy
 
 AMI_NAME_PATTERN = re.compile(r"^\w+\s(?:[0-9]+\s)?[0-9]{10,50}")
 AMI_TAG_LIMIT = 10
@@ -116,7 +117,7 @@ class DiscoBake(object):
 
     def hc_option(self, hostclass, key):
         '''
-        Returns an option from the [hostclass] section of the disco_aws.ini config file it it is set,
+        Returns an option from the [hostclass] section of the disco_aws.ini config file if it is set,
         otherwise it returns that value from the [bake] section if it is set,
         otherwise it returns that value from the DEFAULT_CONFIG_SECTION if it is set.
         '''
@@ -205,7 +206,7 @@ class DiscoBake(object):
         else:
             repo_ip = self.repo_instance().private_ip_address
 
-        self.remotecmd(instance, [script, hostclass, repo_ip], log_on_error=True)
+        self.remotecmd(instance, [script, hostclass, repo_ip], log_on_error=True, forward_agent=True)
 
     def ami_stages(self):
         """ Return list of configured ami stages"""
@@ -405,6 +406,15 @@ class DiscoBake(object):
             wait_for_state(instance, u'stopped', 300)
             logging.info("Creating snapshot from instance")
 
+            # Check whether or not enhanced networking should be enabled for this hostclass
+            enhanced_networking = self.hc_option_default(hostclass, "enhanced_networking", "false")
+            # This is the easiest way to accomplish this without significantly rewriting things.
+            # This attribute will be copied over the the AMI when it is created, and doesn't appear
+            # to cause any problems.
+            if is_truthy(enhanced_networking):
+                logging.info("Setting enhanced networking attribute")
+                self.connection.modify_instance_attribute(instance.id, "sriovNetSupport", "simple")
+
             image_id = instance.create_image(image_name, no_reboot=True)
             image = keep_trying(60, self.connection.get_image, image_id)
 
@@ -414,7 +424,8 @@ class DiscoBake(object):
 
             DiscoBake._tag_ami_with_metadata(image, stage, source_ami_id, productline)
 
-            wait_for_state(image, u'available', 600)
+            wait_for_state(image, u'available',
+                           int(self.hc_option_default(hostclass, "ami_available_wait_time", "600")))
             logging.info("Created %s AMI %s", image_name, image_id)
         except EarlyExitException as early_exit:
             logging.info(str(early_exit))
@@ -550,13 +561,16 @@ class DiscoBake(object):
         return {instance_id: image for image in self.get_amis(ami_dict.keys())
                 for instance_id in ami_dict[image.id]}
 
-    def list_amis(self, ami_ids=None, instance_ids=None, stage=None, product_line=None):
+    def list_amis(self, ami_ids=None, instance_ids=None, stage=None, product_line=None,
+                  state=None, hostclass=None):
         """
         Fetch all AMI's filtered by supplied args
         :param amis:  AMI ids to filter by
         :param instance_ids:  ID's of instances whose AMI's we should filter by
         :param stage: Stage to filter by
         :param product_line: Product line to filter by
+        :param state: State to filter by
+        :param hostclass: Hostclass to filter by
 
         Return a list of matching AMI's
         """
@@ -567,7 +581,7 @@ class DiscoBake(object):
                 ami_ids = list(instance_amis.intersection(ami_ids))
             else:
                 ami_ids = list(instance_amis)
-        return self.ami_filter(self.get_amis(ami_ids), stage, product_line)
+        return self.ami_filter(self.get_amis(ami_ids), stage, product_line, state, hostclass)
 
     def list_stragglers(self, days=1, stage=None):
         """
@@ -650,23 +664,21 @@ class DiscoBake(object):
         """Return hostclass/ami-type from ami"""
         return ami.name.split()[0]
 
-    def ami_filter(self, amis, stage=None, product_line=None):
+    def ami_filter(self, amis, stage=None, product_line=None, state=None, hostclass=None):
         """
-        Returns a filtered subset of amis. Optionally filtered by the product line
-        that they belong to, as well as their stage.
+        Returns a filtered subset of amis. Optionally filtered by their productline,
+        stage, state, and hostclass.
         """
-        if not product_line and not stage:
-            return amis
-
-        filter_amis = amis[:]
-
-        if product_line:
-            filter_amis = [ami for ami in filter_amis if ami.tags.get("productline", None) == product_line]
-
-        if stage:
-            filter_amis = [ami for ami in filter_amis if ami.tags.get("stage", None) == stage]
-
-        return filter_amis
+        filtered_amis = []
+        for ami in amis:
+            filters = [
+                not stage or ami.tags.get("stage", None) == stage,
+                not product_line or ami.tags.get("productline", None) == product_line,
+                not state or ami.state == state,
+                not hostclass or self.ami_hostclass(ami) == hostclass]
+            if all(filters):
+                filtered_amis.append(ami)
+        return filtered_amis
 
     def find_ami(self, stage, hostclass=None, ami_id=None, product_line=None):
         """

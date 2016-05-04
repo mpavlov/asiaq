@@ -1,9 +1,10 @@
 """
 Manage AWS ElastiCache
-ElastiCache provides Memcached and Redis as a service
+Only Redis on Elasticache is supported at the moment
 """
 import getpass
 import logging
+import hashlib
 from ConfigParser import ConfigParser
 
 import boto3
@@ -19,7 +20,12 @@ from .resource_helper import throttled_call
 class DiscoElastiCache(object):
     """
     A simple class to manage ElastiCache
+
+    Default Maintenence windown is set as sat 5:00am to 6:00am.
+    The Preferred Maintenance Window works on UTC.
     """
+
+    DEFAULT_MAINTENANCE_WINDOW = "sat:05:00-sat:06:00"
 
     def __init__(self, vpc, config_file='disco_elasticache.ini', aws=None, route53=None):
         self.vpc = vpc
@@ -45,9 +51,9 @@ class DiscoElastiCache(object):
         """List all cache clusters in environment"""
         response = throttled_call(self.conn.describe_replication_groups)
         groups = [group for group in response.get('ReplicationGroups', [])
-                  if group['ReplicationGroupId'].startswith(self.vpc.environment_name + '-')]
+                  if group['Description'].startswith(self.vpc.environment_name + '-')]
 
-        return sorted(groups, key=lambda group: (group['ReplicationGroupId']))
+        return sorted(groups, key=lambda group: (group['Description']))
 
     def update(self, cluster_name):
         """
@@ -56,11 +62,15 @@ class DiscoElastiCache(object):
         Modifying tags, number of nodes, instance type, engine type, and port is not supported
         Args:
             cluster_name (str): name of cluster
+            maintenance_window(str): accept Preferred Maintenance Window value
+                                    or assigns default value.
         """
         meta_network = self._get_option(cluster_name, 'meta_network') or self.aws.get_default_meta_network()
         if not self._get_subnet_group(meta_network):
             self._create_subnet_group(meta_network)
 
+        maintenance_window = self._get_option(cluster_name,
+                                              'maintenance_window') or self.DEFAULT_MAINTENANCE_WINDOW
         engine_version = self._get_option(cluster_name, 'engine_version')
         instance_type = self._get_option(cluster_name, 'instance_type')
         parameter_group = self._get_option(cluster_name, 'parameter_group')
@@ -77,15 +87,22 @@ class DiscoElastiCache(object):
         }, {
             'Key': 'name',
             'Value': cluster_name
+        }, {
+            'Key': 'environment',
+            'Value': self.vpc.environment_name
         }]
-
-        cache_cluster = self._get_cache_cluster(cluster_name)
+        cache_cluster = self._get_redis_cluster(cluster_name)
         if not cache_cluster:
             self._create_redis_cluster(cluster_name, engine_version, num_nodes, instance_type,
-                                       parameter_group, port, meta_network, auto_failover, domain_name, tags)
+                                       parameter_group, port, meta_network, auto_failover, domain_name, tags,
+                                       maintenance_window)
         else:
-            self._modify_redis_cluster(cluster_name, engine_version,
-                                       parameter_group, auto_failover, domain_name)
+            if cache_cluster['Status'] == 'available':
+                self._modify_redis_cluster(cluster_name, engine_version,
+                                           parameter_group, auto_failover, domain_name, maintenance_window)
+            else:
+                logging.error('Unable to update cache cluster %s. Its status is not available',
+                              cache_cluster['Description'])
 
     def update_all(self):
         """Update all clusters in environment to match config"""
@@ -103,13 +120,13 @@ class DiscoElastiCache(object):
             cluster_name (str): name of cluster
             wait (bool): block until cluster is deleted
         """
-        cluster = self._get_cache_cluster(cluster_name)
+        cluster = self._get_redis_cluster(cluster_name)
 
         if not cluster:
             logging.info('Cache cluster %s does not exist. Nothing to delete', cluster_name)
             return
 
-        logging.info('Deleting cache cluster %s', cluster_name)
+        logging.info('Deleting cache cluster %s', cluster['Description'])
         throttled_call(self.conn.delete_replication_group, ReplicationGroupId=cluster['ReplicationGroupId'])
 
         self.route53.delete_records_by_value('CNAME', cluster['NodeGroups'][0]['PrimaryEndpoint']['Address'])
@@ -126,7 +143,7 @@ class DiscoElastiCache(object):
         """
         clusters = self.list()
         for cluster in clusters:
-            logging.info('Deleting cache cluster %s', cluster['ReplicationGroupId'])
+            logging.info('Deleting cache cluster %s', cluster['Description'])
             throttled_call(self.conn.delete_replication_group,
                            ReplicationGroupId=cluster['ReplicationGroupId'])
 
@@ -149,13 +166,14 @@ class DiscoElastiCache(object):
             throttled_call(self.conn.delete_cache_subnet_group,
                            CacheSubnetGroupName=group['CacheSubnetGroupName'])
 
-    def _get_cache_cluster(self, cluster_name):
-        cluster_id = self._get_cluster_id(cluster_name)
+    def _get_redis_cluster(self, cluster_name):
+        """Returns a Redis Replication group by its name"""
+        replication_group_id = self._get_redis_replication_group_id(cluster_name)
         try:
             response = throttled_call(self.conn.describe_replication_groups,
-                                      ReplicationGroupId=cluster_id)
-            clusters = response.get('ReplicationGroups', [])
-            return clusters[0] if clusters else None
+                                      ReplicationGroupId=replication_group_id)
+            groups = response.get('ReplicationGroups', [])
+            return groups[0] if groups else None
         except Exception:
             return None
 
@@ -163,7 +181,7 @@ class DiscoElastiCache(object):
     # pylint: disable=R0913, R0914
     def _create_redis_cluster(self, cluster_name, engine_version, num_nodes, instance_type,
                               parameter_group,
-                              port, meta_network_name, auto_failover, domain_name, tags):
+                              port, meta_network_name, auto_failover, domain_name, tags, maintenance_window):
         """
         Create a redis cache cluster
 
@@ -186,15 +204,18 @@ class DiscoElastiCache(object):
                                   not allowed for T1 and T2 instance types.
             domain_name (str): hosted zone id to use for Route53 domain name
             tags (List[dict]): list of tags to add to replication group
+            maintenance_window(string): specifies the weekly time range (of at least 1 hour) in UTC during
+                                        which maintenance on the cache cluster is performed.
         """
-        cluster_id = self._get_cluster_id(cluster_name)
+        replication_group_id = self._get_redis_replication_group_id(cluster_name)
+        description = self._get_redis_description(cluster_name)
         meta_network = self.vpc.networks[meta_network_name]
         subnet_group = self._get_subnet_group_name(meta_network_name)
 
-        logging.info('Creating "%s" Redis cache', cluster_id)
+        logging.info('Creating "%s" Redis cache', description)
         throttled_call(self.conn.create_replication_group,
-                       ReplicationGroupId=cluster_id,
-                       ReplicationGroupDescription=cluster_id,
+                       ReplicationGroupId=replication_group_id,
+                       ReplicationGroupDescription=description,
                        NumCacheClusters=num_nodes,
                        CacheNodeType=instance_type,
                        Engine='redis',
@@ -204,21 +225,22 @@ class DiscoElastiCache(object):
                        SecurityGroupIds=[meta_network.security_group.id],
                        Port=port,
                        AutomaticFailoverEnabled=auto_failover,
-                       Tags=tags)
+                       Tags=tags,
+                       PreferredMaintenanceWindow=maintenance_window)
 
         self.conn.get_waiter('replication_group_available').wait(
-            ReplicationGroupId=cluster_id
+            ReplicationGroupId=replication_group_id
         )
 
-        cluster = self._get_cache_cluster(cluster_name)
+        cluster = self._get_redis_cluster(cluster_name)
 
         if domain_name:
             address = cluster['NodeGroups'][0]['PrimaryEndpoint']['Address']
             subdomain = self._get_subdomain(cluster_name, domain_name)
             self.route53.create_record(domain_name, subdomain, 'CNAME', address)
 
-    def _modify_redis_cluster(self, cluster_name, engine_version, parameter_group,
-                              auto_failover, domain_name, apply_immediately=True):
+    def _modify_redis_cluster(self, cluster_name, engine_version, parameter_group, auto_failover,
+                              domain_name, maintenance_window, apply_immediately=True):
         """
         Modify an existing Redis replication group
         Args:
@@ -229,16 +251,18 @@ class DiscoElastiCache(object):
             domain_name (str): Hosted zone where to create subdomain for cluster
             apply_immediately (bool): True to immediately update the cluster
                                       False to schedule update at next cluster maintenance window or restart
+            maintenance_window(string): specifies the weekly time range (of at least 1 hour) in UTC during
+                                        which maintenance on the cache cluster is performed.
         """
-        cluster_id = self._get_cluster_id(cluster_name)
-        cluster = self._get_cache_cluster(cluster_name)
-
+        replication_group_id = self._get_redis_replication_group_id(cluster_name)
+        cluster = self._get_redis_cluster(cluster_name)
         throttled_call(self.conn.modify_replication_group,
-                       ReplicationGroupId=cluster_id,
+                       ReplicationGroupId=replication_group_id,
                        AutomaticFailoverEnabled=auto_failover,
                        CacheParameterGroupName=parameter_group,
                        ApplyImmediately=apply_immediately,
-                       EngineVersion=engine_version)
+                       EngineVersion=engine_version,
+                       PreferredMaintenanceWindow=maintenance_window)
 
         if domain_name:
             address = cluster['NodeGroups'][0]['PrimaryEndpoint']['Address']
@@ -265,13 +289,16 @@ class DiscoElastiCache(object):
         except botocore.exceptions.ClientError:
             return None
 
-    def _get_cluster_id(self, cluster_name):
-        cluster_id = self.vpc.environment_name + '-' + cluster_name
+    def _get_redis_replication_group_id(self, cluster_name):
+        """Get a unique id for a redis cluster. This will not be human readable"""
 
-        if len(cluster_id) > 20:
-            raise CommandError('Cache cluster name ' + cluster_id + ' is over 20 characters')
+        # Redis Replication Groups Ids are limited to 16 characters so hash the group name to get a shorter id
+        # Ids must also start with a letter
+        return 'A' + hashlib.md5(self.vpc.environment_name + '-' + cluster_name).hexdigest()[:15]
 
-        return cluster_id
+    def _get_redis_description(self, cluster_name):
+        """Get a human readable name for a redis cluster"""
+        return self.vpc.environment_name + '-' + cluster_name
 
     def _get_subnet_group_name(self, meta_network_name):
         return self.vpc.environment_name + '-' + meta_network_name

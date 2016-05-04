@@ -27,6 +27,8 @@ Table of Contents
   * [Route53](#route53)
   * [Chaos](#chaos)
   * [ElastiCache](#elasticache)
+  * [Elasticsearch](#elasticsearch)
+  * [Testing a hostclass](#testing-hostclasses)
 
 
 History
@@ -860,7 +862,17 @@ Finally if this new hostclass should become part of the standard Asiaq
 pipeline add it to the appropriate pipeline definition CSV file. See
 Provisioning a pipeline_ for more details.
 
-Image management
+#### Configuration
+
+##### Enhanced Networking
+By default, Asiaq does not set the enhanced networking attribute on AMIs that it builds. If you install enhanced networking compatible drivers (or your phase 1 AMI comes with them) and want to ensure that your hostclass is started with enhanced networking, you must configure this behavior in ```disco_aws.ini```. Below is an example of this:
+
+```ini
+[mhcfoo]
+enhanced_networking=true
+```
+
+Image Management
 ----------------
 
 ### Promoting images
@@ -1223,21 +1235,6 @@ zone.
 Just like with EIPs the `@` notation (see above) can be used to assign
 different private static IP to instance in different IPs.
 
-#### Routing
-
-An instance can be configured to become a sink for particular IP range.
-That is, any packets on the metanetwork will be routed back to an
-instance of specific hostclass. This can be used for sending VPN or
-NATing:
-
-    [myhostclass]
-    route=10.5.5.0/25
-    source_dest_check=False
-
-The source_dest_check is used to allow the instance to receive packets
-whose destination does not match the instance IP. See
-[SourceDestCheck](http://docs.aws.amazon.com/AmazonVPC/latest/UserGuide/VPC_NAT_Instance.html#EIP_Disable_SrcDestCheck)
-for more details.
 
 EBS Snapshots
 -------------
@@ -1822,6 +1819,7 @@ The following configuration is available in `disco_elasticache.ini` to configure
     port=6379
     parameter_group=default.redis2.8
     num_nodes=2
+    maintenance_window=sat:5:00-sat:06:00
 
 Options:
 
@@ -1830,6 +1828,7 @@ Options:
 -   `port` Port that Redis should be available on
 -   `parameter_group` The set of Redis parameters to use
 -   `num_nodes` Number of nodes in cache cluster
+-   `maintenance_window` specifies the weekly time range (of atleast 1 hour) in UTC during which maintenance on the cache cluster is performed. Default maintenance window is from sat:1:00-sat:2:00 EST or sat 05:00-06:00 UTC.
 
 ElastiCache also depends on some configuration from `disco_aws.ini`
 
@@ -1850,3 +1849,146 @@ Create/update the clusters in a environment from the `disco_elasticache.ini conf
 Delete a cache cluster
 
     disco_elasticache.py [--env ENV] delete --cluster CLUSTER
+
+Elasticsearch
+-------------
+
+### Introduction
+Elasticsearch is an AWS service that is capable of indexing and analyzing large amounts of data. A typical use would be analyzing and visualizing logs from instances.
+
+Elasticsearch domains can be created using `disco_elasticsearch.py`. Each environment (VPC) can have multiple Elasticsearch domains. Currently, the domain is managed independent of VPC creation/deletion. An Elasticsearch domain has a service endpoint where we can ship logs to, and interact with it via API calls.
+
+Our Elasticsearch Domain Name format is:
+
+`es-<elasticsearch_name>-<environment_name>`
+
+Example:
+
+`es-logger-foo`
+
+Elasticsearch Endpoint format is:
+
+`search-<elasticsearch_domain_name>-<cluster_id>.<region>.es.amazonaws.com`
+
+Example:
+
+`search-es-logger-foo-nkcqfivhtjxy7ssl4vrr3s5cq4.us-west-2.es.amazonaws.com`
+
+After the Elasticsearch domain has been created, a CNAME record in Route 53 for the endpoint is also added.
+Route 53 CNAME format:
+
+`<elasticsearch_domain_name>.<domain_name>`
+
+NOTE: `domain_name` refers to the `default_domain_name` configured in `disco_aws.ini`
+
+Example:
+
+`es-logger-foo.aws.example.com`
+
+NOTE: Elasticsearch endpoints use an SSL certificate issued to Amazon.com for `*.us-west-2.es.amazonaws.com`. Therefore, we cannot use our CNAME as an endpoint in rsyslog configuration because the SSL certificate is invalid for our Route 53 entry.
+
+### Configuration
+
+ElasticSearch configuration is read from `disco_elasticsearch.ini`.
+
+Here is an explanation of the various options.
+```ini
+# elasticsearch settings (sample config)
+[ENVIRONMENT_NAME:ELASTICSEARCH_NAME]
+instance_type=            # Instances ending in .elasticsearch (required) (string)
+instance_count=           # Total instances number (required) (int)
+dedicated_master=         # Dedicate cluster master (boolean)
+dedicated_master_type=    # Instances ending in .elasticsearch (string)
+dedicated_master_count=   # Number of master instances (3 recommended for Prod) (int)
+zone_awareness=           # Use multi-AZ (if enabled min 2 nodes required) (boolean)
+ebs_enabled=              # Enable EBS-base storage (boolean)
+volume_type=              # (standard | gp2 | io1)
+volume_size=              # Min: 10(G)
+iops=                     # only for io1 volume type - Min:1000, Max:4000 (int)
+snapshot_start_hour=      # Hour at which to take an automated snapshot Ex: '5' for 5am UTC (int)
+allowed_source_ips=       # A space separated list of IPs that allowed to interact with the ElasticSearch domain. (string)
+```
+
+Additionally, access to the Elasticsearch endpoint is restricted based on IP address via Access Policy. Instances in a VPC need to ship logs to Elasticsearch via a proxy server. This proxy server's IP is read from `disco_aws.ini`. The important options are `proxy_hostclass` in the `disco_aws` section as well as the `eip` in the hostclass section referenced from the `proxy_hostclass` option.
+
+### Kibana
+Amazon Elasticsearch provides a default installation of Kibana with every Amazon Elasticsearch domain. The Kibana interface is accessed via URL with the following format:
+
+`https://<elasticsearch_endpoint>/_plugin/kibana/`
+
+Example:
+
+`https://search-es-logger-foo-nkcqfivhtjxy7ssl4vrr3s5cq4.us-west-2.es.amazonaws.com_plugin/kibana/`
+
+The CNAME provided by Route 53 can also be used:
+
+`https://es-logger-foo.aws.example.com/_plugin/kibana/`
+
+NOTE: When using CNAME, certificate will show as invalid because it was issued for *.us-west-2.es.amazonaws.com.
+
+Testing Hostclasses
+-------------------
+
+Asiaq supports two kinds of tests for a hostclass out of the box. There are *smoke tests* and *integration tests*. As a rule of thumb, smoke tests test if the hostclass is working internally. Integration tests test if the hostclass is able to interact with external services correctly. An example of a smoke test might be making sure that the apache service started correctly. An example of an integration test might be making sure that the hostclass can communicate with an external database.
+
+### Integration Tests
+
+Asiaq only runs integration tests of a hostclass when that hostclass is being tested or updated, typically through the use of ```disco_deploy.py test``` or ```disco_deploy.py update```. In general, integration tests take the form of executing a script on a designated hostclass and either pass or fail depending on the exit code returned by the script. The test script is also passed an argument, typically used to denote what exact test should be run.
+
+
+#### Configuration
+
+Configuration of integration tests is spread across two places, ```disco_aws.ini``` and the pipeline file.
+
+##### disco_aws.ini
+
+There are three configuration options for integration tests in ```disco_aws.ini```.
+
+```ini
+test_hostclass=mhcfootest
+test_user=integration_tester
+test_command=/opt/asiaq/bin/run_tests.sh
+```
+
+* test_hostclass
+  * The hostclass to execute ```test_command``` on. Typically a hostclass dedicated to testing one or more other hostclasses. For example, mhcfootest would probably be a hostclass dedicated to testing the mhcfoo hostclass.
+* test_user
+  * The user to execute ```test_command``` as.
+* test_command
+  * The command to execute the tests on ```test_hostclass``` as the ```test_user```. Typically a shell script with some logic for handling the test argument that is passed to it. The exit code of this command determines whether or not the integration tests were successful.
+
+These options can be specified in two places in ```disco_aws.ini```, in the ```[test]``` section or in a given hostclass' section. Below is an example of specifying defaults in the ```[test]``` section and overriding them for the mhcfoo hostclass.
+
+```ini
+[test]
+test_hostclass=mhcgenerictester
+test_user=asiaq_tester
+test_command=/opt/asiaq/bin/run_tests.sh
+
+[mhcbar]
+...
+
+[mhcfoo]
+test_hostclass=mhcfootests
+```
+
+In this example, we set defaults in the ```[test]``` section for all hostclasses. Then ```[mhcfoo]``` overrides those defaults to specify a different test_hostclass for itself.
+
+
+##### Pipeline
+
+Integration tests are also configured in the pipeline file. As mentioned above, the ```test_command``` is passed an argument when run. This argument is defined in the pipeline file, under the ```integration_test``` entry in the pipeline. If the entry is empty, then no integration test will be run during ```disco_deploy.py test``` or ```disco_deploy.py update```. Instead, those commands will simply wait for the hostclass to pass its smoke tests and pass if those pass.
+
+Here's an example of a hostclass with integration tests and one without integration tests in the pipeline, using some of the example hostclasses from above:
+
+```csv
+sequence,hostclass,min_size,desired_size,max_size,instance_type,extra_disk,iops,smoke_test,integration_test,deployable
+1,mhcgenerictest,1,1,1,c4.large,,,no,,yes
+1,mhcfootest,1,1,1,c4.large,,,no,,yes
+1,mhcbar,2,2,2,m4.large,,,no,mhcbar_integration,yes
+1,mhcfoo,2,2,2,m4.large,,,no,mhcfoo_integration,yes
+1,mhcnointegrationtests,2,2,2,m4.large,,,no,,yes
+```
+
+In the above pipeline, mhcbar will be integration tested by passing ```mhcbar_integration``` as the argument to the ```test_command``` on the generic ```test_hostclass``` defined in our example ```disco_aws.ini``` above. In contrast, mhcfoo will be integration tested by passing ```mhcfoo_integration``` as the argument to the ```test_command``` on it's specially defined ```test_hostclass```. And because mhcnointegrationtests left the ```integration_test``` column empty, no integration tests will be run for it.
+
