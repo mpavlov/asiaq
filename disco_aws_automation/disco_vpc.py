@@ -317,7 +317,7 @@ class DiscoVPC(object):
 
     def _check_vgw_states(self, state):
         """Checks if all VPN Gateways are in the desired state"""
-        filters = {"Nmae": "tag:Name", "Values": [self.environment_name]}
+        filters = {"Name": "tag:Name", "Values": [self.environment_name]}
         states = []
         vgws = self.client.describe_vpn_gateways(Filters=[filters])
         for vgw in vgws['VpnGateways']:
