@@ -317,15 +317,15 @@ class DiscoVPC(object):
 
     def _check_vgw_states(self, state):
         """Checks if all VPN Gateways are in the desired state"""
-        filters = {"tag:Name": self.environment_name}
+        filters = {"Nmae": "tag:Name", "Values": [self.environment_name]}
         states = []
-        vgws = self.vpc.connection.get_all_vpn_gateways(filters=filters)
-        for vgw in vgws:
-            for attachment in vgw.attachments:
+        vgws = self.client.describe_vpn_gateways(Filters=[filters])
+        for vgw in vgws['VpnGateways']:
+            for attachment in vgw['VpcAttachments']:
                 if state == u'detached':
-                    states.append(attachment.state == state)
-                elif attachment.vpc_id == self.vpc.id:
-                    states.append(attachment.state == state)
+                    states.append(attachment['State'] == state)
+                elif attachment['VpcId'] == self.get_vpc_id():
+                    states.append(attachment['State'] == state)
         logging.debug("%s of %s VGW attachments are now in state '%s'",
                       states.count(True), len(states), state)
         return states and all(states)
@@ -353,13 +353,13 @@ class DiscoVPC(object):
         vgw = self._find_vgw()
         if vgw:
             logging.debug("Attaching VGW: %s.", vgw)
-            if vgw.attachments and vgw.attachments[0].state != u'detached':
+            if vgw['VpcAttachments'] and vgw['VpcAttachments'][0]['State'] != 'detached':
                 logging.info("VGW %s already attached to %s. Will detach and reattach to %s.",
-                             vgw.id, vgw.attachments[0].vpc_id, self.vpc.id)
+                             vgw['VpnGatewayId'], vgw['VpcAttachments'][0]['VpcId'], self.get_vpc_id())
                 self._detach_vgws()
                 logging.debug("Waiting 30s to avoid VGW 'non-existance' conditon post detach.")
                 time.sleep(30)
-            vgw.attach(self.vpc.id)
+            self.client.attach_vpn_gateway(VpnGatewayId=vgw['VpnGatewayId'], VpcId=self.get_vpc_id())
             logging.debug("Waiting for VGW to become attached.")
             self._wait_for_vgw_states(u'attached')
             logging.debug("VGW have been attached.")
@@ -370,15 +370,17 @@ class DiscoVPC(object):
 
     def _detach_vgws(self):
         """Detach VPN Gateways, but don't delete them so they can be re-used"""
-        vgw_filter = {
-            "attachment.state": u'attached',
-            "tag:Name": self.environment_name
-        }
+        vgw_filter = [
+                      {"Name": "attachment.state", "Values": ['attached']},
+                      {"Name": "tag:Name", "Values": [self.environment_name]}
+                    ]
         detached = False
-        for vgw in self.vpc.connection.get_all_vpn_gateways(filters=vgw_filter):
+        for vgw in self.client.describe_vpn_gateways(Filters=vgw_filter)['VpnGateways']:
             logging.debug("Detaching VGW: %s.", vgw)
-            if not self.vpc.connection.detach_vpn_gateway(vgw.id, vgw.attachments[0].vpc_id):
-                logging.error("Failed to detach %s from %s", vgw.id, vgw.attachments[0].vpc_id)
+            if not self.client.detach_vpn_gateway(VpnGatewayId=vgw['VpnGatewayId'],
+                                                  VpcId=vgw['VpcAttachments'][0]['VpcId']):
+                logging.error("Failed to detach %s from %s", vgw['VpnGatewayId'],
+                              vgw['VpcAttachments'][0]['VpcId'])
             else:
                 detached = True
 
@@ -516,7 +518,9 @@ class DiscoVPC(object):
         raises KeyError if it is not found.
         """
         for group in groups:
-            if group.id == group_id:
+            if group['GroupId'] == group_id:
+                print "group:"
+                print group
                 return group
         raise KeyError("Security Group not found {0}".format(group_id))
 
@@ -545,7 +549,7 @@ class DiscoVPC(object):
         self._destroy_igws()
         self._destroy_routes()
         self._detach_vgws()
-        DiscoVPC.delete_peerings(self.vpc.id)
+        DiscoVPC.delete_peerings(self.get_vpc_id())
         return self._destroy_vpc()
 
     def _destroy_instances(self):
@@ -597,24 +601,17 @@ class DiscoVPC(object):
         """ Delete all security group rules."""
         security_groups = self.get_all_security_groups_for_vpc()
         for security_group in security_groups:
-            for rule in security_group.rules:
-                for grant in rule.grants:
-                    if grant.group_id:
-                        src_group = DiscoVPC._find_sg_by_id(security_groups, grant.group_id)
-                        try:
-                            logging.debug(
-                                "revoking %s %s %s %s %s", security_group, rule.ip_protocol, rule.from_port,
-                                rule.to_port, src_group)
-                            self.vpc.connection.revoke_security_group(
-                                group_id=security_group.id,
-                                src_security_group_group_id=src_group.id,
-                                src_security_group_owner_id=src_group.owner_id,
-                                ip_protocol=rule.ip_protocol,
-                                from_port=rule.from_port,
-                                to_port=rule.to_port,
-                            )
-                        except EC2ResponseError:
-                            logging.exception("Skipping error deleting sg rule.")
+            for permission in security_group['IpPermissions']:
+                try:
+                    logging.debug(
+                        "revoking %s %s %s %s %s", security_group, permission.get('IpProtocol'),
+                        permission.get('FromPort', '-'), permission.get('ToPort', '-'))
+                    self.client.revoke_security_group_ingress(
+                        GroupId=security_group['GroupId'],
+                        IpPermissions=[permission]
+                    )
+                except EC2ResponseError:
+                    logging.exception("Skipping error deleting sg rule.")
 
     def _destroy_security_groups(self):
         """ Find all security groups belonging to vpc and destroy them."""
@@ -629,22 +626,24 @@ class DiscoVPC(object):
 
     def _destroy_igws(self):
         """ Find all gateways belonging to vpc and destroy them"""
-        vpc_attachment_filter = {"attachment.vpc-id": self.vpc.id}
+        vpc_attachment_filter = {"Name": "attachment.vpc-id", "Values": [self.get_vpc_id()]}
         # delete gateways
-        for igw in self.vpc.connection.get_all_internet_gateways(filters=vpc_attachment_filter):
-            self.vpc.connection.detach_internet_gateway(igw.id, self.vpc.id)
-            self.vpc.connection.delete_internet_gateway(igw.id)
+        for igw in self.client.describe_internet_gateways(Filters=[vpc_attachment_filter])['InternetGateways']:
+            self.client.detach_internet_gateway(
+                InternetGatewayId=igw['InternetGatewayId'],
+                VpcId=self.get_vpc_id())
+            self.client.delete_internet_gateway(InternetGatewayId=igw['InternetGatewayId'])
 
     def _destroy_routes(self):
         """ Find all route_tables belonging to vpc and destroy them"""
-        for route_table in self.vpc.connection.get_all_route_tables(filters=self.vpc_filter()):
-            if not route_table.tags:
-                logging.info("Skipping untagged (default) route table %s", route_table.id)
+        for route_table in self.client.describe_route_tables(Filters=[self.vpc_filter()])['RouteTables']:
+            if len(route_table['Tags']) < 1:
+                logging.info("Skipping untagged (default) route table %s", route_table['RouteTableId'])
                 continue
             try:
-                self.vpc.connection.delete_route_table(route_table.id)
+                self.client.delete_route_table(RouteTableId=route_table['RouteTableId'])
             except EC2ResponseError:
-                logging.error("Error deleting route_table %s:.", route_table.id)
+                logging.error("Error deleting route_table %s:.", route_table['RouteTableId'])
                 raise
 
     def _destroy_vpc(self):
@@ -653,16 +652,18 @@ class DiscoVPC(object):
         # save function and parameters so we can delete dhcp_options after vpc. We do this becase botos
         # get_all_dhcp_options does not support filter. Because we cannot easily find the default dhcp
         # options, re-assigning default dhcp option is not trivial.
-        delete_dhcp_options = self.vpc.connection.delete_dhcp_options
-        dhcp_options_id = self.vpc.dhcp_options_id
+        # delete_dhcp_options = self.vpc.connection.delete_dhcp_options
+        dhcp_options_id = self.vpc['Vpc']['DhcpOptionsId']
 
-        delete_status = keep_trying(30, self.vpc.delete)
+        self.client.delete_vpc(VpcId=self.get_vpc_id())
+        # delete_status = keep_trying(30, self.vpc.delete)
         self.vpc = None
 
-        if not delete_dhcp_options(dhcp_options_id):
-            logging.warning("failed to delete dhcp options (%s)", dhcp_options_id)
+        self.client.delete_dhcp_options(DhcpOptionsId=dhcp_options_id)
+        # if not delete_dhcp_options(dhcp_options_id):
+        #    logging.warning("failed to delete dhcp options (%s)", dhcp_options_id)
 
-        return delete_status
+        # return delete_status
 
     @staticmethod
     def find_vpc_id_by_name(vpc_name):
@@ -785,7 +786,6 @@ class DiscoVPC(object):
     @staticmethod
     def create_peering_connections(peering_configs):
         """ create vpc peering configuration from the peering config dictionary"""
-        # vpc_conn = VPCConnection()
         client = boto3.client('ec2')
         for peering in peering_configs.keys():
             vpc_map = peering_configs[peering]['vpc_map']
@@ -871,28 +871,27 @@ class DiscoVPC(object):
         if vpc_id:
             peerings = client.describe_vpc_peering_connections(
                 Filters=[{'Name': 'requester-vpc-info.vpc-id', 'Values': [vpc_id]}]
-            ) + client.describe_vpc_peering_connections(
-                Filters=[{'Name': 'acceptor-vpc-info.vpc-id', 'Values': [vpc_id]}]
-            )
+            )['VpcPeeringConnections'] + client.describe_vpc_peering_connections(
+                Filters=[{'Name': 'accepter-vpc-info.vpc-id', 'Values': [vpc_id]}]
+            )['VpcPeeringConnections']
         else:
-            peerings = client.describe_vpc_peering_connections()
+            peerings = client.describe_vpc_peering_connections()['VpcPeeringConnections']
 
         peering_states = LIVE_PEERING_STATES + (["failed"] if include_failed else [])
         return [
             peering
-            for peering in peerings['VpcPeeringConnections']
+            for peering in peerings
             if peering['Status']['Code'] in peering_states
         ]
 
     @staticmethod
     def delete_peerings(vpc_id=None):
         """Delete peerings. If vpc_id is specified, delete all peerings of the VPCs only"""
-        ec2 = boto3.resource('ec2')
+        client = boto3.client('ec2')
         for peering in DiscoVPC.list_peerings(vpc_id):
             try:
                 logging.info('deleting peering connection %s', peering['VpcPeeringConnectionId'])
-                vpc_peering_connection = ec2.VpcPeeringConnection(peering['VpcPeeringConnectionId'])
-                vpc_peering_connection.delete()
+                client.delete_vpc_peering_connection(VpcPeeringConnectionId=peering['VpcPeeringConnectionId'])
             except EC2ResponseError:
                 raise RuntimeError('Failed to delete VPC Peering connection \
                                     {}'.format(peering['VpcPeeringConnectionId']))
