@@ -126,6 +126,17 @@ class DiscoMetaNetwork(object):
             )
         return self._subnets
 
+    @property
+    def subnet_ip_networks(self):
+        """
+        Return IPNetwork of all subnet CIDRs
+        """
+        return [
+            IPNetwork(subnet.cidr_block)
+            for subnet in
+            self.subnets
+        ]
+
     def _find_subnets(self):
         return self.vpc.vpc.connection.get_all_subnets(
             filters=self._resource_filter
@@ -162,7 +173,7 @@ class DiscoMetaNetwork(object):
         ip_address = IPAddress(ip_address)
         for subnet in self.subnets:
             cidr = IPNetwork(subnet.cidr_block)
-            if ip_address >= cidr[0] and ip_address <= cidr[-1]:
+            if ip_address >= cidr.first and ip_address <= cidr.last:
                 return subnet
         raise IPRangeError("IP {0} is not in Metanetwork ({1}) range.".format(ip_address, self.name))
 
@@ -236,3 +247,29 @@ class DiscoMetaNetwork(object):
         sg_args["to_port"] = ports[1]
         logging.debug("Adding sg_rule: %s", sg_args)
         self.vpc.vpc.connection.authorize_security_group(**sg_args)
+
+    def ip_by_offset(self, offset):
+        """
+        Pass in +10 and get 10th ip of subnet range
+        Pass in -2 and get 2nd to last ip of subnet
+
+        Returns IpAddress object, usually you'll want
+        to cast this to str.
+        """
+        if offset.startswith("-"):
+            return max([
+                net[offset]
+                for net in
+                self.subnet_ip_networks
+            ])
+        elif offset.startswith("+"):
+            return min([
+                net[offset]
+                for net in
+                self.subnet_ip_networks
+            ])
+        else:
+            raise IndexError(
+                "Cannot find IP in metanetwork by offset {0}."
+                .format(offset)
+            )

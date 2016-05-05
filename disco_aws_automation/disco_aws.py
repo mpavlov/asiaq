@@ -141,17 +141,20 @@ class DiscoAWS(object):
 
         data["hostclass"] = hostclass
         if is_truthy(self.hostclass_option_default(hostclass, "enable_proxy")):
-            data["http_proxy_ip"] = self.hostclass_option_default(
-                fixed_ip_hostclass['http_proxy'], "ip_address", "")
-        data["logger_ip"] = self.hostclass_option_default(
-            fixed_ip_hostclass['logger'], "ip_address", "")
-        data["logforwarder_ip"] = self.hostclass_option_default(
-            fixed_ip_hostclass['logforwarder'], "ip_address", "")
+            data["http_proxy_ip"] = self._get_hostclass_ip_address(
+                fixed_ip_hostclass['http_proxy'], ""
+            )
+        data["logger_ip"] = self._get_hostclass_ip_address(
+            fixed_ip_hostclass['logger'], ""
+        )
+        data["logforwarder_ip"] = self._get_hostclass_ip_address(
+            fixed_ip_hostclass['logforwarder'], ""
+        )
         data["environment_name"] = self.vpc.environment_name
         data["owner"] = owner or getpass.getuser()
         data["credential_buckets"] = " ".join(self.vpc.get_credential_buckets(self._project_name))
         data["zookeepers"] = "[\\\"{0}:2181\\\"]".format(
-            self.hostclass_option_default(fixed_ip_hostclass['zookeeper'], "ip_address", "")
+            self._get_hostclass_ip_address((fixed_ip_hostclass['zookeeper'], ""))
         )
         data["is_testing"] = "1" if testing else "0"
         data["eip"] = self.hostclass_option_default(hostclass, "eip")
@@ -785,9 +788,15 @@ class DiscoAWS(object):
 
         lookup either "ip_addresses" or "ip_address" in the config
         """
-        ip_addresses = self.hostclass_option_default(hostclass, "ip_addresses")
-        ip_address = self.hostclass_option_default(hostclass, "ip_address", default)
-        return ip_addresses or ip_address
+        ip_address = self.hostclass_option_default(hostclass, "ip_addresses", default)
+
+        if not ip_address:
+            return ip_address
+        elif ip_address.startswith("-") or ip_address.startswith("+"):
+            meta_network = self.get_meta_network(hostclass)
+            return str(meta_network(ip_address))
+        else:
+            return ip_address
 
     def get_default_meta_network(self, default=None):
         """Get the default meta network from config or None if not in config"""
