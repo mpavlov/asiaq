@@ -35,7 +35,7 @@ def parse_arguments():
                                      required=False, default=False, help='Force deletion')
     parser_delete_specifier_group = parser_delete_group.add_mutually_exclusive_group(required=True)
     parser_delete_specifier_group.add_argument("--hostclass", default=None, help='Name of the hostclass')
-    parser_delete_specifier_group.add_argument("--group_name", default=None,
+    parser_delete_specifier_group.add_argument("--name", default=None,
                                                help='Name of the autoscaling group')
 
     # Launch Configuration commands
@@ -103,7 +103,7 @@ def run():
     elif args.mode == "cleangroups":
         autoscale.clean_groups()
     elif args.mode == "deletegroup":
-        autoscale.delete_groups(hostclass=args.hostclass, group_name=args.group_name, force=args.force)
+        autoscale.delete_groups(hostclass=args.hostclass, group_name=args.name, force=args.force)
 
     # Launch Configuration commands
     elif args.mode == "listconfigs":
