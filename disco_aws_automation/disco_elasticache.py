@@ -278,7 +278,8 @@ class DiscoElastiCache(object):
         throttled_call(self.conn.create_cache_subnet_group,
                        CacheSubnetGroupName=subnet_group_name,
                        CacheSubnetGroupDescription=subnet_group_name,
-                       SubnetIds=[subnet.id for subnet in meta_network.subnets])
+                       SubnetIds=[disco_subnet.subnet_dict['SubnetId']
+                                  for disco_subnet in meta_network.disco_subnets])
 
     def _get_subnet_group(self, meta_network_name):
         try:

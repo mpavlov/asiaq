@@ -151,7 +151,7 @@ class DiscoSubnetTests(TestCase):
         self.assertEqual(self.subnet.metanetwork, self.mock_metanetwork)
         self.assertEqual(self.subnet.cidr, MOCK_CIDR)
         self.assertEqual(self.subnet.route_table, MOCK_ROUTE_TABLE)
-        self.assertEqual(self.subnet.subnet, MOCK_SUBNET)
+        self.assertEqual(self.subnet.subnet_dict, MOCK_SUBNET)
 
         self.mock_ec2_conn.describe_route_tables.assert_called_once_with(
             RouteTableIds=[MOCK_ROUTE_TABLE_ID])
@@ -175,7 +175,7 @@ class DiscoSubnetTests(TestCase):
         self.subnet = DiscoSubnet(MOCK_SUBNET_NAME, self.mock_metanetwork,
                                   MOCK_CIDR, None, self.mock_ec2_conn)
 
-        self.assertEqual(self.subnet.subnet, MOCK_SUBNET)
+        self.assertEqual(self.subnet.subnet_dict, MOCK_SUBNET)
         self.mock_ec2_conn.create_subnet.assert_called_once_with(
             AvailabilityZone=MOCK_SUBNET_NAME,
             CidrBlock=MOCK_CIDR,
@@ -197,7 +197,7 @@ class DiscoSubnetTests(TestCase):
         self.subnet = DiscoSubnet(MOCK_SUBNET_NAME, self.mock_metanetwork,
                                   MOCK_CIDR, None, self.mock_ec2_conn)
 
-        self.assertEqual(self.subnet.subnet, MOCK_SUBNET)
+        self.assertEqual(self.subnet.subnet_dict, MOCK_SUBNET)
         self.mock_ec2_conn.describe_subnets.assert_called_once_with(
             Filters=[{'Values': [MOCK_VPC_ID], 'Name': 'vpc-id'},
                      {'Values': [MOCK_VPC_NAME], 'Name': 'tag:meta_network'},

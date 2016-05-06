@@ -193,7 +193,7 @@ class DiscoAWS(object):
         subnet_ips = self._get_hostclass_ip_address(hostclass)
 
         if not subnet_ips:
-            return [subnet.subnet for subnet in meta_network.subnets]
+            return [disco_subnet.subnet_dict for disco_subnet in meta_network.disco_subnets]
 
         return [meta_network.subnet_by_ip(subnet_ip) for subnet_ip in subnet_ips.split(' ')]
 
@@ -251,12 +251,12 @@ class DiscoAWS(object):
             elb_meta_network_name = self.hostclass_option_default(hostclass, "elb_meta_network", None)
             if elb_meta_network_name:
                 elb_meta_network = self.get_meta_network_by_name(elb_meta_network_name)
-                elb_subnets = elb_meta_network.subnets
-                subnets = [subnet.id for subnet in elb_subnets]
+                elb_subnets = elb_meta_network.disco_subnets
+                subnet_ids = [disco_subnet.subnet_dict['SubnetId'] for disco_subnet in elb_subnets]
             else:
                 elb_meta_network = self.get_meta_network(hostclass)
                 elb_subnets = self.get_subnets(elb_meta_network, hostclass)
-                subnets = [subnet['SubnetId'] for subnet in elb_subnets]
+                subnet_ids = [subnet['SubnetId'] for subnet in elb_subnets]
 
             elb_port = int(self.hostclass_option_default(hostclass, "elb_port", 80))
             elb_protocol = self.hostclass_option_default(hostclass, "elb_protocol", None) or \
@@ -268,7 +268,7 @@ class DiscoAWS(object):
             elb = self.elb.get_or_create_elb(
                 hostclass,
                 security_groups=[elb_meta_network.security_group.id],
-                subnets=subnets,
+                subnets=subnet_ids,
                 hosted_zone_name=self.hostclass_option_default(hostclass, "domain_name"),
                 health_check_url=self.hostclass_option_default(hostclass, "elb_health_check_url"),
                 instance_protocol=instance_protocol, instance_port=instance_port,

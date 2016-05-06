@@ -29,20 +29,20 @@ class DiscoSubnet(object):
 
         if centralized_route_table_id:
             # Centralized route table is being used here
-            self._subnet = self._find_subnet()
-            if not self._subnet:
+            self._subnet_dict = self._find_subnet()
+            if not self._subnet_dict:
                 raise RuntimeError("Could not find subnet by the AZ "
                                    "name '{0}' for metanetwork '{1}'"
                                    .format(name, self.metanetwork.name))
             # Have to add new tags going forward
-            self._tag_resource(self._subnet['SubnetId'])
+            self._tag_resource(self._subnet_dict['SubnetId'])
 
             self._route_table = self._find_route_table_by_id(centralized_route_table_id)
             if not self._route_table:
                 raise RuntimeError("Could not find centralized route table by the id {0}"
                                    .format(centralized_route_table_id))
         else:
-            self._subnet = find_or_create(self._find_subnet, self._create_subnet)
+            self._subnet_dict = find_or_create(self._find_subnet, self._create_subnet)
 
             self._route_table = find_or_create(
                 self._find_route_table, self._create_and_associate_route_table
@@ -58,9 +58,9 @@ class DiscoSubnet(object):
         return self._boto3_connection
 
     @property
-    def subnet(self):
+    def subnet_dict(self):
         """Returns the AWS subnet"""
-        return self._subnet
+        return self._subnet_dict
 
     @property
     def route_table(self):
@@ -79,12 +79,12 @@ class DiscoSubnet(object):
 
     @property
     def _resource_filter(self):
-        resource_filter = dict()
-        resource_filter['Filters'] = []
-        resource_filter['Filters'].append({'Name': 'vpc-id', 'Values': [str(self.metanetwork.vpc.vpc.id)]})
-        resource_filter['Filters'].append({'Name': 'tag:meta_network', 'Values': [self.metanetwork.name]})
-
-        return resource_filter
+        return {
+            'Filters': [{'Name': 'vpc-id',
+                         'Values': [str(self.metanetwork.vpc.vpc.id)]},
+                        {'Name': 'tag:meta_network',
+                         'Values': [self.metanetwork.name]}]
+        }
 
     def recreate_route_table(self):
         """ Re-create the route table with all the routes from the current route table """
@@ -92,7 +92,7 @@ class DiscoSubnet(object):
 
         if self.route_table:
             association = (assoc for assoc in self.route_table['Associations']
-                           if assoc['SubnetId'] == self.subnet['SubnetId']).next()
+                           if assoc['SubnetId'] == self.subnet_dict['SubnetId']).next()
             if association:
                 # If there is an association between this subnet and the old route table
                 # copy the routes to the new route table and disassociate the old one
@@ -137,10 +137,11 @@ class DiscoSubnet(object):
         ]
         if not peering_routes_for_peering:
             # Create route to the peering connection
-            params = dict()
-            params['RouteTableId'] = self.route_table['RouteTableId']
-            params['DestinationCidrBlock'] = cidr
-            params['VpcPeeringConnectionId'] = peering_conn_id
+            params = {
+                'RouteTableId': self.route_table['RouteTableId'],
+                'DestinationCidrBlock': cidr,
+                'VpcPeeringConnectionId': peering_conn_id
+            }
 
             peering_routes_for_cidr = [
                 _ for _ in self.route_table['Routes']
@@ -171,14 +172,15 @@ class DiscoSubnet(object):
     def _add_route(self, route_table_id, destination_cidr_block,
                    gateway_id=None, instance_id=None, network_interface_id=None,
                    vpc_peering_connection_id=None, nat_gateway_id=None):
-        params = dict()
-        params['RouteTableId'] = route_table_id
-        params['DestinationCidrBlock'] = destination_cidr_block
-        params['GatewayId'] = gateway_id
-        params['InstanceId'] = instance_id
-        params['NetworkInterfaceId'] = network_interface_id
-        params['VpcPeeringConnectionId'] = vpc_peering_connection_id
-        params['NatGatewayId'] = nat_gateway_id
+        params = {
+            'RouteTableId': route_table_id,
+            'DestinationCidrBlock': destination_cidr_block,
+            'GatewayId': gateway_id,
+            'InstanceId': instance_id,
+            'NetworkInterfaceId': network_interface_id,
+            'VpcPeeringConnectionId': vpc_peering_connection_id,
+            'NatGatewayId': nat_gateway_id
+        }
 
         result = self.boto3_ec2.create_route(**params)['Return']
 
@@ -187,9 +189,10 @@ class DiscoSubnet(object):
             return result
 
         logging.exception("Failed to create route due to conflict. Deleting old route and re-trying.")
-        delete_params = dict()
-        delete_params['RouteTableId'] = route_table_id
-        delete_params['DestinationCidrBlock'] = destination_cidr_block
+        delete_params = {
+            'RouteTableId': route_table_id,
+            'DestinationCidrBlock': destination_cidr_block
+        }
         self.boto3_ec2.delete_route(**delete_params)
 
         logging.error("Re-creating route.")
@@ -208,14 +211,15 @@ class DiscoSubnet(object):
             return None
 
     def _create_subnet(self):
-        params = dict()
-        params['VpcId'] = self.metanetwork.vpc.vpc.id
-        params['CidrBlock'] = self.cidr
-        params['AvailabilityZone'] = self.name
-        subnet = handle_date_format(self.boto3_ec2.create_subnet(**params))['Subnet']
-        self._tag_resource(subnet['SubnetId'])
-        logging.debug("%s subnet: %s", self.name, subnet)
-        return subnet
+        params = {
+            'VpcId': self.metanetwork.vpc.vpc.id,
+            'CidrBlock': self.cidr,
+            'AvailabilityZone': self.name
+        }
+        subnet_dict = handle_date_format(self.boto3_ec2.create_subnet(**params))['Subnet']
+        self._tag_resource(subnet_dict['SubnetId'])
+        logging.debug("%s subnet_dict: %s", self.name, subnet_dict)
+        return subnet_dict
 
     def _find_route_table_by_id(self, route_table_id):
         params = dict()
@@ -249,7 +253,7 @@ class DiscoSubnet(object):
     def _associate_route_table(self, route_table):
         # Associate route table with subnet
         params = dict()
-        params['SubnetId'] = self.subnet['SubnetId']
+        params['SubnetId'] = self.subnet_dict['SubnetId']
         params['RouteTableId'] = route_table['RouteTableId']
         self.boto3_ec2.associate_route_table(**params)
 
@@ -259,10 +263,12 @@ class DiscoSubnet(object):
         return route_table
 
     def _find_nat_gateway(self):
-        params = dict()
-        params['Filters'] = []
-        params['Filters'].append({'Name': 'subnet-id', 'Values': [self.subnet['SubnetId']]})
-        params['Filters'].append({'Name': 'vpc-id', 'Values': [self.metanetwork.vpc.vpc.id]})
+        params = {
+            'Filters': [{'Name': 'subnet-id',
+                         'Values': [self.subnet_dict['SubnetId']]},
+                        {'Name': 'vpc-id',
+                         'Values': [self.metanetwork.vpc.vpc.id]}]
+        }
         try:
             result = handle_date_format(
                 self.boto3_ec2.describe_nat_gateways(**params)
@@ -275,14 +281,15 @@ class DiscoSubnet(object):
                                "NAT gateway's allocation id ({1}) in subnet ({2})."
                                .format(self.nat_eip_allocation_id,
                                        result['NatGatewayAddresses'][0]['AllocationId'],
-                                       self.subnet['SubnetId']))
+                                       self.subnet_dict['SubnetId']))
 
         return result
 
     def _create_nat_gateway(self):
-        params = dict()
-        params['SubnetId'] = self.subnet['SubnetId']
-        params['AllocationId'] = self.nat_eip_allocation_id
+        params = {
+            'SubnetId': self.subnet_dict['SubnetId'],
+            'AllocationId': self.nat_eip_allocation_id
+        }
         logging.debug("Creating NAT gateway: %s", self.nat_eip_allocation_id)
         nat_gateway = handle_date_format(self.boto3_ec2.create_nat_gateway(**params))['NatGateway']
 
@@ -306,9 +313,10 @@ class DiscoSubnet(object):
                                        self.name, suffix)
 
     def _tag_resource(self, resource_id, suffix=None):
-        tag_params = dict()
-        tag_params['Resources'] = [resource_id]
-        tag_params['Tags'] = [{'Key': 'Name', 'Value': self._resource_name(suffix)},
-                              {'Key': 'meta_network', 'Value': self.metanetwork.name},
-                              {'Key': 'subnet', 'Value': self.name}]
+        tag_params = {
+            'Resources': [resource_id],
+            'Tags': [{'Key': 'Name', 'Value': self._resource_name(suffix)},
+                     {'Key': 'meta_network', 'Value': self.metanetwork.name},
+                     {'Key': 'subnet', 'Value': self.name}]
+        }
         keep_trying(300, self.boto3_ec2.create_tags, **tag_params)
