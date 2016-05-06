@@ -4,7 +4,6 @@ Subnet abstraction
 
 import copy
 import logging
-import uuid
 
 import boto3
 
@@ -20,27 +19,28 @@ class DiscoSubnet(object):
     Representation of a disco subnet, which contains an AWS subnet object, and its own
     route table and possibly a NAT gateway
     """
-    def __init__(self, name, metanetwork, cidr, route_table_id=None, boto3_connection=None):
+    def __init__(self, name, metanetwork, cidr, centralized_route_table_id=None, boto3_connection=None):
         self.name = name
         self.metanetwork = metanetwork
         self.cidr = cidr
         self.nat_eip_allocation_id = None
-        self._boto3_connection = boto3_connection
+        self._boto3_connection = boto3_connection  # Lazily initialized if parameter is None
         self._nat_gateway = None
 
-        if route_table_id:
+        if centralized_route_table_id:
             # Centralized route table is being used here
             self._subnet = self._find_subnet()
             if not self._subnet:
                 raise RuntimeError("Could not find subnet by the AZ "
-                                   "name '{0}' for metanetwork '{1}'".format(name,
-                                                                             self.metanetwork.name))
+                                   "name '{0}' for metanetwork '{1}'"
+                                   .format(name, self.metanetwork.name))
             # Have to add new tags going forward
             self._tag_resource(self._subnet['SubnetId'])
 
-            self._route_table = self._find_route_table_by_id(route_table_id)
+            self._route_table = self._find_route_table_by_id(centralized_route_table_id)
             if not self._route_table:
-                raise RuntimeError("Could not find table by the id {0}".format(route_table_id))
+                raise RuntimeError("Could not find centralized route table by the id {0}"
+                                   .format(centralized_route_table_id))
         else:
             self._subnet = find_or_create(self._find_subnet, self._create_subnet)
 
@@ -70,8 +70,6 @@ class DiscoSubnet(object):
     @property
     def nat_gateway(self):
         """Finds or creates the NAT gateway for our subnet if needed"""
-        # TODO: make sure nat_eip_allocation_id matches with the one currently in nat_gateway
-
         if self.nat_eip_allocation_id and not self._nat_gateway:
             self._nat_gateway = find_or_create(
                 self._find_nat_gateway, self._create_nat_gateway
@@ -90,7 +88,7 @@ class DiscoSubnet(object):
 
     def recreate_route_table(self):
         """ Re-create the route table with all the routes from the current route table """
-        route_table = self._create_route_table()
+        new_route_table = self._create_route_table()
 
         if self.route_table:
             association = (assoc for assoc in self.route_table['Associations']
@@ -99,17 +97,37 @@ class DiscoSubnet(object):
                 # If there is an association between this subnet and the old route table
                 # copy the routes to the new route table and disassociate the old one
                 for route in self.route_table['Routes']:
-                    self._add_route_to_gateway(route_table,
-                                               route['DestinationCidrBlock'],
-                                               route['GatewayId'])
+                    self._add_route(route_table_id=new_route_table['RouteTableId'],
+                                    destination_cidr_block=route['DestinationCidrBlock'],
+                                    gateway_id=route['GatewayId'],
+                                    instance_id=route['InstanceId'],
+                                    network_interface_id=route['NetworkInterfaceId'],
+                                    vpc_peering_connection_id=route['VpcPeeringConnectionId'],
+                                    nat_gateway_id=route['NatGatewayId'])
                 self.boto3_ec2.disassociate_route_table(AssociationId=association['RouteTableAssociationId'])
 
-        self._associate_route_table(route_table)
+        self._associate_route_table(new_route_table)
+        self._route_table = new_route_table
 
     def create_nat_gateway(self, eip_allocation_id):
         """ Create a NAT gateway for the subnet"""
         self.nat_eip_allocation_id = eip_allocation_id
         self._nat_gateway = self.nat_gateway
+
+    def delete_nat_gateway(self):
+        """ Delete the NAT gateway that is currently associated with the subnet """
+        self.nat_eip_allocation_id = None
+        if self.nat_gateway:
+            for route in self.route_table['Routes']:
+                if route['NatGatewayId'] == self.nat_gateway['NatGatewayId']:
+                    self.boto3_ec2.delete_route(RouteTableId=self.route_table['RouteTableId'],
+                                                DestinationCidrBlock=route['DestinationCidrBlock'])
+
+            self.boto3_ec2.delete_nat_gateway(NatGatewayId=self.nat_gateway['NatGatewayId'])
+
+            self._nat_gateway = None
+
+            self._route_table = self._find_route_table()
 
     def create_peering_routes(self, peering_conn_id, cidr):
         """ create/update a route between the peering connection and the current subnet. """
@@ -142,31 +160,45 @@ class DiscoSubnet(object):
                     params['VpcPeeringConnectionId'])
                 self.boto3_ec2.replace_route(**params)
 
+            self._route_table = self._find_route_table()
+
     def add_route_to_gateway(self, destination_cidr_block, gateway_id):
         """ Try adding a route to a gateway, if fails delete matching CIDR route and try again """
-        return self._add_route_to_gateway(self.route_table, destination_cidr_block, gateway_id)
+        return self._add_route(route_table_id=self.route_table['RouteTableId'],
+                               destination_cidr_block=destination_cidr_block,
+                               gateway_id=gateway_id)
 
-    def _add_route_to_gateway(self, route_table, destination_cidr_block, gateway_id):
+    def _add_route(self, route_table_id, destination_cidr_block,
+                   gateway_id=None, instance_id=None, network_interface_id=None,
+                   vpc_peering_connection_id=None, nat_gateway_id=None):
         params = dict()
-        params['RouteTableId'] = route_table['RouteTableId']
+        params['RouteTableId'] = route_table_id
         params['DestinationCidrBlock'] = destination_cidr_block
         params['GatewayId'] = gateway_id
+        params['InstanceId'] = instance_id
+        params['NetworkInterfaceId'] = network_interface_id
+        params['VpcPeeringConnectionId'] = vpc_peering_connection_id
+        params['NatGatewayId'] = nat_gateway_id
+
         result = self.boto3_ec2.create_route(**params)['Return']
 
         if result:
+            self._route_table = self._find_route_table()
             return result
 
         logging.exception("Failed to create route due to conflict. Deleting old route and re-trying.")
         delete_params = dict()
-        delete_params['RouteTableId'] = route_table['RouteTableId']
+        delete_params['RouteTableId'] = route_table_id
         delete_params['DestinationCidrBlock'] = destination_cidr_block
         self.boto3_ec2.delete_route(**delete_params)
 
         logging.error("Re-creating route.")
-        return self.boto3_ec2.create_route(**params)['Return']
+        result = self.boto3_ec2.create_route(**params)['Return']
+        self._route_table = self._find_route_table()
+        return result
 
     def _find_subnet(self):
-        filters = copy.copy(self._resource_filter)
+        filters = copy.deepcopy(self._resource_filter)
         filters['Filters'].append({'Name': 'availabilityZone', 'Values': [self.name]})
         try:
             return handle_date_format(
@@ -196,7 +228,7 @@ class DiscoSubnet(object):
             return None
 
     def _find_route_table(self):
-        filters = copy.copy(self._resource_filter)
+        filters = copy.deepcopy(self._resource_filter)
         filters['Filters'].append({'Name': 'tag:subnet', 'Values': [self.name]})
         try:
             return handle_date_format(
@@ -232,17 +264,25 @@ class DiscoSubnet(object):
         params['Filters'].append({'Name': 'subnet-id', 'Values': [self.subnet['SubnetId']]})
         params['Filters'].append({'Name': 'vpc-id', 'Values': [self.metanetwork.vpc.vpc.id]})
         try:
-            return handle_date_format(
+            result = handle_date_format(
                 self.boto3_ec2.describe_nat_gateways(**params)
             )['NatGateways'][0]
         except IndexError:
             return None
 
+        if result['NatGatewayAddresses'][0]['AllocationId'] != self.nat_eip_allocation_id:
+            raise RuntimeError("EIP allocation id ({0}) doesn't match with existing "
+                               "NAT gateway's allocation id ({1}) in subnet ({2})."
+                               .format(self.nat_eip_allocation_id,
+                                       result['NatGatewayAddresses'][0]['AllocationId'],
+                                       self.subnet['SubnetId']))
+
+        return result
+
     def _create_nat_gateway(self):
         params = dict()
         params['SubnetId'] = self.subnet['SubnetId']
         params['AllocationId'] = self.nat_eip_allocation_id
-        params['ClientToken'] = str(uuid.uuid4())
         logging.debug("Creating NAT gateway: %s", self.nat_eip_allocation_id)
         nat_gateway = handle_date_format(self.boto3_ec2.create_nat_gateway(**params))['NatGateway']
 
@@ -251,9 +291,12 @@ class DiscoSubnet(object):
         waiter.wait(NatGatewayIds=[nat_gateway['NatGatewayId']])
 
         # Add default route to the new NAT gateway
-        self.add_route_to_gateway("0.0.0.0/0", nat_gateway['NatGatewayId'])
+        self._add_route(route_table_id=self.route_table['RouteTableId'],
+                        destination_cidr_block="0.0.0.0/0",
+                        nat_gateway_id=nat_gateway['NatGatewayId'])
         logging.debug("Added default route to %s", nat_gateway)
 
+        self._route_table = self._find_route_table()
         return self._find_nat_gateway()
 
     def _resource_name(self, suffix=None):

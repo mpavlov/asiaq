@@ -224,24 +224,24 @@ class DiscoVPC(object):
                 src_security_group_group_id=self.networks["dmz"].security_group.id
             )
 
-    def _add_nat_gateways(self, network):
+    def _update_nat_gateways(self, network):
         eips = self.get_config("{0}_nat_gateways".format(network.name))
         if not eips:
-            # No config, nothing to do
-            return
+            # No NAT config, delete the gateways if any
+            network.delete_nat_gateways()
+        else:
+            eips = eips.split(",")
+            allocation_ids = []
+            for eip in eips:
+                eip = eip.strip()
+                address = self._find_eip_address(eip)
+                if not address:
+                    raise EIPConfigError("Couldn't find Elastic IP: {0}".format(eip))
 
-        eips = eips.split(",")
-        allocation_ids = []
-        for eip in eips:
-            eip = eip.strip()
-            address = self._find_eip_address(eip)
-            if not address:
-                raise EIPConfigError("Couldn't find Elastic IP: {0}".format(eip))
+                allocation_ids.append(address.allocation_id)
 
-            allocation_ids.append(address.allocation_id)
-
-        if allocation_ids:
-            network.add_nat_gateways(allocation_ids)
+            if allocation_ids:
+                network.add_nat_gateways(allocation_ids)
 
     def _find_eip_address(self, eip):
         address_filter = dict()
@@ -451,7 +451,7 @@ class DiscoVPC(object):
 
         # Create NAT gateways
         for network in self.networks.values():
-            self._add_nat_gateways(network)
+            self._update_nat_gateways(network)
 
         self._add_igw_routes(internet_gateway)
 
@@ -559,7 +559,7 @@ class DiscoVPC(object):
         """ Find all NAT gateways belonging to a vpc and destroy them"""
         ec2_client = boto3.client('ec2')
         nat_gateways = ec2_client.describe_nat_gateways(
-            Filters=[{'Name': 'vpc-id', 'Values':[self.vpc.id]}]
+            Filters=[{'Name': 'vpc-id', 'Values': [self.vpc.id]}]
         )['NatGateways']
         for nat_gateway in nat_gateways:
             ec2_client.delete_nat_gateway(NatGatewayId=nat_gateway['NatGatewayId'])

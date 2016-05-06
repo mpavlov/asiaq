@@ -141,6 +141,11 @@ class DiscoMetaNetwork(object):
         for subnet, allocation_id in zip(self.subnets, allocation_ids):
             subnet.create_nat_gateway(allocation_id)
 
+    def delete_nat_gateways(self):
+        """ Deletes all subnets' NAT gateways if any """
+        for subnet in self.subnets:
+            subnet.delete_nat_gateway()
+
     def _create_subnets(self):
         logging.debug("creating subnets")
         zones = self.vpc.vpc.connection.get_all_zones()
