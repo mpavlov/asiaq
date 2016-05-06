@@ -30,20 +30,20 @@ class DiscoRDSTests(unittest.TestCase):
         self.assertEquals("mysql123.5", rds.get_db_parameter_group_family("MySQL", "123.5"))
 
     def test_get_master_password(self):
-        """test getting the master password for an instance"""
+        """test getting the master password for an instance using either the db name or identifier"""
         rds = DiscoRDS(_get_vpc_mock())
 
         def _get_key_mock(key_name):
-            if key_name == 'rds/short-name/master_user_password':
-                return 'fake-key'
-            elif key_name == 'rds/unittestenv-old-name/master_user_password':
-                return 'fake-key'
+            if key_name == 'rds/db-name/master_user_password':
+                return 'new-key'
+            elif key_name == 'rds/unittestenv-db-id/master_user_password':
+                return 'old-key'
             else:
                 raise KeyError("Key not found")
 
         with patch("disco_aws_automation.DiscoS3Bucket.get_key", side_effect=_get_key_mock):
-            self.assertEquals('fake-key', rds.get_master_password('short-name'))
-            self.assertEquals('fake-key', rds.get_master_password('unittestenv-old-name'))
+            self.assertEquals('new-key', rds.get_master_password(TEST_ENV_NAME, 'db-name'))
+            self.assertEquals('old-key', rds.get_master_password(TEST_ENV_NAME, 'db-id'))
 
 
 if __name__ == '__main__':

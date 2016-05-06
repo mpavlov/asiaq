@@ -79,7 +79,7 @@ class DiscoRDS(object):
         """Read the RDS config file and extract the boolean value, or return default if missing"""
         return is_truthy(self.config_with_default(section, param, default))
 
-    def get_master_password(self, instance_identifier):
+    def get_master_password(self, env_name, database_name):
         """
         Get the Master Password for instance stored in the S3 bucket
         """
@@ -87,17 +87,17 @@ class DiscoRDS(object):
 
         try:
             # for backwards compatibility check the old style keys containing the env name
+            instance_identifier = self._get_instance_identifier(env_name, database_name)
             s3_password_key = 'rds/{0}/master_user_password'.format(instance_identifier)
             return DiscoS3Bucket(bucket_name).get_key(s3_password_key)
         except KeyError:
-            # get the name portion of the instance identifier without the env name
-            database_class = self._get_database_class(instance_identifier)
-            s3_password_key = 'rds/{0}/master_user_password'.format(database_class)
+            # if a key doesn't exist for the database identifier then try the database name
+            s3_password_key = 'rds/{0}/master_user_password'.format(database_name)
             return DiscoS3Bucket(bucket_name).get_key(s3_password_key)
 
-    def get_instance_parameters(self, instance_identifier):
+    def get_instance_parameters(self, env_name, database_name):
         """Read the config file and extract the Instance related parameters"""
-        section = instance_identifier
+        section = instance_identifier = self._get_instance_identifier(env_name, database_name)
         db_engine = self.config_rds.get(section, 'engine')
         engine_family = db_engine.split('-')[0]
         default_license = DEFAULT_LICENSE.get(engine_family)
@@ -115,7 +115,7 @@ class DiscoRDS(object):
             'EngineVersion': self.config_rds.get(section, 'engine_version'),
             'Iops': self.config_integer(section, 'iops', 0),
             'LicenseModel': self.config_with_default(section, 'license_model', default_license),
-            'MasterUserPassword': self.get_master_password(instance_identifier),
+            'MasterUserPassword': self.get_master_password(env_name, database_name),
             'MasterUsername': self.config_rds.get(section, 'master_username'),
             'MultiAZ': self.config_truthy(section, 'multi_az'),
             'Port': self.config_integer(section, 'port', default_port),
@@ -133,12 +133,12 @@ class DiscoRDS(object):
         intranet = [sg for sg in security_groups if sg.tags and sg.tags.get("meta_network") == "intranet"][0]
         return intranet.id
 
-    def update_cluster(self, instance_identifier):
+    def update_cluster(self, database_name):
         """
         Run the RDS Cluster update
         """
-        instance_params = self.get_instance_parameters(instance_identifier)
-        database_class = self._get_database_class(instance_identifier)
+        instance_identifier = self._get_instance_identifier(self.vpc_name, database_name)
+        instance_params = self.get_instance_parameters(self.vpc_name, database_name)
 
         if self._get_db_instance(instance_identifier):
             self.modify_db_instance(instance_params)
@@ -149,11 +149,11 @@ class DiscoRDS(object):
             group_family = self.get_db_parameter_group_family(
                 instance_params["Engine"], instance_params["EngineVersion"])
             logging.debug("creating parameter group %s with family %s", group_name, group_family)
-            self.recreate_db_parameter_group(database_class, group_name, group_family)
+            self.recreate_db_parameter_group(database_name, group_name, group_family)
             self.create_db_instance(instance_params)
 
         # Create/Update CloudWatch Alarms for this instance
-        self.spinup_alarms(database_class)
+        self.spinup_alarms(database_name)
 
         # Create a DNS record for this instance
         self.setup_dns(instance_identifier)
@@ -179,14 +179,14 @@ class DiscoRDS(object):
         disco_route53.delete_record(self.domain_name, instance_record_name, 'CNAME')
         disco_route53.create_record(self.domain_name, instance_record_name, 'CNAME', instance_endpoint)
 
-    def spinup_alarms(self, database_class):
+    def spinup_alarms(self, database_name):
         """
         Configure alarms for this RDS instance. The alarms are configured in disco_alarms.ini
         """
         logging.debug("Configuring Cloudwatch alarms ")
         disco_alarm_config = DiscoAlarmsConfig(self.vpc_name)
         disco_alarm = DiscoAlarm()
-        instance_alarms = disco_alarm_config.get_alarms(database_class)
+        instance_alarms = disco_alarm_config.get_alarms(database_name)
         disco_alarm.create_alarms(instance_alarms)
 
     def update_all_clusters_in_vpc(self):
@@ -194,10 +194,12 @@ class DiscoRDS(object):
         Updates every RDS instance in the current VPC to match the configuration
         """
         sections = [section for section in self.config_rds.sections()
-                    if section.split("-")[0] == self.vpc_name]
+                    if section.startswith(self.vpc_name) + '-']
         logging.debug("The following RDS clusters will be updated: %s", ", ".join(sections))
         for section in sections:
-            self.update_cluster(section)
+            # the section names are database identifiers
+            database_identifier = section
+            self.update_cluster(self._get_database_name(self.vpc_name, database_identifier))
 
     def recreate_db_subnet_group(self, db_subnet_group_name):
         """
@@ -361,7 +363,7 @@ class DiscoRDS(object):
         if instances_in_bad_state:
             raise RDSEnvironmentError("Cowardly refusing to delete the following RDS clusters because their"
                                       " state does not allow for a snapshot to be taken: {}".format(
-                ", ".join(instances_in_bad_state)))
+                                          ", ".join(instances_in_bad_state)))
 
         for instance in instances:
             self.delete_db_instance(instance["DBInstanceIdentifier"])
@@ -404,7 +406,7 @@ class DiscoRDS(object):
                                                                'MinimumEngineVersion': 'someversion',
                                                                'ApplyMethod': 'pending-reboot'}])
 
-    def recreate_db_parameter_group(self, database_class, db_parameter_group_name,
+    def recreate_db_parameter_group(self, database_name, db_parameter_group_name,
                                     db_parameter_group_family):
         """
         Check if there are any custom parameters for this instance
@@ -422,7 +424,7 @@ class DiscoRDS(object):
         # Extract the Custom Values from the config file
         custom_param_file = os.path.join(ASIAQ_CONFIG,
                                          'rds', 'engine_specific',
-                                         '{0}.ini'.format(database_class))
+                                         '{0}.ini'.format(database_name))
 
         if os.path.isfile(custom_param_file):
             custom_config = ConfigParser()
@@ -465,8 +467,12 @@ class DiscoRDS(object):
                 logging.info("Deleting Snapshot %s since its older than %d", snapshot_id, days)
                 self.client.delete_db_snapshot(DBSnapshotIdentifier=snapshot_id)
 
-    def _get_database_class(self, instance_identifier):
-        return instance_identifier.split('-', 1)[1]
+    def _get_instance_identifier(self, env_name, database_name):
+        return env_name + '-' + database_name
+
+    def _get_database_name(self, env_name, instance_identifier):
+        identifier_prefix = len(env_name + '-')
+        return instance_identifier[identifier_prefix:]
 
     def _get_db_instance(self, instance_identifier):
         try:
@@ -474,29 +480,36 @@ class DiscoRDS(object):
         except botocore.exceptions.ClientError:
             return None
 
-    def clone(self, source_db_identifier):
-        """Clone a database"""
-        instance_params = self.get_instance_parameters(source_db_identifier)
-        database_class = self._get_database_class(source_db_identifier)
+    def clone(self, env_name, database_name):
+        """
+        Spinup a copy of a given database into the current environment
 
-        clone_db_identifier = self.vpc_name + '-' + database_class
+        Args:
+            env_name (str): the VPC where the source database is located
+            database_name (str): the source database name
+        """
+        source_db_identifier = self._get_instance_identifier(env_name, database_name)
+        clone_db_identifier = self._get_instance_identifier(self.vpc_name, database_name)
+
+        instance_params = self.get_instance_parameters(env_name, database_name)
 
         if self._get_db_instance(clone_db_identifier):
             raise RDSEnvironmentError(
-                'Cannot create clone instance %s because a database already exists with that name'
+                'Cannot create clone instance {0} because a database already exists with that name'
                 .format(clone_db_identifier)
             )
-        else:
-            instance_params['DBInstanceIdentifier'] = clone_db_identifier
-            instance_params['DBSubnetGroupName'] = clone_db_identifier
 
-            self.recreate_db_subnet_group(instance_params["DBSubnetGroupName"])
+        # override some parameters to use the new instance id
+        instance_params['DBInstanceIdentifier'] = clone_db_identifier
+        instance_params['DBSubnetGroupName'] = clone_db_identifier
 
-            self.create_db_instance(instance_params,
-                                    custom_snapshot=self.get_final_snapshot(source_db_identifier))
+        self.recreate_db_subnet_group(instance_params["DBSubnetGroupName"])
 
-            # Create/Update CloudWatch Alarms for this instance
-            self.spinup_alarms(database_class)
+        self.create_db_instance(instance_params,
+                                custom_snapshot=self.get_final_snapshot(source_db_identifier))
 
-            # Create a DNS record for this instance
-            self.setup_dns(clone_db_identifier)
+        # Create/Update CloudWatch Alarms for this instance
+        self.spinup_alarms(database_name)
+
+        # Create a DNS record for this instance
+        self.setup_dns(clone_db_identifier)

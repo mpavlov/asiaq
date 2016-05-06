@@ -45,7 +45,8 @@ def get_parser():
     parser_delete.set_defaults(mode="delete")
     parser_delete.add_argument("--env", dest="env", required=False, default=None,
                                help="The environment containing the RDS cluster")
-    parser_delete.add_argument("--cluster", dest="cluster", required=True, help="Cluster to delete")
+    parser_delete.add_argument("--cluster", dest="cluster", required=True,
+                               help="Cluster name (RDS Database Instance Identifier) to delete")
     parser_delete.add_argument("--skip-final-snapshot", dest="skip_final_snapshot", action='store_const',
                                const=True, default=False, help="Do not take final snapshot. Drops all data!")
 
@@ -62,7 +63,9 @@ def get_parser():
     parser_clone.add_argument('--env', dest='env', required=False, default=None,
                               help='The environment containing the RDS cluster(s)')
     parser_clone.add_argument('--source-db', dest='source_db', required=True,
-                              help='Database identifier of the database to clone', type=str)
+                              help='Name of the database to clone', type=str)
+    parser_clone.add_argument('--source-env', dest='source_env', required=True,
+                              help='Name of environment of source database', type=str)
     return parser
 
 
@@ -101,7 +104,7 @@ def run():
     elif args.mode == "cleanup_snapshots":
         rds.cleanup_snapshots(args.days)
     elif args.mode == "clone":
-        rds.clone(args.source_db)
+        rds.clone(args.source_env, args.source_db)
 
 
 if __name__ == "__main__":
