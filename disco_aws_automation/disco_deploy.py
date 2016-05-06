@@ -504,7 +504,7 @@ class DiscoDeploy(object):
         bad_instances = []
         for inst in instances:
             _code, _stdout = self._disco_aws.remotecmd(
-                inst, ["sudo", "/opt/wgen/bin/testing-mode.sh", "on" if mode_on else "off"],
+                inst, ["sudo", "/etc/asiaq/bin/testing-mode.sh", "on" if mode_on else "off"],
                 user=self.hostclass_option(hostclass, "test_user"), nothrow=True)
             sys.stdout.write(_stdout)
             if _code:
