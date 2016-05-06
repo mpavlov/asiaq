@@ -270,6 +270,11 @@ class DiscoRDS(object):
             "Engine", "LicenseModel", "DBSubnetGroupName", "PubliclyAccessible",
             "MasterUsername", "Port", "CharacterSetName", "StorageEncrypted"])
         self.client.modify_db_instance(ApplyImmediately=apply_immediately, **params)
+        logging.info("Rebooting cluster to apply Param group %s", instance_params["DBInstanceIdentifier"])
+        keep_trying(RDS_STATE_POLL_INTERVAL,
+                    self.client.reboot_db_instance,
+                    DBInstanceIdentifier=instance_params["DBInstanceIdentifier"],
+                    ForceFailover=False)
 
     def get_db_instances(self, status=None):
         """
