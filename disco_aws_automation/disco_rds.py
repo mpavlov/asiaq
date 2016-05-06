@@ -83,9 +83,17 @@ class DiscoRDS(object):
         """
         Get the Master Password for instance stored in the S3 bucket
         """
-        s3_password_key = 'rds/{0}/master_user_password'.format(instance_identifier)
         bucket_name = self.vpc.get_credential_buckets_from_env_name(self.config_aws, self.vpc_name)[0]
-        return DiscoS3Bucket(bucket_name).get_key(s3_password_key)
+
+        try:
+            # for backwards compatibility check the old style keys containing the env name
+            s3_password_key = 'rds/{0}/master_user_password'.format(instance_identifier)
+            return DiscoS3Bucket(bucket_name).get_key(s3_password_key)
+        except KeyError:
+            # get the name portion of the instance identifier without the env name
+            database_class = self._get_database_class(instance_identifier)
+            s3_password_key = 'rds/{0}/master_user_password'.format(database_class)
+            return DiscoS3Bucket(bucket_name).get_key(s3_password_key)
 
     def get_instance_parameters(self, instance_identifier):
         """Read the config file and extract the Instance related parameters"""
@@ -130,15 +138,9 @@ class DiscoRDS(object):
         Run the RDS Cluster update
         """
         instance_params = self.get_instance_parameters(instance_identifier)
-        database_class = instance_identifier.split('-')[1]
+        database_class = self._get_database_class(instance_identifier)
 
-        try:
-            self.client.describe_db_instances(DBInstanceIdentifier=instance_identifier)
-            instance_exists = True
-        except botocore.exceptions.ClientError:
-            instance_exists = False
-
-        if instance_exists:
+        if self._get_db_instance(instance_identifier):
             self.modify_db_instance(instance_params)
         else:
             self.recreate_db_subnet_group(instance_params["DBSubnetGroupName"])
@@ -236,15 +238,16 @@ class DiscoRDS(object):
             del copy[key]
         return copy
 
-    def create_db_instance(self, instance_params):
+    def create_db_instance(self, instance_params, custom_snapshot=None):
         """Creates the Relational database instance
+        If a snapshot is provided then we restore that snapshot
         If a final snapshot exists for the given DB Instance ID, We restore from the final snapshot
         If one doesn't exist, we create a new DB Instance
         """
         instance_identifier = instance_params['DBInstanceIdentifier']
-        final_snapshot = self.get_final_snapshot(instance_identifier)
+        snapshot = custom_snapshot or self.get_final_snapshot(instance_identifier)
 
-        if not final_snapshot:
+        if not snapshot and not snapshot:
             # For Postgres, We dont need this parameter at creation
             if instance_params['Engine'] == 'postgres':
                 instance_params = self.delete_keys(instance_params, ["CharacterSetName"])
@@ -252,11 +255,11 @@ class DiscoRDS(object):
             logging.info("Creating new RDS cluster %s", instance_identifier)
             self.client.create_db_instance(**instance_params)
         else:
-            logging.info("Restoring RDS cluster from snapshot: %s", final_snapshot["DBSnapshotIdentifier"])
+            logging.info("Restoring RDS cluster from snapshot: %s", snapshot["DBSnapshotIdentifier"])
             params = self.delete_keys(instance_params, [
                 "AllocatedStorage", "CharacterSetName", "DBParameterGroupName", "StorageEncrypted",
                 "EngineVersion", "MasterUsername", "MasterUserPassword", "VpcSecurityGroupIds"])
-            params["DBSnapshotIdentifier"] = final_snapshot["DBSnapshotIdentifier"]
+            params["DBSnapshotIdentifier"] = snapshot["DBSnapshotIdentifier"]
             self.client.restore_db_instance_from_db_snapshot(**params)
             keep_trying(RDS_RESTORE_TIMEOUT, self.modify_db_instance, instance_params)
 
@@ -358,7 +361,7 @@ class DiscoRDS(object):
         if instances_in_bad_state:
             raise RDSEnvironmentError("Cowardly refusing to delete the following RDS clusters because their"
                                       " state does not allow for a snapshot to be taken: {}".format(
-                                          ", ".join(instances_in_bad_state)))
+                ", ".join(instances_in_bad_state)))
 
         for instance in instances:
             self.delete_db_instance(instance["DBInstanceIdentifier"])
@@ -461,3 +464,39 @@ class DiscoRDS(object):
                 snapshot_id = snapshot['DBSnapshotIdentifier']
                 logging.info("Deleting Snapshot %s since its older than %d", snapshot_id, days)
                 self.client.delete_db_snapshot(DBSnapshotIdentifier=snapshot_id)
+
+    def _get_database_class(self, instance_identifier):
+        return instance_identifier.split('-', 1)[1]
+
+    def _get_db_instance(self, instance_identifier):
+        try:
+            return self.client.describe_db_instances(DBInstanceIdentifier=instance_identifier)
+        except botocore.exceptions.ClientError:
+            return None
+
+    def clone(self, source_db_identifier):
+        """Clone a database"""
+        instance_params = self.get_instance_parameters(source_db_identifier)
+        database_class = self._get_database_class(source_db_identifier)
+
+        clone_db_identifier = self.vpc_name + '-' + database_class
+
+        if self._get_db_instance(clone_db_identifier):
+            raise RDSEnvironmentError(
+                'Cannot create clone instance %s because a database already exists with that name'
+                .format(clone_db_identifier)
+            )
+        else:
+            instance_params['DBInstanceIdentifier'] = clone_db_identifier
+            instance_params['DBSubnetGroupName'] = clone_db_identifier
+
+            self.recreate_db_subnet_group(instance_params["DBSubnetGroupName"])
+
+            self.create_db_instance(instance_params,
+                                    custom_snapshot=self.get_final_snapshot(source_db_identifier))
+
+            # Create/Update CloudWatch Alarms for this instance
+            self.spinup_alarms(database_class)
+
+            # Create a DNS record for this instance
+            self.setup_dns(clone_db_identifier)

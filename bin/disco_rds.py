@@ -55,6 +55,14 @@ def get_parser():
     parser_cleanup_snapshots.set_defaults(mode="cleanup_snapshots")
     parser_cleanup_snapshots.add_argument('--age', dest='days', required=False,
                                           help='Minimum age of Snapshots to expire', type=int, default=30)
+
+    # clone Mode
+    parser_clone = subparsers.add_parser("clone", help="Create a new database from an existing database")
+    parser_clone.set_defaults(mode="clone")
+    parser_clone.add_argument('--env', dest='env', required=False, default=None,
+                              help='The environment containing the RDS cluster(s)')
+    parser_clone.add_argument('--source-db', dest='source_db', required=True,
+                              help='Database identifier of the database to clone', type=str)
     return parser
 
 
@@ -90,8 +98,10 @@ def run():
             rds.update_all_clusters_in_vpc()
     elif args.mode == "delete":
         rds.delete_db_instance(args.cluster, skip_final_snapshot=args.skip_final_snapshot)
-    elif args.mode == 'cleanup_snapshots':
+    elif args.mode == "cleanup_snapshots":
         rds.cleanup_snapshots(args.days)
+    elif args.mode == "clone":
+        rds.clone(args.source_db)
 
 
 if __name__ == "__main__":
