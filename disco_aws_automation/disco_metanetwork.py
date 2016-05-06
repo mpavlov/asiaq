@@ -173,9 +173,12 @@ class DiscoMetaNetwork(object):
         ip_address = IPAddress(ip_address)
         for subnet in self.subnets:
             cidr = IPNetwork(subnet.cidr_block)
-            if ip_address >= cidr.first and ip_address <= cidr.last:
+            if ip_address >= cidr[0] and ip_address <= cidr[-1]:
                 return subnet
-        raise IPRangeError("IP {0} is not in Metanetwork ({1}) range.".format(ip_address, self.name))
+        raise IPRangeError(
+            "IP {0} is not in Metanetwork {1} ({2}) range."
+            .format(ip_address, self.name, cidr)
+        )
 
     def create_interfaces_specification(self, subnets=None, public_ip=False):
         """
@@ -195,14 +198,15 @@ class DiscoMetaNetwork(object):
         Allocate a 'floating' network inteface with static ip --
         if it does not already exist.
         """
-        instance_filter = self.vpc.vpc_filter()
-        instance_filter["private-ip-address"] = private_ip
+        interface_filter = self.vpc.vpc_filter()
+        interface_filter["private-ip-address"] = private_ip
         interfaces = self.vpc.vpc.connection.get_all_network_interfaces(
-            filters=instance_filter
+            filters=interface_filter
         )
         if interfaces:
             return interfaces[0]
 
+        logging.debug("Creating floating ENI %s", private_ip)
         subnet = self.subnet_by_ip(private_ip)
         return self.vpc.vpc.connection.create_network_interface(
             subnet_id=subnet.id,

@@ -788,13 +788,13 @@ class DiscoAWS(object):
 
         lookup either "ip_addresses" or "ip_address" in the config
         """
-        ip_address = self.hostclass_option_default(hostclass, "ip_addresses", default)
+        ip_address = self.hostclass_option_default(hostclass, "ip_address", default)
 
         if not ip_address:
             return ip_address
         elif ip_address.startswith("-") or ip_address.startswith("+"):
             meta_network = self.get_meta_network(hostclass)
-            return str(meta_network(ip_address))
+            return str(meta_network.ip_by_offset(ip_address))
         else:
             return ip_address
 
