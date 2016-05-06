@@ -353,7 +353,7 @@ class DiscoAWSTests(TestCase):
             elb_protocol='HTTP', instance_protocol='HTTP',
             security_groups=['sg-1234abcd'], elb_public=False,
             sticky_app_cookie=None, subnets=['s-1234abcd', 's-1234abcd', 's-1234abcd'],
-            connection_draining_timeout=300, idle_timeout=300)
+            connection_draining_timeout=300, idle_timeout=300, testing=False)
 
     @patch_disco_aws
     def test_create_userdata_with_eip(self, **kwargs):

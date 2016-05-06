@@ -11,7 +11,8 @@ from boto.exception import EC2ResponseError
 from . import DiscoBake, read_config
 from .exceptions import TimeoutError, MaintenanceModeError, IntegrationTestError, SmokeTestError
 from .disco_aws_util import is_truthy, size_as_minimum_int_or_none, size_as_maximum_int_or_none
-from .disco_constants import DEFAULT_CONFIG_SECTION, DEPLOYMENT_STRATEGY_BLUE_GREEN, DEPLOYMENT_STRATEGY_CLASSIC
+from .disco_constants import (DEFAULT_CONFIG_SECTION, DEPLOYMENT_STRATEGY_BLUE_GREEN,
+                              DEPLOYMENT_STRATEGY_CLASSIC)
 
 
 def snap_to_range(val, mini, maxi):
@@ -23,7 +24,7 @@ class DiscoDeploy(object):
     '''DiscoDeploy takes care of testing, promoting and deploying the latests AMIs'''
 
     # pylint: disable=too-many-arguments
-    def __init__(self, aws, test_aws, bake, autoscale, pipeline_definition,
+    def __init__(self, aws, test_aws, bake, autoscale, elb, pipeline_definition,
                  ami=None, hostclass=None, allow_any_hostclass=False, config=None):
         '''
         Constructor for DiscoDeploy
@@ -44,6 +45,7 @@ class DiscoDeploy(object):
         self._test_aws = test_aws
         self._disco_bake = bake
         self._disco_autoscale = autoscale
+        self._disco_elb = elb
         self._all_stage_amis = None
         self._hostclasses = self._get_hostclasses_from_pipeline_definition(pipeline_definition)
         self._allow_any_hostclass = allow_any_hostclass
@@ -400,37 +402,51 @@ class DiscoDeploy(object):
         and the new ASG is preserved. Otherwise, the original ASG is preserved.
 
         '''
-        logging.info("testing deployable hostclass %s AMI %s with %s deployment strategy",
-                     pipeline_dict["hostclass"], ami.id, DEPLOYMENT_STRATEGY_BLUE_GREEN)
+        logging.info("testing %s hostclass %s AMI %s with %s deployment strategy",
+                     "deployable" if deployable else "non-deployable", pipeline_dict["hostclass"], ami.id,
+                     DEPLOYMENT_STRATEGY_BLUE_GREEN)
+
+        hostclass = pipeline_dict["hostclass"]
+        uses_elb = is_truthy(self.hostclass_option_default(hostclass, "elb", "no"))
 
         if dry_run:
             return
 
-        desired_size = old_group.desired_capacity if old_group else pipeline_dict["desired_size"]
-        hostclass = pipeline_dict["hostclass"]
         new_group_config = copy.deepcopy(pipeline_dict)
         new_group_config["sequence"] = 1
-        new_group_config["max_size"] = old_group.max_size if old_group else pipeline_dict["max_size"]
-        new_group_config["min_size"] = old_group.min_size if old_group else pipeline_dict["min_size"]
-        new_group_config["desired_size"] = desired_size
         new_group_config["smoke_test"] = "no"
         new_group_config["ami"] = ami.id
 
+        # If there is an already existing ASG, use its sizing. Otherwise, use the pipeline's sizing.
+        if old_group:
+            new_group_config["max_size"] = old_group.desired_capacity or pipeline_dict["desired_size"]
+            new_group_config["min_size"] = old_group.max_size or pipeline_dict["max_size"]
+            new_group_config["desired_size"] = old_group.min_size or pipeline_dict["min_size"]
+
+        # Spinup our new autoscaling group in testing mode, making one even if one already exists.
         self._disco_aws.spinup([new_group_config], create_if_exists=True, testing=True)
 
-        new_group = self._disco_autoscale.get_existing_groups(hostclass=hostclass)[0]
+        new_group = self._disco_autoscale.get_existing_group(hostclass=hostclass, throw_on_two_groups=False)
 
         try:
-            if (self.wait_for_smoketests(ami.id, desired_size or 1) and
-                    (not run_tests or self.run_tests_with_maintenance_mode(ami))):
+            if (self.wait_for_smoketests(ami.id, new_group_config["desired_size"] or 1) and
+                    (not run_tests or self.run_integration_tests(ami, wait_for_elb=uses_elb))):
                 # If testing passed, mark AMI as tested
                 self._promote_ami(ami, "tested")
                 # If we are actually deploying and are able to leave testing mode and start serving requests
                 if deployable and self._set_testing_mode(hostclass, self._get_new_instances(ami.id), False):
-                    # TODO: Update ELBs
+                    logging.info("Successfully left testing mode for group %s", new_group.name)
+                    # Update ASG to not launch into testing mode and attach to the normal ELB if applicable.
+                    self._disco_aws.spinup([new_group_config], group_name=new_group.name)
+                    if uses_elb:
+                        # Update the autoscaling group to be sure it has the correct instance_ids.
+                        new_group.update()
+                        # Get the instances_ids that are attached to the new group
+                        instance_ids = [instance.instance_id for instance in new_group.instances]
+                        # Wait until the new ASG is registered and marked as healthy by ELB.
+                        self._disco_elb.wait_for_instance_health_state(hostclass=hostclass,
+                                                                       instance_ids=instance_ids)
                     # we can destroy the old group
-                    logging.info("Successfully left testing mode for group %s",
-                                 new_group.name)
                     if old_group:
                         logging.info("Destroying %s", old_group.name)
                         old_group.delete(force_delete=True)
@@ -442,6 +458,8 @@ class DiscoDeploy(object):
                         reason = "{} is not deployable".format(hostclass)
                     logging.info("%s, destroying %s", reason, new_group.name)
                     new_group.delete(force_delete=True)
+                # Destroy the testing ELB
+                self._disco_elb.delete_elb(hostclass, testing=True)
                 return
             else:
                 self._promote_ami(ami, "failed")
@@ -506,7 +524,7 @@ class DiscoDeploy(object):
             return inst
         raise IntegrationTestError("Unable to find test host")
 
-    def run_integration_tests(self, ami):
+    def run_integration_tests(self, ami, wait_for_elb=False):
         '''
         Runs integration tests for the hostclass belonging to the passed in AMI
 
@@ -517,6 +535,10 @@ class DiscoDeploy(object):
         test_command = self.hostclass_option(hostclass, "test_command")
         test_user = self.hostclass_option(hostclass, "test_user")
         test_name = self.get_integration_test(hostclass)
+
+        if wait_for_elb:
+            self._disco_elb.wait_for_instance_health_state(hostclass=hostclass, testing=True)
+
         logging.info("running integration test %s on %s", test_name, test_hostclass)
         exit_code, stdout = self._test_aws.remotecmd(
             self.get_host(test_hostclass), [test_command, test_name],

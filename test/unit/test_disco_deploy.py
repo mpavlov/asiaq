@@ -112,8 +112,9 @@ class DiscoDeployTests(TestCase):
         self._disco_bake.ami_stages = MagicMock(return_value=['untested', 'failed', 'tested'])
         self._disco_bake.get_ami_creation_time = DiscoBake.extract_ami_creation_time_from_ami_name
         self._disco_autoscale = MagicMock()
+        self._disco_elb = MagicMock()
         self._ci_deploy = DiscoDeploy(
-            self._disco_aws, self._test_aws, self._disco_bake, self._disco_autoscale,
+            self._disco_aws, self._test_aws, self._disco_bake, self._disco_autoscale, self._disco_elb,
             pipeline_definition=MOCK_PIPELINE_DEFINITION,
             ami=None, hostclass=None, allow_any_hostclass=False,
             config=get_mock_config(MOCK_CONFIG_DEFINITON))

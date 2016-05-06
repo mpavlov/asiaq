@@ -47,13 +47,15 @@ import sys
 
 from docopt import docopt
 
-from disco_aws_automation import DiscoAWS, DiscoAutoscale, DiscoBake, DiscoDeploy, read_config
+from disco_aws_automation import (DiscoAWS, DiscoAutoscale, DiscoBake, DiscoDeploy, DiscoELB, DiscoVPC,
+                                  read_config)
 from disco_aws_automation.disco_aws_util import run_gracefully
 from disco_aws_automation.disco_logging import configure_logging
 
 
 # R0912 Allow more than 12 branches so we can parse a lot of commands..
-# pylint: disable=R0912
+# R0914 Allow more than 15 local variables so we can parse a lot of commands.
+# pylint: disable=R0912,R0914
 def run():
     """Parses command line and dispatches the commands"""
     config = read_config()
@@ -78,8 +80,10 @@ def run():
     else:
         test_aws = aws
 
+    vpc = DiscoVPC.fetch_environment(environment_name=env)
+
     deploy = DiscoDeploy(
-        aws, test_aws, DiscoBake(config, aws.connection), DiscoAutoscale(env),
+        aws, test_aws, DiscoBake(config, aws.connection), DiscoAutoscale(env), DiscoELB(vpc),
         pipeline_definition=pipeline_definition,
         ami=args.get("--ami"), hostclass=args.get("--hostclass"),
         allow_any_hostclass=args["--allow-any-hostclass"])

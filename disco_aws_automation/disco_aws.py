@@ -242,7 +242,7 @@ class DiscoAWS(object):
     def _default_protocol_for_port(self, port):
         return {80: "HTTP", 443: "HTTPS"}.get(int(port)) or "TCP"
 
-    def update_elb(self, hostclass, update_autoscaling=True):
+    def update_elb(self, hostclass, update_autoscaling=True, testing=False):
         '''Creates, Updates and Delete an ELB for a hostclass depending on current configuration'''
         if not is_truthy(self.hostclass_option_default(hostclass, "elb", "False")):
             if self.elb.get_elb(hostclass):
@@ -276,7 +276,9 @@ class DiscoAWS(object):
                 sticky_app_cookie=self.hostclass_option_default(hostclass, "elb_sticky_app_cookie", None),
                 idle_timeout=int(self.hostclass_option_default(hostclass, "elb_idle_timeout", 300)),
                 connection_draining_timeout=int(self.hostclass_option_default(hostclass,
-                                                                              "elb_connection_draining", 300))
+                                                                              "elb_connection_draining",
+                                                                              300)),
+                testing=testing
             )
 
         if update_autoscaling:
@@ -290,7 +292,7 @@ class DiscoAWS(object):
                   no_destroy=False,
                   min_size=None, desired_size=None, max_size=None,
                   testing=False, termination_policies=None,
-                  chaos=None, create_if_exists=False):
+                  chaos=None, create_if_exists=False, group_name=None):
         # TODO move key, instance_type, monitoring enabled, extra_space, extra_disk into config file.
         # Pylint thinks this function has too many arguments and too many local variables
         # pylint: disable=R0913, R0914
@@ -349,7 +351,7 @@ class DiscoAWS(object):
 
         self.create_floating_interfaces(meta_network, hostclass)
 
-        elb = self.update_elb(hostclass, update_autoscaling=False)
+        elb = self.update_elb(hostclass, update_autoscaling=False, testing=testing)
 
         chaos = is_truthy(chaos or self.hostclass_option_default(hostclass, "chaos", "True"))
 
@@ -366,7 +368,8 @@ class DiscoAWS(object):
                   "chaos": chaos,
                   "is_testing": testing},
             load_balancers=[elb['LoadBalancerName']] if elb else [],
-            create_if_exists=create_if_exists
+            create_if_exists=create_if_exists,
+            group_name=group_name
         )
 
         self.create_scaling_schedule(hostclass, min_size, desired_size, max_size)
@@ -540,7 +543,8 @@ class DiscoAWS(object):
             hostclass_alarms = disco_alarm_config.get_alarms(hostclass)
             disco_alarm.create_alarms(hostclass_alarms)
 
-    def spinup(self, hostclass_dicts, stage=None, no_smoke=False, testing=False, create_if_exists=False):
+    def spinup(self, hostclass_dicts, stage=None, no_smoke=False, testing=False, create_if_exists=False,
+               group_name=None):
         # Pylint thinks this function has too many local variables
         # pylint: disable=R0914,R0912
         """
@@ -616,7 +620,8 @@ class DiscoAWS(object):
                     desired_size=hdict.get("desired_size"), testing=testing,
                     termination_policies=termination_policies.split() if termination_policies else None,
                     chaos=hdict.get("chaos"),
-                    create_if_exists=create_if_exists)
+                    create_if_exists=create_if_exists,
+                    group_name=group_name)
                 for (hostclass, termination_policies, hdict) in hostclass_iter]
 
             self.smoketest(self.wait_for_autoscaling_instances(

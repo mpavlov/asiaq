@@ -4,6 +4,7 @@ ELBs are load balancers that we can assign to auto scaling groups.
 """
 import re
 import logging
+import time
 
 import boto3
 import botocore
@@ -11,7 +12,7 @@ import botocore
 from .disco_route53 import DiscoRoute53
 from .disco_acm import DiscoACM
 from .disco_iam import DiscoIAM
-from .exceptions import CommandError
+from .exceptions import CommandError, TimeoutError
 from .resource_helper import throttled_call
 
 
@@ -57,8 +58,10 @@ class DiscoELB(object):
                 throttled_call(self.elb_client.describe_load_balancers).get('LoadBalancerDescriptions', [])
                 if elb['VPCId'] == self.vpc.vpc.id]
 
-    def get_cname(self, hostclass, domain_name):
+    def get_cname(self, hostclass, domain_name, testing=False):
         """Get the expected subdomain for an ELB for a hostclass"""
+        if testing:
+            hostclass += "-test"
         return hostclass + '-' + self.vpc.environment_name + '.' + domain_name
 
     def _setup_health_check(self, elb_name, health_check_url, instance_protocol, instance_port):
@@ -98,7 +101,7 @@ class DiscoELB(object):
     def get_or_create_elb(self, hostclass, security_groups, subnets, hosted_zone_name,
                           health_check_url, instance_protocol, instance_port,
                           elb_protocol, elb_port, elb_public, sticky_app_cookie,
-                          idle_timeout=None, connection_draining_timeout=None):
+                          idle_timeout=None, connection_draining_timeout=None, testing=False):
         """
         Returns an elb.
         This updates an existing elb if it exists, otherwise this creates a new elb.
@@ -120,9 +123,9 @@ class DiscoELB(object):
             connection_draining_timeout (int): timeout limit (in seconds) that ELB should allow for open
                                                requests to resolve before removing EC2 instance from ELB
         """
-        cname = self.get_cname(hostclass, hosted_zone_name)
-        elb_name = DiscoELB.get_elb_name(self.vpc.environment_name, hostclass)
-        elb = self.get_elb(hostclass)
+        cname = self.get_cname(hostclass, hosted_zone_name, testing=testing)
+        elb_name = DiscoELB.get_elb_name(self.vpc.environment_name, hostclass, testing=testing)
+        elb = self.get_elb(hostclass, testing=testing)
         if not elb:
             logging.info("Creating ELB %s", elb_name)
 
@@ -148,7 +151,7 @@ class DiscoELB(object):
                 elb_args['Scheme'] = 'internal'
 
             throttled_call(self.elb_client.create_load_balancer, **elb_args)
-            elb = self.get_elb(hostclass)
+            elb = self.get_elb(hostclass, testing=testing)
 
         self.route53.create_record(hosted_zone_name, cname, 'CNAME', elb['DNSName'])
 
@@ -181,9 +184,9 @@ class DiscoELB(object):
                            LoadBalancerName=elb_name,
                            LoadBalancerAttributes=updates)
 
-    def get_elb(self, hostclass):
+    def get_elb(self, hostclass, testing=False):
         """Get an existing ELB without creating it"""
-        name = DiscoELB.get_elb_name(self.vpc.environment_name, hostclass)
+        name = DiscoELB.get_elb_name(self.vpc.environment_name, hostclass, testing=testing)
 
         try:
             load_balancers = throttled_call(self.elb_client.describe_load_balancers,
@@ -193,9 +196,9 @@ class DiscoELB(object):
         except botocore.exceptions.ClientError:
             return None
 
-    def delete_elb(self, hostclass):
+    def delete_elb(self, hostclass, testing=False):
         """Delete an ELB if it exists"""
-        elb = self.get_elb(hostclass)
+        elb = self.get_elb(hostclass, testing=testing)
 
         if not elb:
             logging.info("ELB for '%s' does not exist. Nothing to delete", hostclass)
@@ -208,9 +211,12 @@ class DiscoELB(object):
         throttled_call(self.elb_client.delete_load_balancer, LoadBalancerName=elb['LoadBalancerName'])
 
     @staticmethod
-    def get_elb_name(environment_name, hostclass):
+    def get_elb_name(environment_name, hostclass, testing=False):
         """Returns the elb name for a given hostclass"""
         name = environment_name + '-' + hostclass
+
+        if testing:
+            name += '-test'
 
         # load balancers can only have letters, numbers or dashes in their names so strip everything else
         elb_name = re.sub(r'[^a-zA-Z0-9-]', '', name)
@@ -225,3 +231,68 @@ class DiscoELB(object):
         for elb in self.list():
             self.route53.delete_records_by_value('CNAME', elb['DNSName'])
             throttled_call(self.elb_client.delete_load_balancer, LoadBalancerName=elb['LoadBalancerName'])
+
+    def _describe_instance_health(self, elb_name, instance_ids=None):
+        """
+        Returns instance health state information about an ELB. Can be limited to return only particular
+        instances.
+
+        Params:
+        elb_name        The name of the ELB to check.
+        instance_ids    A list of instance_ids to report on. Defaults to all instances in the ELB.
+
+        Returns a list of dictionaries in the format of:
+        [
+            {
+                'InstanceId': 'string',
+                'State': 'string',
+                'ReasonCode': 'string',
+                'Description': 'string'
+            },
+            ...
+        ]
+        See http://boto3.readthedocs.io/en/latest/reference/services/elb.html
+        """
+        if instance_ids:
+            desired_instance_ids = [{"InstanceId": instance_id} for instance_id in instance_ids]
+        else:
+            desired_instance_ids = []
+        instances = throttled_call(
+            self.elb_client.describe_instance_health,
+            LoadBalancerName=elb_name,
+            Instances=desired_instance_ids)
+        return instances["InstanceStates"]
+
+    def wait_for_instance_health_state(self, hostclass, testing=False, instance_ids=None, state="InService",
+                                       timeout=180):
+        """
+        Waits for instances attached to an ELB to enter a specific state. At least one instance must enter the
+        specified state.
+
+        Params:
+        hostclass       The name of the hostclass whose ELB you are interested in.
+        testing         True if the testing ELB should be used. Default: False.
+        instance_ids    A list of instance_ids to filter to. Defaults to all instances in the ELB.
+        state           The state to wait for the instances. Should be one of ['InService', 'OutOfService',
+                        'Unknown']. Defaults to 'InService'.
+        timeout         The number of seconds to wait for instances to reach that state. Default: 60.
+        See http://boto3.readthedocs.io/en/latest/reference/services/elb.html
+        """
+        elb_name = DiscoELB.get_elb_name(self.vpc.environment_name, hostclass, testing=testing)
+        stop_time = time.time() + timeout
+        original_scope = scope = instance_ids if instance_ids else "all instances"
+        while time.time() < stop_time:
+            instances = self._describe_instance_health(elb_name=elb_name, instance_ids=instance_ids)
+            if len(instances) >= 1 and all(instance["State"] == state for instance in instances):
+                logging.info("Successfully waited for %s in ELB (%s) to enter state (%s)",
+                             original_scope, elb_name, state)
+                return
+            # Update scope to be the instances that have not yet entered the desired state
+            scope = [instance["InstanceId"] for instance in instances if instance["State"] != state]
+            logging.info("Waiting for %s in ELB %s to enter state (%s)", scope, elb_name, state)
+            time.sleep(5)
+        raise TimeoutError(
+            "Timed out after waiting {} seconds for {} in ELB ({}) to enter state ({})".format(timeout,
+                                                                                               scope,
+                                                                                               elb_name,
+                                                                                               state))

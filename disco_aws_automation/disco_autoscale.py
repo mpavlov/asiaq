@@ -61,7 +61,7 @@ class DiscoAutoscale(object):
             if not next_token:
                 break
 
-    def _get_instance_generator(self, instance_ids=None):
+    def _get_instance_generator(self, instance_ids=None, hostclass=None, group_name=None):
         '''Yields autoscaled instances in current environment'''
         next_token = None
         while True:
@@ -69,14 +69,19 @@ class DiscoAutoscale(object):
                 self.connection.get_all_autoscaling_instances,
                 instance_ids=instance_ids, next_token=next_token)
             for instance in self._filter_instance_by_environment(instances):
-                yield instance
+                filters = [
+                    not hostclass or self.get_hostclass(instance.group_name) == hostclass,
+                    not group_name or instance.group_name == group_name]
+                if all(filters):
+                    yield instance
             next_token = instances.next_token
             if not next_token:
                 break
 
-    def get_instances(self, instance_ids=None):
+    def get_instances(self, instance_ids=None, hostclass=None, group_name=None):
         '''Returns autoscaled instances in the current environment'''
-        return list(self._get_instance_generator(instance_ids=instance_ids))
+        return list(self._get_instance_generator(instance_ids=instance_ids, hostclass=hostclass,
+                                                 group_name=group_name))
 
     def _get_config_generator(self, names=None):
         '''Yields Launch Configurations in current environment'''
@@ -105,24 +110,30 @@ class DiscoAutoscale(object):
     def delete_config(self, config_name):
         '''Delete a specific Launch Configuration'''
         throttled_call(self.connection.delete_launch_configuration, config_name)
+        logging.info("Deleting launch configuration %s", config_name)
 
-    def clean_configs(self):
+    def clean_configs(self, hostclass=None, group_name=None):
         '''Delete unused Launch Configurations in current environment'''
-        for config in self._get_config_generator():
-            try:
-                self.delete_config(config.name)
-            except BotoServerError:
-                pass
+        group_list = self.get_existing_groups(hostclass=hostclass, group_name=group_name)
+        if group_list:
+            configs = self.get_configs(names=[group.launch_config_name for group in group_list
+                                              if group.launch_config_name])
+            for config in configs:
+                try:
+                    self.delete_config(config.name)
+                except BotoServerError:
+                    pass
 
     def delete_groups(self, hostclass=None, group_name=None, force=False):
         '''Delete a specific Autoscaling Group'''
         groups = self.get_existing_groups(hostclass=hostclass, group_name=group_name)
         for group in groups:
             try:
-                logging.info("Deleting group %s", group.name)
                 throttled_call(group.delete, force_delete=force)
+                self.delete_config(group.launch_config_name)
+                logging.info("Deleting group %s", group.name)
             except BotoServerError:
-                pass
+                logging.info("Unable to delete group %s, try force deleting", group.name)
 
     def clean_groups(self, force=False):
         '''Delete unused Autoscaling Groups in current environment'''
@@ -204,7 +215,8 @@ class DiscoAutoscale(object):
     def get_group(self, hostclass, launch_config, vpc_zone_id=None,
                   min_size=None, max_size=None, desired_size=None,
                   termination_policies=None, tags=None,
-                  load_balancers=None, create_if_exists=False):
+                  load_balancers=None, create_if_exists=False,
+                  group_name=None):
         '''
         Returns autoscaling group.
         This updates an existing autoscaling group if it exists,
@@ -213,7 +225,8 @@ class DiscoAutoscale(object):
         NOTE: Deleting tags is not currently supported.
         NOTE: Detaching ELB is not currently supported.
         '''
-        group = self.get_existing_group(hostclass=hostclass, return_only_first=create_if_exists)
+        group = self.get_existing_group(hostclass=hostclass, group_name=group_name,
+                                        throw_on_two_groups=not create_if_exists)
         if create_if_exists or not group:
             return self.create_group(
                 hostclass=hostclass, launch_config=launch_config, vpc_zone_id=vpc_zone_id,
@@ -241,20 +254,23 @@ class DiscoAutoscale(object):
         filtered_groups.sort(key=lambda group: group.name, reverse=True)
         return filtered_groups
 
-    def get_existing_group(self, hostclass=None, group_name=None, return_only_first=False):
+    def get_existing_group(self, hostclass=None, group_name=None, throw_on_two_groups=True):
         """
         Returns the autoscaling group object for the given hostclass or group name, or None if no autoscaling
         group exists.
 
-        If multiple autoscaling groups for the hostclass exist, then an error is thrown.
+        If two or more autoscaling groups exist for a hostclass, then this method will throw an exception,
+        unless 'throw_on_two_groups' is False. Then if there are two groups the most recently created
+        autoscaling group will be return. If there are more than two autoscaling groups, this method will
+        always throw an exception.
         """
         groups = self.get_existing_groups(hostclass=hostclass, group_name=group_name)
         if not groups:
             return None
-        elif len(groups) != 1 and not return_only_first:
-            raise RuntimeError("There are too many autoscaling groups for {}.".format(hostclass))
-        else:
+        elif len(groups) == 1 or (len(groups) == 2 and not throw_on_two_groups):
             return groups[0]
+        else:
+            raise RuntimeError("There are too many autoscaling groups for {}.".format(hostclass))
 
     def terminate(self, instance_id, decrement_capacity=True):
         """
