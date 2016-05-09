@@ -129,7 +129,7 @@ class DiscoAWS(object):
         except NoOptionError:
             return default
 
-    def create_userdata(self, hostclass, owner, testing):
+    def create_userdata(self, hostclass, owner):
         '''This is autoscaling group specific user data'''
         fixed_ip_hostclass = {}
         data = {}
@@ -153,7 +153,6 @@ class DiscoAWS(object):
         data["zookeepers"] = "[\\\"{0}:2181\\\"]".format(
             self.hostclass_option_default(fixed_ip_hostclass['zookeeper'], "ip_address", "")
         )
-        data["is_testing"] = "1" if testing else "0"
         data["eip"] = self.hostclass_option_default(hostclass, "eip")
         data["floating_ips"] = self._get_hostclass_ip_address(hostclass, "")
         data["floating_ip"] = data["floating_ips"].split()[0] if data["floating_ips"] else ""
@@ -328,7 +327,7 @@ class DiscoAWS(object):
         lc_name = '{0}_{1}_{2}'.format(
             self.environment_name, hostclass, str(random.randrange(0, 9999999)))
 
-        user_data = self.create_userdata(hostclass, owner, testing)
+        user_data = self.create_userdata(hostclass, owner)
 
         block_device_mappings = self.get_block_device_mappings(
             hostclass, ami, extra_space, extra_disk, iops, instance_type
@@ -366,7 +365,7 @@ class DiscoAWS(object):
                   "owner": user_data["owner"],
                   "environment": self.environment_name,
                   "chaos": chaos,
-                  "is_testing": testing},
+                  "is_testing": "1" if testing else "0"},
             load_balancers=[elb['LoadBalancerName']] if elb else [],
             create_if_exists=create_if_exists,
             group_name=group_name

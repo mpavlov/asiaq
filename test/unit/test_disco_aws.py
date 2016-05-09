@@ -365,7 +365,7 @@ class DiscoAWSTests(TestCase):
         config_dict["mhcunittest"]["eip"] = eip
         aws = DiscoAWS(config=get_mock_config(config_dict), environment_name=TEST_ENV_NAME)
 
-        user_data = aws.create_userdata(hostclass="mhcunittest", owner="unittestuser", testing=False)
+        user_data = aws.create_userdata(hostclass="mhcunittest", owner="unittestuser")
         self.assertEqual(user_data["eip"], eip)
 
     @patch_disco_aws
