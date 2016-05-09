@@ -172,9 +172,7 @@ class DiscoAutoscale(object):
             throttled_call(self.connection.create_or_update_tags,
                            DiscoAutoscale.create_autoscale_tags(group.name, tags))
         if load_balancers:
-            throttled_call(self.boto3_autoscale.attach_load_balancers,
-                           AutoScalingGroupName=group.name,
-                           LoadBalancerNames=load_balancers)
+            self.update_elb(elb_names=load_balancers, group_name=group.name)
         return group
 
     def create_group(self, hostclass, launch_config, vpc_zone_id,
@@ -223,7 +221,6 @@ class DiscoAutoscale(object):
         otherwise this creates a new autoscaling group.
 
         NOTE: Deleting tags is not currently supported.
-        NOTE: Detaching ELB is not currently supported.
         '''
         group = self.get_existing_group(hostclass=hostclass, group_name=group_name,
                                         throw_on_two_groups=not create_if_exists)
