@@ -99,11 +99,11 @@ class DiscoSubnet(object):
                 for route in self.route_table['Routes']:
                     self._add_route(route_table_id=new_route_table['RouteTableId'],
                                     destination_cidr_block=route['DestinationCidrBlock'],
-                                    gateway_id=route['GatewayId'],
-                                    instance_id=route['InstanceId'],
-                                    network_interface_id=route['NetworkInterfaceId'],
-                                    vpc_peering_connection_id=route['VpcPeeringConnectionId'],
-                                    nat_gateway_id=route['NatGatewayId'])
+                                    gateway_id=route.get('GatewayId'),
+                                    instance_id=route.get('InstanceId'),
+                                    network_interface_id=route.get('NetworkInterfaceId'),
+                                    vpc_peering_connection_id=route.get('VpcPeeringConnectionId'),
+                                    nat_gateway_id=route.get('NatGatewayId'))
                 self.boto3_ec2.disassociate_route_table(AssociationId=association['RouteTableAssociationId'])
 
         self._associate_route_table(new_route_table)
@@ -119,7 +119,7 @@ class DiscoSubnet(object):
         self.nat_eip_allocation_id = None
         if self.nat_gateway:
             for route in self.route_table['Routes']:
-                if route['NatGatewayId'] == self.nat_gateway['NatGatewayId']:
+                if route.get('NatGatewayId') == self.nat_gateway['NatGatewayId']:
                     self.boto3_ec2.delete_route(RouteTableId=self.route_table['RouteTableId'],
                                                 DestinationCidrBlock=route['DestinationCidrBlock'])
 
@@ -133,7 +133,7 @@ class DiscoSubnet(object):
         """ create/update a route between the peering connection and the current subnet. """
         peering_routes_for_peering = [
             _ for _ in self.route_table['Routes']
-            if _['VpcPeeringConnectionId'] == peering_conn_id
+            if _.get('VpcPeeringConnectionId') == peering_conn_id
         ]
         if not peering_routes_for_peering:
             # Create route to the peering connection
@@ -174,13 +174,18 @@ class DiscoSubnet(object):
                    vpc_peering_connection_id=None, nat_gateway_id=None):
         params = {
             'RouteTableId': route_table_id,
-            'DestinationCidrBlock': destination_cidr_block,
-            'GatewayId': gateway_id,
-            'InstanceId': instance_id,
-            'NetworkInterfaceId': network_interface_id,
-            'VpcPeeringConnectionId': vpc_peering_connection_id,
-            'NatGatewayId': nat_gateway_id
+            'DestinationCidrBlock': destination_cidr_block
         }
+        if gateway_id:
+            params['GatewayId'] = gateway_id
+        if instance_id:
+            params['InstanceId'] = instance_id
+        if network_interface_id:
+            params['NetworkInterfaceId'] = network_interface_id
+        if vpc_peering_connection_id:
+            params['VpcPeeringConnectionId'] = vpc_peering_connection_id
+        if nat_gateway_id:
+            params['NatGatewayId'] = nat_gateway_id
 
         result = self.boto3_ec2.create_route(**params)['Return']
 

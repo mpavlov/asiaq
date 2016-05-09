@@ -24,17 +24,9 @@ MOCK_SUBNET = {'SubnetId': MOCK_SUBNET_ID,
                'CidrBlock': MOCK_CIDR}
 MOCK_ROUTE_TABLE = {'RouteTableId': MOCK_ROUTE_TABLE_ID,
                     'Routes': [{'DestinationCidrBlock': MOCK_REPLACE_CIDR,
-                                'GatewayId': 'mock_gateway_id1',
-                                'InstanceId': None,
-                                'NatGatewayId': None,
-                                'NetworkInterfaceId': None,
-                                'VpcPeeringConnectionId': None},
+                                'GatewayId': 'mock_gateway_id1'},
                                {'DestinationCidrBlock': '22.22.22.22/24',
-                                'NatGatewayId': None,
-                                'GatewayId': 'mock_gateway_id2',
-                                'InstanceId': None,
-                                'NetworkInterfaceId': None,
-                                'VpcPeeringConnectionId': None}],
+                                'GatewayId': 'mock_gateway_id2'}],
                     'Associations': [{'RouteTableAssociationId': MOCK_ROUTE_TABLE_ASSOC_ID,
                                       'RouteTableId': MOCK_ROUTE_TABLE_ID,
                                       'SubnetId': MOCK_SUBNET_ID,
@@ -265,13 +257,19 @@ class DiscoSubnetTests(TestCase):
 
         calls = []
         for route in MOCK_ROUTE_TABLE['Routes']:
-            calls.append(call(RouteTableId=MOCK_NEW_ROUTE_TABLE['RouteTableId'],
-                              DestinationCidrBlock=route['DestinationCidrBlock'],
-                              GatewayId=route['GatewayId'],
-                              InstanceId=route['InstanceId'],
-                              NetworkInterfaceId=route['NetworkInterfaceId'],
-                              VpcPeeringConnectionId=route['VpcPeeringConnectionId'],
-                              NatGatewayId=route['NatGatewayId']))
+            params = {'RouteTableId': MOCK_NEW_ROUTE_TABLE['RouteTableId'],
+                      'DestinationCidrBlock': route['DestinationCidrBlock']}
+            if route.get('GatewayId'):
+                params['GatewayId'] = route.get('GatewayId')
+            if route.get('InstanceId'):
+                params['InstanceId'] = route.get('InstanceId')
+            if route.get('NetworkInterfaceId'):
+                params['NetworkInterfaceId'] = route.get('NetworkInterfaceId')
+            if route.get('VpcPeeringConnectionId'):
+                params['VpcPeeringConnectionId'] = route.get('VpcPeeringConnectionId')
+            if route.get('NatGatewayId'):
+                params['NatGatewayId'] = route.get('NatGatewayId')
+            calls.append(call(**params))
         self.mock_ec2_conn.create_route.assert_has_calls(calls)
         self.mock_ec2_conn.disassociate_route_table.assert_called_once_with(
             AssociationId=MOCK_ROUTE_TABLE_ASSOC_ID)
@@ -322,11 +320,7 @@ class DiscoSubnetTests(TestCase):
 
         self.mock_ec2_conn.create_route.assert_called_once_with(DestinationCidrBlock=destination_cidr_block,
                                                                 GatewayId=gateway_id,
-                                                                RouteTableId=MOCK_ROUTE_TABLE_ID,
-                                                                InstanceId=None,
-                                                                NatGatewayId=None,
-                                                                NetworkInterfaceId=None,
-                                                                VpcPeeringConnectionId=None)
+                                                                RouteTableId=MOCK_ROUTE_TABLE_ID)
 
         # Make sure route table is updated
         route_to_nat = [route for route in self.subnet.route_table['Routes']
