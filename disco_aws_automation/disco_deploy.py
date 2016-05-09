@@ -33,6 +33,7 @@ class DiscoDeploy(object):
         :param test_aws DiscoAWS instance for integration tests. may be different environment than "aws" param
         :param bake a DiscoBake instance to use
         :param autoscale a DiscoAutoscale instance to use
+        :param elb a DiscoELB instance to use
         :param pipeline_definition a list of dicts containing hostname, deployable and other pipeline values
         :param allow_any_hostclass do not restrict to hostclasses in the pipeline definition
         :param config: Configuration object to use.
@@ -279,23 +280,20 @@ class DiscoDeploy(object):
             self._disco_aws.terminate(self._get_new_instances(ami.id), use_autoscaling=True)
             self._disco_aws.spinup([rollback_hostclass_dict])
         else:
-            self._disco_aws.autoscale.delete_groups(hostclass=rollback_hostclass_dict["hostclass"],
-                                                    force=True)
+            self._disco_autoscale.delete_groups(hostclass=rollback_hostclass_dict["hostclass"], force=True)
 
     def _get_old_instances(self, new_ami_id):
         '''Returns instances of the hostclass of new_ami_id that are not running new_ami_id'''
         hostclass = DiscoBake.ami_hostclass(self._disco_bake.connection.get_image(new_ami_id))
-        all_instance_ids = [inst.instance_id for inst in self._disco_aws.autoscale.get_instances()
-                            if self._disco_aws.autoscale.get_hostclass(inst.group_name) == hostclass]
-        all_instances = self._disco_aws.instances(instance_ids=all_instance_ids)
+        all_ids = [inst.instance_id for inst in self._disco_autoscale.get_instances(hostclass=hostclass)]
+        all_instances = self._disco_aws.instances(instance_ids=all_ids)
         return [inst for inst in all_instances if inst.image_id != new_ami_id]
 
     def _get_new_instances(self, new_ami_id):
         '''Returns instances running new_ami_id'''
         hostclass = DiscoBake.ami_hostclass(self._disco_bake.connection.get_image(new_ami_id))
-        all_instance_ids = [inst.instance_id for inst in self._disco_aws.autoscale.get_instances()
-                            if self._disco_aws.autoscale.get_hostclass(inst.group_name) == hostclass]
-        return self._disco_aws.instances(filters={"image_id": [new_ami_id]}, instance_ids=all_instance_ids)
+        all_ids = [inst.instance_id for inst in self._disco_autoscale.get_instances(hostclass=hostclass)]
+        return self._disco_aws.instances(filters={"image_id": [new_ami_id]}, instance_ids=all_ids)
 
     def _get_latest_other_image_id(self, new_ami_id):
         '''
@@ -393,6 +391,8 @@ class DiscoDeploy(object):
         self._disco_aws.terminate(self._get_new_instances(ami.id), use_autoscaling=True)
         self._disco_aws.spinup([post_hostclass_dict])
 
+    # Disable too many local variables because this method handles blue/green from end to end.
+    # pylint: disable=too-many-locals
     def handle_blue_green_ami(self, pipeline_dict, ami, old_group,
                               deployable=False, run_tests=False, dry_run=False):
         '''
@@ -428,24 +428,27 @@ class DiscoDeploy(object):
 
         new_group = self._disco_autoscale.get_existing_group(hostclass=hostclass, throw_on_two_groups=False)
 
+        if old_group and old_group.name == new_group.name:
+            raise RuntimeError("Old group and new group should not be the same.")
+
         try:
             if (self.wait_for_smoketests(ami.id, new_group_config["desired_size"] or 1) and
                     (not run_tests or self.run_integration_tests(ami, wait_for_elb=uses_elb))):
                 # If testing passed, mark AMI as tested
                 self._promote_ami(ami, "tested")
+                # Get list of instances in group
+                group_instance_ids = [inst.instance_id for inst in
+                                      self._disco_autoscale.get_instances(group_name=new_group.name)]
+                group_instances = self._disco_aws.instances(instance_ids=group_instance_ids)
                 # If we are actually deploying and are able to leave testing mode and start serving requests
-                if deployable and self._set_testing_mode(hostclass, self._get_new_instances(ami.id), False):
+                if deployable and self._set_testing_mode(hostclass, group_instances, False):
                     logging.info("Successfully left testing mode for group %s", new_group.name)
-                    # Update ASG to not launch into testing mode and attach to the normal ELB if applicable.
+                    # Update ASG to exit testing mode and attach to the normal ELB if applicable.
                     self._disco_aws.spinup([new_group_config], group_name=new_group.name)
                     if uses_elb:
-                        # Update the autoscaling group to be sure it has the correct instance_ids.
-                        new_group.update()
-                        # Get the instances_ids that are attached to the new group
-                        instance_ids = [instance.instance_id for instance in new_group.instances]
                         # Wait until the new ASG is registered and marked as healthy by ELB.
                         self._disco_elb.wait_for_instance_health_state(hostclass=hostclass,
-                                                                       instance_ids=instance_ids)
+                                                                       instance_ids=group_instance_ids)
                     # we can destroy the old group
                     if old_group:
                         logging.info("Destroying %s", old_group.name)
@@ -551,7 +554,7 @@ class DiscoDeploy(object):
         logging.info("testing %s %s", ami.id, ami.name)
         hostclass = DiscoBake.ami_hostclass(ami)
         pipeline_hostclass_dict = self._hostclasses.get(hostclass)
-        group = self._disco_aws.autoscale.get_existing_group(hostclass)
+        group = self._disco_autoscale.get_existing_group(hostclass)
         desired_capacity = group.desired_capacity if group else 0
         deployable = self.is_deployable(hostclass)
         testable = bool(self.get_integration_test(hostclass))
@@ -585,7 +588,7 @@ class DiscoDeploy(object):
         if not old_hostclass_dict:
             return
 
-        group = self._disco_aws.autoscale.get_existing_group(hostclass)
+        group = self._disco_autoscale.get_existing_group(hostclass)
         desired_capacity = group.desired_capacity if group else old_hostclass_dict.get("desired_size", 0)
         deployable = self.is_deployable(hostclass)
         testable = bool(self.get_integration_test(hostclass))

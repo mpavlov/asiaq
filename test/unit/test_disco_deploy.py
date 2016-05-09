@@ -102,16 +102,15 @@ class DiscoDeployTests(TestCase):
 
     def setUp(self):
         self._disco_aws = create_autospec(DiscoAWS, instance=True)
-        self._disco_aws.autoscale = create_autospec(DiscoAutoscale, instance=True)
+        self._disco_autoscale = create_autospec(DiscoAutoscale, instance=True)
         self._test_aws = self._disco_aws
         self._existing_group = MagicMock()
         self._existing_group.desired_capacity = 1
-        self._disco_aws.autoscale.get_existing_group.return_value = self._existing_group
+        self._disco_autoscale.get_existing_group.return_value = self._existing_group
         self._disco_bake = MagicMock()
         self._disco_bake.promote_ami = MagicMock()
         self._disco_bake.ami_stages = MagicMock(return_value=['untested', 'failed', 'tested'])
         self._disco_bake.get_ami_creation_time = DiscoBake.extract_ami_creation_time_from_ami_name
-        self._disco_autoscale = MagicMock()
         self._disco_elb = MagicMock()
         self._ci_deploy = DiscoDeploy(
             self._disco_aws, self._test_aws, self._disco_bake, self._disco_autoscale, self._disco_elb,
@@ -390,7 +389,7 @@ class DiscoDeployTests(TestCase):
         self._disco_aws.spinup.assert_called_once_with(
             [{'ami': 'ami-12345678', 'sequence': 1, 'min_size': 0, 'desired_size': 1,
               'smoke_test': 'no', 'max_size': 1, 'hostclass': 'mhcnewscarey'}], testing=True)
-        self._disco_aws.autoscale.delete_groups.assert_called_once_with(hostclass='mhcnewscarey', force=True)
+        self._disco_autoscale.delete_groups.assert_called_once_with(hostclass='mhcnewscarey', force=True)
 
     def test_nodeploy_ami_failure(self):
         '''No deploy instances are failed and not promoted when smoketest fails'''
@@ -657,10 +656,10 @@ class DiscoDeployTests(TestCase):
     def test_update_ami_not_in_autoscale_deploy(self):
         '''Test update_ami handling new deployable hostclass'''
         ami = self.mock_ami("mhcsmokey 1")
-        self._ci_deploy._disco_aws.autoscale.get_existing_group = MagicMock(return_value=None)
+        self._ci_deploy._disco_autoscale.get_existing_group = MagicMock(return_value=None)
         self._ci_deploy.handle_tested_ami = MagicMock()
         self._ci_deploy.update_ami(ami, dry_run=False)
-        self._ci_deploy._disco_aws.autoscale.get_existing_group.assert_called_with("mhcsmokey")
+        self._ci_deploy._disco_autoscale.get_existing_group.assert_called_with("mhcsmokey")
         self._ci_deploy.handle_tested_ami.assert_called_with(
             {'min_size': 2, 'integration_test': None, 'deployable': 'yes',
              'desired_size': 2, 'hostclass': 'mhcsmokey'}, ami, 2, dry_run=False)
@@ -669,11 +668,11 @@ class DiscoDeployTests(TestCase):
         '''Test update_ami handling new non-deployable hostclass'''
         ami = self.mock_ami("mhcscarey 1")
         self._ci_deploy.is_deployable = MagicMock(return_value=False)
-        self._ci_deploy._disco_aws.autoscale.get_existing_group = MagicMock(return_value=None)
+        self._ci_deploy._disco_autoscale.get_existing_group = MagicMock(return_value=None)
         self._ci_deploy.handle_nodeploy_ami = MagicMock()
         self._ci_deploy.update_ami(ami, dry_run=False)
         self.assertEqual(self._ci_deploy.is_deployable.call_count, 1)
-        self._ci_deploy._disco_aws.autoscale.get_existing_group.assert_called_with("mhcscarey")
+        self._ci_deploy._disco_autoscale.get_existing_group.assert_called_with("mhcscarey")
         self._ci_deploy.handle_nodeploy_ami.assert_called_with(
             {'min_size': 1, 'integration_test': None, 'deployable': 'no',
              'desired_size': 1, 'hostclass': 'mhcscarey'}, ami, 1, dry_run=False)
