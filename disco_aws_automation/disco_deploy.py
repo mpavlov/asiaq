@@ -391,8 +391,8 @@ class DiscoDeploy(object):
         self._disco_aws.terminate(self._get_new_instances(ami.id), use_autoscaling=True)
         self._disco_aws.spinup([post_hostclass_dict])
 
-    # Disable too many local variables because this method handles blue/green from end to end.
-    # pylint: disable=too-many-locals
+    # Disable too many local variables and branches because this method handles blue/green from end to end.
+    # pylint: disable=too-many-locals,too-many-branches
     def handle_blue_green_ami(self, pipeline_dict, ami, old_group,
                               deployable=False, run_tests=False, dry_run=False):
         '''
@@ -459,16 +459,17 @@ class DiscoDeploy(object):
                             return
                     # we can destroy the old group
                     if old_group:
-                        logging.info("Destroying %s", old_group.name)
-                        old_group.delete(force_delete=True)
+                        # Destroy the original ASG
+                        self._disco_autoscale.delete_groups(group_name=old_group.name, force=True)
                 else:
                     # Otherwise, we need to keep the old group and destroy the new one
                     if deployable:
                         reason = "Unable to exit testing mode for group {}".format(new_group.name)
                     else:
                         reason = "{} is not deployable".format(hostclass)
-                    logging.info("%s, destroying %s", reason, new_group.name)
-                    new_group.delete(force_delete=True)
+                    logging.error("%s, destroying new autoscaling group", reason)
+                    # Destroy the testing ASG
+                    self._disco_autoscale.delete_groups(group_name=new_group.name, force=True)
                 # Destroy the testing ELB
                 self._disco_elb.delete_elb(hostclass, testing=True)
                 return
@@ -477,8 +478,8 @@ class DiscoDeploy(object):
         except (MaintenanceModeError, IntegrationTestError):
             logging.exception("Failed to run integration test")
 
-        logging.info("Destroying new autoscaling group %s", new_group.name)
-        new_group.delete(force_delete=True)
+        # Destroy the testing ASG
+        self._disco_autoscale.delete_groups(group_name=new_group.name, force=True)
 
     def _set_maintenance_mode(self, hostclass, instances, mode_on):
         '''
