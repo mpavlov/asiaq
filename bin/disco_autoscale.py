@@ -91,11 +91,11 @@ def run():
         instances = autoscale.get_instances()
         if args.debug:
             print(format_str.format(
-                "Name".ljust(26 + len(environment_name)), "AMI", "min", "des", "max", "cnt"))
+                "Name".ljust(35 + len(environment_name)), "AMI", "min", "des", "max", "cnt"))
         for group in groups:
             launch_cfg = list(autoscale.get_configs(names=[group.launch_config_name]))
             image_id = launch_cfg[0].image_id if len(launch_cfg) else ""
-            group_str = group.name.ljust(26 + len(environment_name))
+            group_str = group.name.ljust(35 + len(environment_name))
             group_cnt = len([instance for instance in instances if instance.group_name == group.name])
             print(format_str.format(group_str, image_id,
                                     group.min_size, group.desired_capacity, group.max_size,
