@@ -289,7 +289,8 @@ class DiscoELB(object):
                 return
             # Update scope to be the instances that have not yet entered the desired state
             scope = [instance["InstanceId"] for instance in instances if instance["State"] != state]
-            logging.info("Waiting for %s in ELB %s to enter state (%s)", scope, elb_name, state)
+            logging.info("Waiting for %s in ELB %s to enter state (%s)",
+                         scope or original_scope, elb_name, state)
             time.sleep(5)
         raise TimeoutError(
             "Timed out after waiting {} seconds for {} in ELB ({}) to enter state ({})".format(timeout,
