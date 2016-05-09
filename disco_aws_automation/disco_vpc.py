@@ -149,9 +149,9 @@ class DiscoVPC(object):
         else:
             raise VPCEnvironmentError("Expect vpc_id or environment_name")
         if vpc['Vpcs']:
-            tags = tag2dict(vpc['Vpcs'][0]['Tags'])
+            tags = tag2dict(vpc['Vpcs'][0]['Tags'] if 'Tags' in vpc else None)
             vpc['Vpc'] = vpc['Vpcs'][0]
-            return cls(tags["Name"], tags["type"], vpc)
+            return cls(tags.get("Name", '-'), tags.get("type", '-'), vpc)
         else:
             return None
 
@@ -556,7 +556,7 @@ class DiscoVPC(object):
         """ Find all instances in vpc and terminate them """
         autoscale = DiscoAutoscale(environment_name=self.environment_name)
         autoscale.clean_groups(force=True)
-        instances = [i
+        instances = [i['InstanceId']
                      for r in self.client.describe_instances(Filters=[self.vpc_filter()])['Reservations']
                      for i in r['Instances']]
 
@@ -587,7 +587,7 @@ class DiscoVPC(object):
         """ Deleting interfaces explicitly lets go of subnets faster """
         for interface in self.client.describe_network_interfaces(Filters=[self.vpc_filter()])["NetworkInterfaces"]:
             try:
-                interface.delete()
+                self.client.delete_network_interface(NetworkInterfaceId=interface['NetworkInterfaceId'])
             except EC2ResponseError:
                 # Occasionally we get InvalidNetworkInterfaceID.NotFound, not sure why.
                 logging.exception("Skipping error deleting network.")
@@ -669,9 +669,9 @@ class DiscoVPC(object):
     def find_vpc_id_by_name(vpc_name):
         """Find VPC by name"""
         client = boto3.client('ec2')
-        vpcs = client.describe(Filters=[{'Name': 'tag:Name', 'Values': [vpc_name]}])
+        vpcs = client.describe_vpcs(Filters=[{'Name': 'tag:Name', 'Values': [vpc_name]}])['Vpcs']
         if len(vpcs) == 1:
-            return vpcs['Vpcs'][0]['VpcId']
+            return vpcs[0]['VpcId']
         elif len(vpcs) == 0:
             raise VPCNameNotFound("No VPC is named as {}".format(vpc_name))
         else:
