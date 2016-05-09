@@ -446,9 +446,17 @@ class DiscoDeploy(object):
                     # Update ASG to exit testing mode and attach to the normal ELB if applicable.
                     self._disco_aws.spinup([new_group_config], group_name=new_group.name)
                     if uses_elb:
-                        # Wait until the new ASG is registered and marked as healthy by ELB.
-                        self._disco_elb.wait_for_instance_health_state(hostclass=hostclass,
-                                                                       instance_ids=group_instance_ids)
+                        try:
+                            # Wait until the new ASG is registered and marked as healthy by ELB.
+                            self._disco_elb.wait_for_instance_health_state(hostclass=hostclass,
+                                                                           instance_ids=group_instance_ids)
+                        except TimeoutError:
+                            logging.exception("Waiting for health of instances attached to ELB timed out")
+                            # Destroy the testing ASG
+                            self._disco_autoscale.delete_groups(group_name=new_group.name, force=True)
+                            # Destroy the testing ELB
+                            self._disco_elb.delete_elb(hostclass, testing=True)
+                            return
                     # we can destroy the old group
                     if old_group:
                         logging.info("Destroying %s", old_group.name)
