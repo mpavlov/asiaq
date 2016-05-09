@@ -522,8 +522,7 @@ class DiscoDeploy(object):
             if _code:
                 exit_code = _code
                 bad_instances.append(inst)
-        # 0 is good in bash but false in python, so invert it
-        return not bool(exit_code)
+        return exit_code == 0
 
     def get_host(self, hostclass):
         '''Returns an instance to use for running integration tests'''
