@@ -31,7 +31,7 @@ class DiscoRoute53(object):
         """
         zone = self.route53.get_zone(hosted_zone_name)
 
-        record = Record(record_name, record_type, ttl=60)
+        record = Record(record_name, record_type, ttl=5)
         record.add_value(value)
 
         logging.info("Setting Record %s of type %s to %s", record_name, record_type, value)
