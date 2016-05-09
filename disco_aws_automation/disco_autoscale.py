@@ -389,8 +389,8 @@ class DiscoAutoscale(object):
         new_lbs = set(elb_names) - set(group.load_balancers)
         extras = set(group.load_balancers) - set(elb_names)
         if new_lbs or extras:
-            logging.info("Updating %s group's elb from [%s] to [%s]",
-                         hostclass, ", ".join(group.load_balancers), ", ".join(elb_names))
+            logging.info("Updating ELBs for group %s from [%s] to [%s]",
+                         group.name, ", ".join(group.load_balancers), ", ".join(elb_names))
         if new_lbs:
             throttled_call(self.boto3_autoscale.attach_load_balancers,
                            AutoScalingGroupName=group.name,
