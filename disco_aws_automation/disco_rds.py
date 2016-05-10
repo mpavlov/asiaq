@@ -84,16 +84,16 @@ class DiscoRDS(object):
         Get the Master Password for instance stored in the S3 bucket
         """
         bucket_name = self.vpc.get_credential_buckets_from_env_name(self.config_aws, self.vpc_name)[0]
+        bucket = DiscoS3Bucket(bucket_name)
 
-        try:
-            # for backwards compatibility check the old style keys containing the env name
-            instance_identifier = self._get_instance_identifier(env_name, database_name)
-            s3_password_key = 'rds/{0}/master_user_password'.format(instance_identifier)
-            return DiscoS3Bucket(bucket_name).get_key(s3_password_key)
-        except KeyError:
-            # if a key doesn't exist for the database identifier then try the database name
-            s3_password_key = 'rds/{0}/master_user_password'.format(database_name)
-            return DiscoS3Bucket(bucket_name).get_key(s3_password_key)
+        # for backwards compatibility check the old style keys containing the env name
+        instance_identifier = self._get_instance_identifier(env_name, database_name)
+        s3_password_old_key = 'rds/{0}/master_user_password'.format(instance_identifier)
+        if bucket.key_exists(s3_password_old_key):
+            return bucket.get_key(s3_password_old_key)
+
+        s3_password_new_key = 'rds/{0}/master_user_password'.format(database_name)
+        return bucket.get_key(s3_password_new_key)
 
     def get_instance_parameters(self, env_name, database_name):
         """Read the config file and extract the Instance related parameters"""
@@ -193,8 +193,9 @@ class DiscoRDS(object):
         """
         Updates every RDS instance in the current VPC to match the configuration
         """
+        vpc_prefix = self.vpc_name + '-'
         sections = [section for section in self.config_rds.sections()
-                    if section.startswith(self.vpc_name) + '-']
+                    if section.startswith(vpc_prefix)]
         logging.debug("The following RDS clusters will be updated: %s", ", ".join(sections))
         for section in sections:
             # the section names are database identifiers
@@ -249,7 +250,7 @@ class DiscoRDS(object):
         instance_identifier = instance_params['DBInstanceIdentifier']
         snapshot = custom_snapshot or self.get_final_snapshot(instance_identifier)
 
-        if not snapshot and not snapshot:
+        if not snapshot:
             # For Postgres, We dont need this parameter at creation
             if instance_params['Engine'] == 'postgres':
                 instance_params = self.delete_keys(instance_params, ["CharacterSetName"])

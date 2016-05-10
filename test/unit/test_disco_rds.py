@@ -22,13 +22,23 @@ def _get_vpc_mock():
     return vpc_mock
 
 
-def _get_key_mock(key_name):
-    if key_name == 'rds/db-name/master_user_password':
-        return 'database_name_key'
-    elif key_name == 'rds/unittestenv-db-id/master_user_password':
-        return 'database-id-key'
-    else:
-        raise KeyError("Key not found")
+def _get_bucket_mock():
+    def _get_key_mock(key_name):
+        if key_name == 'rds/db-name/master_user_password':
+            return 'database_name_key'
+        elif key_name == 'rds/unittestenv-db-id/master_user_password':
+            return 'database-id-key'
+        else:
+            raise KeyError("Key not found")
+
+    def _key_exists_mock(key_name):
+        return key_name in ['rds/db-name/master_user_password', 'rds/unittestenv-db-id/master_user_password']
+
+    bucket = MagicMock()
+    bucket.get_key.side_effect = _get_key_mock
+    bucket.key_exists.side_effect = _key_exists_mock
+
+    return bucket
 
 
 class DiscoRDSTests(unittest.TestCase):
@@ -58,15 +68,15 @@ class DiscoRDSTests(unittest.TestCase):
         self.assertEquals("mysql123.5", self.rds.get_db_parameter_group_family("MySQL", "123.5"))
 
     # pylint: disable=unused-argument
-    @patch('disco_aws_automation.DiscoS3Bucket.get_key', side_effect=_get_key_mock)
-    def test_get_master_password(self, get_key_mock):
+    @patch('disco_aws_automation.disco_rds.DiscoS3Bucket', return_value=_get_bucket_mock())
+    def test_get_master_password(self, bucket_mock):
         """test getting the master password for an instance using either the db name or id as the s3 key"""
         self.assertEquals('database_name_key', self.rds.get_master_password(TEST_ENV_NAME, 'db-name'))
         self.assertEquals('database-id-key', self.rds.get_master_password(TEST_ENV_NAME, 'db-id'))
 
     # pylint: disable=unused-argument
-    @patch('disco_aws_automation.DiscoS3Bucket.get_key', side_effect=_get_key_mock)
-    def test_clone_existing_db(self, get_key_mock):
+    @patch('disco_aws_automation.disco_rds.DiscoS3Bucket', return_value=_get_bucket_mock())
+    def test_clone_existing_db(self, bucket_mock):
         """test that cloning throws an error when the destination db already exists"""
         self.rds.client.describe_db_snapshots.return_value = {
             'DBInstances': [{
@@ -79,8 +89,8 @@ class DiscoRDSTests(unittest.TestCase):
 
     # pylint: disable=unused-argument
     @patch('disco_aws_automation.disco_rds.DiscoRoute53')
-    @patch('disco_aws_automation.DiscoS3Bucket.get_key', side_effect=_get_key_mock)
-    def test_clone(self, get_key_mock, r53_mock):
+    @patch('disco_aws_automation.disco_rds.DiscoS3Bucket', return_value=_get_bucket_mock())
+    def test_clone(self, bucket_mock, r53_mock):
         """test cloning a database"""
         self.rds._get_db_instance = MagicMock(return_value=None)
         self.rds.client.describe_db_snapshots.return_value = {
