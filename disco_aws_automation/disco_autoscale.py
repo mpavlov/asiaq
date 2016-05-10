@@ -112,17 +112,13 @@ class DiscoAutoscale(object):
         throttled_call(self.connection.delete_launch_configuration, config_name)
         logging.info("Deleting launch configuration %s", config_name)
 
-    def clean_configs(self, hostclass=None, group_name=None):
+    def clean_configs(self):
         '''Delete unused Launch Configurations in current environment'''
-        group_list = self.get_existing_groups(hostclass=hostclass, group_name=group_name)
-        if group_list:
-            configs = self.get_configs(names=[group.launch_config_name for group in group_list
-                                              if group.launch_config_name])
-            for config in configs:
-                try:
-                    self.delete_config(config.name)
-                except BotoServerError:
-                    pass
+        for config in self._get_config_generator():
+            try:
+                self.delete_config(config.name)
+            except BotoServerError:
+                pass
 
     def delete_groups(self, hostclass=None, group_name=None, force=False):
         '''Delete a specific Autoscaling Group'''
