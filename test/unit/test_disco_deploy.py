@@ -43,6 +43,14 @@ MOCK_PIPELINE_DEFINITION = [
         'desired_size': 1,
         'integration_test': None,
         'deployable': 'no'
+    },
+    {
+        'hostclass': 'mhctimedautoscale',
+        'min_size': '3@30 16 * * 1-5:4@00 17 * * 1-5',
+        'desired_size': '5@30 16 * * 1-5:6@00 17 * * 1-5',
+        'max_size': '5@30 16 * * 1-5:6@00 17 * * 1-5',
+        'integration_test': None,
+        'deployable': 'yes'
     }
 ]
 
@@ -124,6 +132,7 @@ class DiscoDeployTests(TestCase):
         self.add_ami('mhcintegrated 1', None)
         self.add_ami('mhcintegrated 2', 'tested')
         self.add_ami('mhcintegrated 3', None)
+        self.add_ami('mhctimedautoscale 1', 'untested')
         self._ci_deploy._disco_bake.list_amis = MagicMock(return_value=self._amis)
 
     def test_filter_with_ami_restriction(self):
@@ -155,7 +164,8 @@ class DiscoDeployTests(TestCase):
                           self._amis_by_name["mhcfoo 7"],
                           self._amis_by_name["mhcintegrated 1"],
                           self._amis_by_name["mhcintegrated 2"],
-                          self._amis_by_name["mhcintegrated 3"]])
+                          self._amis_by_name["mhcintegrated 3"],
+                          self._amis_by_name["mhctimedautoscale 1"]])
 
     def test_filter_by_hostclass_beats_pipeline(self):
         '''Tests that filter overrides pipeline filtering when hostclass is set'''
@@ -180,7 +190,8 @@ class DiscoDeployTests(TestCase):
                           self._amis_by_name["mhcfoo 7"],
                           self._amis_by_name["mhcintegrated 1"],
                           self._amis_by_name["mhcintegrated 2"],
-                          self._amis_by_name["mhcintegrated 3"]])
+                          self._amis_by_name["mhcintegrated 3"],
+                          self._amis_by_name["mhctimedautoscale 1"]])
 
     def test_get_newest_in_either_map(self):
         '''Tests that get_newest_in_either_map works with simple input'''
@@ -241,12 +252,12 @@ class DiscoDeployTests(TestCase):
         '''Tests that we can find the next untested ami to test for each hostclass without restrictions'''
         self._ci_deploy._allow_any_hostclass = True
         self.assertEqual([ami.name for ami in self._ci_deploy.get_test_amis()],
-                         ['mhcfoo 6', 'mhcnew 1'])
+                         ['mhcfoo 6', 'mhcnew 1', 'mhctimedautoscale 1'])
 
     def test_get_test_amis_from_pipeline(self):
         '''Tests that we can find the next untested ami to test for each hostclass restricted to pipeline'''
         self.assertEqual([ami.name for ami in self._ci_deploy.get_test_amis()],
-                         ['mhcfoo 6'])
+                         ['mhcfoo 6', 'mhctimedautoscale 1'])
 
     def test_get_failed_amis(self):
         '''Tests that we can find the next untested ami to test for each hostclass'''
@@ -429,6 +440,36 @@ class DiscoDeployTests(TestCase):
              call([{'deployable': 'yes', 'min_size': 2, 'integration_test': None,
                     'desired_size': 2, 'max_size': 2, 'hostclass': 'mhcsmokey',
                     'smoke_test': 'no'}])])
+
+    def test_timed_autoscaling_ami_success(self):
+        '''Timed autoscaling instances are promoted and correct autoscaling sizes updated on success'''
+        ami = MagicMock()
+        ami.name = "mhctimedautoscale 1 2"
+        ami.id = "ami-12345678"
+        self._existing_group.desired_capacity = 2
+        self._ci_deploy.wait_for_smoketests = MagicMock(return_value=True)
+        self._ci_deploy.test_ami(ami, dry_run=False)
+        self._disco_bake.promote_ami.assert_called_with(ami, 'tested')
+        # NOTE: the following expected  values were calculated by using values in MOCK_PIPELINE_DEFINITION
+        #       for mhctimedautoscale in conjunction with what's done in
+        #       disco_deploy.py:DiscoDeploy.handle_test_ami()
+        expected_tested_ami_min_size = 2
+        expected_tested_ami_desired_size = 4
+        expected_tested_ami_max_size = 4
+        expected_new_ami_min_size = 3
+        expected_new_ami_desired_size = 3
+        expected_new_ami_max_size = 6
+        self._disco_aws.spinup.assert_has_calls(
+            [call([{'ami': 'ami-12345678', 'sequence': 1, 'deployable': 'yes',
+                    'integration_test': None, 'smoke_test': 'no', 'hostclass': 'mhctimedautoscale',
+                    'min_size': expected_tested_ami_min_size,
+                    'desired_size': expected_tested_ami_desired_size,
+                    'max_size': expected_tested_ami_max_size}]),
+             call([{'ami': 'ami-12345678', 'sequence': 1, 'deployable': 'yes',
+                    'integration_test': None, 'smoke_test': 'no', 'hostclass': 'mhctimedautoscale',
+                    'min_size': expected_new_ami_min_size,
+                    'desired_size': expected_new_ami_desired_size,
+                    'max_size': expected_new_ami_max_size}])])
 
     def test_set_maintenance_mode_on(self):
         '''_set_maintenance_mode makes expected remotecmd call'''
