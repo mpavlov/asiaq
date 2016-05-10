@@ -459,11 +459,15 @@ class DiscoDeploy(object):
                             if uses_elb:
                                 # Destroy the testing ELB
                                 self._disco_elb.delete_elb(hostclass, testing=True)
-                            return
+                            return False
                     # we can destroy the old group
                     if old_group:
                         # Destroy the original ASG
                         self._disco_autoscale.delete_groups(group_name=old_group.name, force=True)
+                    if uses_elb:
+                        # Destroy the testing ELB
+                        self._disco_elb.delete_elb(hostclass, testing=True)
+                    return True
                 else:
                     # Otherwise, we need to keep the old group and destroy the new one
                     if deployable:
@@ -473,10 +477,10 @@ class DiscoDeploy(object):
                     logging.error("%s, destroying new autoscaling group", reason)
                     # Destroy the testing ASG
                     self._disco_autoscale.delete_groups(group_name=new_group.name, force=True)
-                if uses_elb:
-                    # Destroy the testing ELB
-                    self._disco_elb.delete_elb(hostclass, testing=True)
-                return
+                    if uses_elb:
+                        # Destroy the testing ELB
+                        self._disco_elb.delete_elb(hostclass, testing=True)
+                    return True
             else:
                 self._promote_ami(ami, "failed")
         except (MaintenanceModeError, IntegrationTestError):
@@ -487,6 +491,7 @@ class DiscoDeploy(object):
         if uses_elb:
             # Destroy the testing ELB
             self._disco_elb.delete_elb(hostclass, testing=True)
+        return False
 
     def _set_maintenance_mode(self, hostclass, instances, mode_on):
         '''
