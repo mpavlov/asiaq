@@ -35,7 +35,7 @@ class DiscoSubnet(object):
                                    "name '{0}' for metanetwork '{1}'"
                                    .format(name, self.metanetwork.name))
             # Have to add new tags going forward
-            self._tag_resource(self._subnet_dict['SubnetId'])
+            self._apply_subnet_tags(self._subnet_dict['SubnetId'])
 
             self._route_table = self._find_route_table_by_id(centralized_route_table_id)
             if not self._route_table:
@@ -220,7 +220,7 @@ class DiscoSubnet(object):
             'AvailabilityZone': self.name
         }
         subnet_dict = handle_date_format(self.boto3_ec2.create_subnet(**params))['Subnet']
-        self._tag_resource(subnet_dict['SubnetId'])
+        self._apply_subnet_tags(subnet_dict['SubnetId'])
         logging.debug("%s subnet_dict: %s", self.name, subnet_dict)
         return subnet_dict
 
@@ -248,7 +248,7 @@ class DiscoSubnet(object):
         params = dict()
         params['VpcId'] = self.metanetwork.vpc.vpc.id
         route_table = handle_date_format(self.boto3_ec2.create_route_table(**params))['RouteTable']
-        self._tag_resource(route_table['RouteTableId'])
+        self._apply_subnet_tags(route_table['RouteTableId'])
         logging.debug("%s route table: %s", self.name, route_table)
 
         return route_table
@@ -308,7 +308,7 @@ class DiscoSubnet(object):
                                        self.metanetwork.name,
                                        self.name, suffix)
 
-    def _tag_resource(self, resource_id, suffix=None):
+    def _apply_subnet_tags(self, resource_id, suffix=None):
         tag_params = {
             'Resources': [resource_id],
             'Tags': [{'Key': 'Name', 'Value': self._resource_name(suffix)},
