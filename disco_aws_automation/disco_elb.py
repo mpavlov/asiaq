@@ -122,6 +122,7 @@ class DiscoELB(object):
             idle_timeout (int): time limit (in seconds) that ELB should wait before killing idle connections
             connection_draining_timeout (int): timeout limit (in seconds) that ELB should allow for open
                                                requests to resolve before removing EC2 instance from ELB
+            testing (bool): True if the ELB will be used for testing purposes only.
         """
         cname = self.get_cname(hostclass, hosted_zone_name, testing=testing)
         elb_name = DiscoELB.get_elb_name(self.vpc.environment_name, hostclass, testing=testing)

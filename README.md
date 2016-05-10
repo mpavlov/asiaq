@@ -1942,12 +1942,13 @@ Configuration of integration tests is spread across two places, ```disco_aws.ini
 
 ##### disco_aws.ini
 
-There are three configuration options for integration tests in ```disco_aws.ini```.
+There are a few configuration options for integration tests in ```disco_aws.ini```.
 
 ```ini
 test_hostclass=mhcfootest
 test_user=integration_tester
 test_command=/opt/asiaq/bin/run_tests.sh
+deployment_strategy=classic # One of [classic, blue_green]
 ```
 
 * test_hostclass
@@ -1956,6 +1957,8 @@ test_command=/opt/asiaq/bin/run_tests.sh
   * The user to execute ```test_command``` as.
 * test_command
   * The command to execute the tests on ```test_hostclass``` as the ```test_user```. Typically a shell script with some logic for handling the test argument that is passed to it. The exit code of this command determines whether or not the integration tests were successful.
+* deployment_strategy
+  * The deployment strategy to use when deploying a new AMI. Either ```classic``` or ```blue_green```. The default is currently ```classic```.
 
 These options can be specified in two places in ```disco_aws.ini```, in the ```[test]``` section or in a given hostclass' section. Below is an example of specifying defaults in the ```[test]``` section and overriding them for the mhcfoo hostclass.
 
@@ -1970,9 +1973,10 @@ test_command=/opt/asiaq/bin/run_tests.sh
 
 [mhcfoo]
 test_hostclass=mhcfootests
+deployment_strategy=blue_green
 ```
 
-In this example, we set defaults in the ```[test]``` section for all hostclasses. Then ```[mhcfoo]``` overrides those defaults to specify a different test_hostclass for itself.
+In this example, we set defaults in the ```[test]``` section for all hostclasses. Then ```[mhcfoo]``` overrides those defaults to specify a different test_hostclass and deployment_strategy for itself.
 
 
 ##### Pipeline
@@ -1992,3 +1996,24 @@ sequence,hostclass,min_size,desired_size,max_size,instance_type,extra_disk,iops,
 
 In the above pipeline, mhcbar will be integration tested by passing ```mhcbar_integration``` as the argument to the ```test_command``` on the generic ```test_hostclass``` defined in our example ```disco_aws.ini``` above. In contrast, mhcfoo will be integration tested by passing ```mhcfoo_integration``` as the argument to the ```test_command``` on it's specially defined ```test_hostclass```. And because mhcnointegrationtests left the ```integration_test``` column empty, no integration tests will be run for it.
 
+#### Deployment Strategies
+
+##### Classic
+
+Classic deployment strategy is used by default. Instances with a new AMI are spun up in the existing ASG and automatically added to the existing nerve and ELB groups. There are a number of problems with this strategy, so it is slated for deprecation and removal soon. Let us speak no more of it.
+
+##### Blue/Green
+
+Blue/Green deployment strategy is currentlt opt-in only.
+
+The process is as follows:
+
+* A new ASG is created with an 'is_testing' tag and attached to a dedicated 'testing' ELB.
+* After waiting for smoke tests, integration tests are run against the isolated 'testing' ASG
+  * ASG is isolated because it is attached to a separate ELB and its services are modified via the 'is_testing' tag.
+* After integration tests pass, the instances in the new ASG are taken out of testing mode by executing `sudo /etc/asiaq/bin/testing_mode.sh off` as the `test_user`.
+  * Exiting testing mode should restore the nerve configs to their proper groups as well as grabbing ENIs/EIPs/etc.
+* After exiting test mode, the new ASG is attached to the normal ELB and the processes pauses until the ELB registers and marks the new instances as healthy.
+* After the new instances are marked as Healthy by the ELB, the old ASG is destroyed.
+
+If at any point there is a problem, the new ASG and testing ELB should be destroyed without causing any problems for the already existing ASG and ELB.

@@ -218,8 +218,8 @@ class DiscoAutoscale(object):
 
         NOTE: Deleting tags is not currently supported.
         '''
-        group = self.get_existing_group(hostclass=hostclass, group_name=group_name,
-                                        throw_on_two_groups=not create_if_exists)
+        # Check if an autoscaling group already exists.
+        group = self.get_existing_group(hostclass=hostclass, group_name=group_name)
         if create_if_exists or not group:
             return self.create_group(
                 hostclass=hostclass, launch_config=launch_config, vpc_zone_id=vpc_zone_id,
@@ -254,7 +254,7 @@ class DiscoAutoscale(object):
 
         If two or more autoscaling groups exist for a hostclass, then this method will throw an exception,
         unless 'throw_on_two_groups' is False. Then if there are two groups the most recently created
-        autoscaling group will be return. If there are more than two autoscaling groups, this method will
+        autoscaling group will be returned. If there are more than two autoscaling groups, this method will
         always throw an exception.
         """
         groups = self.get_existing_groups(hostclass=hostclass, group_name=group_name)

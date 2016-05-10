@@ -315,6 +315,8 @@ class DiscoAWS(object):
         desired_size -- the currently desired size of for the autoscaling group
         testing -- bring up host in testing mode (for CI)
         chaos -- when true we want these instances to be terminatable by the chaos process
+        create_if_exists -- create a new autoscaling group even if one already exists
+        group_name -- force reuse of an existing autoscaling group
         """
         # It's possible that the ami isn't available yet, so wait here
         wait_for_state(ami, u'available', 600)
