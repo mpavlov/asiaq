@@ -126,8 +126,8 @@ class DiscoAutoscale(object):
         for group in groups:
             try:
                 throttled_call(group.delete, force_delete=force)
-                self.delete_config(group.launch_config_name)
                 logging.info("Deleting group %s", group.name)
+                self.delete_config(group.launch_config_name)
             except BotoServerError:
                 logging.info("Unable to delete group %s, try force deleting", group.name)
 
