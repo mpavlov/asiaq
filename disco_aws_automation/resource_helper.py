@@ -132,6 +132,41 @@ def wait_for_state(resource, state, timeout=15 * 60, state_attr='state'):
         time_passed += STATE_POLL_INTERVAL
 
 
+def wait_for_state_boto3(describe_func, params_dict, resources_name,
+                         expected_state, state_attr='state', timeout=15 * 60):
+    """Wait for an AWS resource to reach a specified state using the boto3 library"""
+    time_passed = 0
+    while True:
+        try:
+            resources = describe_func(**params_dict)[resources_name]
+            all_good = True
+            failure = False
+            for resource in resources:
+                if resource[state_attr] != expected_state:
+                    all_good = False
+                elif resource[state_attr] in (u'failed', u'terminated'):
+                    failure = True
+
+            if all_good:
+                return
+            elif failure:
+                raise ExpectedTimeoutError(
+                    "At least some resources who meet the following description entered either "
+                    "'failed' or 'terminated' state after {0}s waiting for state {1}:\n{2}"
+                    .format(time_passed, expected_state, params_dict))
+        except EC2ResponseError:
+            pass  # These are most likely transient, we will timeout if they are not
+
+        if time_passed >= timeout:
+            raise TimeoutError(
+                "Timed out waiting for resources who meet the following description to change "
+                "state to {0} after {1}s:\n{2}"
+                .format(expected_state, time_passed, params_dict))
+
+        time.sleep(STATE_POLL_INTERVAL)
+        time_passed += STATE_POLL_INTERVAL
+
+
 def wait_for_sshable(remotecmd, instance, timeout=15 * 60, quiet=False):
     """Returns True when host is up and sshable
     returns False on timeout

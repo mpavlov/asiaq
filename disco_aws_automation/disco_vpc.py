@@ -15,7 +15,11 @@ from boto.exception import EC2ResponseError
 import boto3
 
 from . import read_config
-from .resource_helper import keep_trying, wait_for_state
+from .resource_helper import (
+    keep_trying,
+    wait_for_state,
+    wait_for_state_boto3
+)
 from .disco_log_metrics import DiscoLogMetrics
 from .disco_alarm import DiscoAlarm
 from .disco_alarm_config import DiscoAlarmsConfig
@@ -29,6 +33,7 @@ from .disco_elb import DiscoELB
 from .exceptions import (
     MultipleVPCsForVPCNameError, TimeoutError, VPCConfigError, VPCEnvironmentError, VPCPeeringSyntaxError,
     VPCNameNotFound, EIPConfigError)
+
 
 CONFIG_FILE = "disco_vpc.ini"
 VGW_STATE_POLL_INTERVAL = 2  # seconds
@@ -573,13 +578,16 @@ class DiscoVPC(object):
 
     def _destroy_nat_gateways(self):
         """ Find all NAT gateways belonging to a vpc and destroy them"""
+        filter_params = {'Filters': [{'Name': 'vpc-id', 'Values': [self.vpc.id]}]}
         ec2_client = boto3.client('ec2')
-        nat_gateways = ec2_client.describe_nat_gateways(
-            Filters=[{'Name': 'vpc-id', 'Values': [self.vpc.id]}]
-        )['NatGateways']
+
+        nat_gateways = ec2_client.describe_nat_gateways(**filter_params)['NatGateways']
         for nat_gateway in nat_gateways:
             ec2_client.delete_nat_gateway(NatGatewayId=nat_gateway['NatGatewayId'])
-        # TODO: need to wait for the NAT gateways to be deleted
+
+        # Need to wait for all the NAT gateways to be deleted
+        wait_for_state_boto3(ec2_client.describe_nat_gateways, filter_params,
+                             'NatGateways', 'deleted', 'State')
 
     def _destroy_subnets(self):
         """ Find all subnets belonging to a vpc and destroy them"""
