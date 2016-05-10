@@ -28,6 +28,7 @@ Table of Contents
   * [Chaos](#chaos)
   * [ElastiCache](#elasticache)
   * [Elasticsearch](#elasticsearch)
+  * [RDS](#rds)
   * [Testing a hostclass](#testing-hostclasses)
 
 
@@ -1842,7 +1843,7 @@ List cache clusters from ElastiCache
 
     disco_elasticache.py [--env ENV] list
 
-Create/update the clusters in a environment from the `disco_elasticache.ini config
+Create/update the clusters in a environment from the `disco_elasticache.ini` config
 
     disco_elasticache.py [--env ENV] update [--cluster CLUSTER]
 
@@ -1925,6 +1926,59 @@ The CNAME provided by Route 53 can also be used:
 `https://es-logger-foo.aws.example.com/_plugin/kibana/`
 
 NOTE: When using CNAME, certificate will show as invalid because it was issued for *.us-west-2.es.amazonaws.com.
+
+RDS
+-------------------
+
+RDS provides databases as a service. Creating a new database instances with Asiaq involves
+editing the `disco_rds.ini` config file and running `disco_rds.py`. Route53 CNAMEs are automatically created for each RDS instance
+
+
+### Configuration
+The following configuration is available for RDS. A section is needed for each RDS instance in every VPC. The section names are formatted as `[VPC Name]-[Database Name]`
+
+    [ci-foodb]
+    allocated_storage=100
+    db_instance_class=db.m4.2xlarge
+    engine=oracle-se2
+    engine_version=12.1.0.2.v2
+    iops=1000
+    master_username=masteruser
+    port=1521
+    storage_encrypted=True
+    multi_az=True
+Options:
+
+-   `allocated_storage` Database size in GB
+-   `db_instance_class` The instance type to use for database instances
+-   `engine` The type of database such as Oracle or Postgres
+-   `engine_version` The database version to use
+-   `iops` Provisioned IOPS 
+-   `master_username` Master username for connecting to the database
+-   `port` [Default 5432 for Postgres, 1521 for Oracle]
+-   `storage_encrypted` [Default True]
+-   `multi_az` [Default True]
+
+### Commands for managing RDS
+List RDS instances for an environment. Optionally display database URL.
+
+    disco_rds.py list [--env ENV] [--url]
+
+Create/update the RDS clusters in a environment from the `disco_rds.ini` config. Updates all RDS clusters in an environment by default or optionally specify a cluster to update.
+
+    disco_rds.py update [--env ENV] [--cluster CLUSTER]
+    
+Delete a RDS cluster.
+
+    disco_rds.py delete [--env ENV] [--cluster CLUSTER] [--skip-final-snapshot]
+    
+Delete old database snapshots.
+
+    disco_rds.py cleanup_snapshots [--env ENV] [--age DAYS]
+    
+Clone a database from a different environment into the current environment. The new database will copy all configuration options from the source database and use the most recent database snapshot from source database.
+
+    disco_rds.py clone [--env ENV] --source-db SOURCE_DB --source-env SOURCE_ENV
 
 Testing Hostclasses
 -------------------
