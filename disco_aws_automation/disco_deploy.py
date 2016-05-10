@@ -515,9 +515,7 @@ class DiscoDeploy(object):
         '''
         Takes instances into or out of testing mode.
 
-
-        If we fail to put an instance into the desired mode we terminate that instance
-        and raise a MaintenanceModeError exception.
+        Returns False if any of the instances failed to enter or exit testing mode.
         '''
         exit_code = 0
         for inst in instances:
