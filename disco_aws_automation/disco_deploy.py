@@ -391,8 +391,9 @@ class DiscoDeploy(object):
         self._disco_aws.terminate(self._get_new_instances(ami.id), use_autoscaling=True)
         self._disco_aws.spinup([post_hostclass_dict])
 
-    # Disable too many local variables and branches because this method handles blue/green from end to end.
-    # pylint: disable=too-many-locals,too-many-branches
+    # Disable too many local variables, branches, and statements because this method handles blue/green from
+    # end to end.
+    # pylint: disable=too-many-locals,too-many-branches,too-many-statements
     def handle_blue_green_ami(self, pipeline_dict, ami, old_group,
                               deployable=False, run_tests=False, dry_run=False):
         '''
@@ -454,8 +455,9 @@ class DiscoDeploy(object):
                             logging.exception("Waiting for health of instances attached to ELB timed out")
                             # Destroy the testing ASG
                             self._disco_autoscale.delete_groups(group_name=new_group.name, force=True)
-                            # Destroy the testing ELB
-                            self._disco_elb.delete_elb(hostclass, testing=True)
+                            if uses_elb:
+                                # Destroy the testing ELB
+                                self._disco_elb.delete_elb(hostclass, testing=True)
                             return
                     # we can destroy the old group
                     if old_group:
@@ -470,8 +472,9 @@ class DiscoDeploy(object):
                     logging.error("%s, destroying new autoscaling group", reason)
                     # Destroy the testing ASG
                     self._disco_autoscale.delete_groups(group_name=new_group.name, force=True)
-                # Destroy the testing ELB
-                self._disco_elb.delete_elb(hostclass, testing=True)
+                if uses_elb:
+                    # Destroy the testing ELB
+                    self._disco_elb.delete_elb(hostclass, testing=True)
                 return
             else:
                 self._promote_ami(ami, "failed")
@@ -480,6 +483,9 @@ class DiscoDeploy(object):
 
         # Destroy the testing ASG
         self._disco_autoscale.delete_groups(group_name=new_group.name, force=True)
+        if uses_elb:
+            # Destroy the testing ELB
+            self._disco_elb.delete_elb(hostclass, testing=True)
 
     def _set_maintenance_mode(self, hostclass, instances, mode_on):
         '''
