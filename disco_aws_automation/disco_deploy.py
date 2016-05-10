@@ -402,6 +402,7 @@ class DiscoDeploy(object):
         Deploys AMIs into a new autoscaling group. If the new AMI passes tests, the old ASG is destroyed,
         and the new ASG is preserved. Otherwise, the original ASG is preserved.
 
+        Also creates a separate testing ELB that is used for the purposes of integration tests.
         '''
         logging.info("testing %s hostclass %s AMI %s with %s deployment strategy",
                      "deployable" if deployable else "non-deployable", pipeline_dict["hostclass"], ami.id,
@@ -554,7 +555,11 @@ class DiscoDeploy(object):
         test_name = self.get_integration_test(hostclass)
 
         if wait_for_elb:
-            self._disco_elb.wait_for_instance_health_state(hostclass=hostclass, testing=True)
+            try:
+                self._disco_elb.wait_for_instance_health_state(hostclass=hostclass, testing=True)
+            except TimeoutError:
+                logging.exception("Waiting for health of instances attached to testing ELB timed out")
+                return False
 
         logging.info("running integration test %s on %s", test_name, test_hostclass)
         exit_code, stdout = self._test_aws.remotecmd(
