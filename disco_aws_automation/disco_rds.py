@@ -481,18 +481,18 @@ class DiscoRDS(object):
         except botocore.exceptions.ClientError:
             return None
 
-    def clone(self, env_name, database_name):
+    def clone(self, source_vpc, source_db):
         """
         Spinup a copy of a given database into the current environment
 
         Args:
-            env_name (str): the VPC where the source database is located
-            database_name (str): the source database name
+            source_vpc (str): the VPC where the source database is located
+            source_db (str): the source database name
         """
-        source_db_identifier = self._get_instance_identifier(env_name, database_name)
-        clone_db_identifier = self._get_instance_identifier(self.vpc_name, database_name)
+        source_db_identifier = self._get_instance_identifier(source_vpc, source_db)
+        clone_db_identifier = self._get_instance_identifier(self.vpc_name, source_db)
 
-        instance_params = self.get_instance_parameters(env_name, database_name)
+        instance_params = self.get_instance_parameters(source_vpc, source_db)
 
         if self._get_db_instance(clone_db_identifier):
             raise RDSEnvironmentError(
@@ -510,7 +510,7 @@ class DiscoRDS(object):
                                 custom_snapshot=self.get_final_snapshot(source_db_identifier))
 
         # Create/Update CloudWatch Alarms for this instance
-        self.spinup_alarms(database_name)
+        self.spinup_alarms(source_db)
 
         # Create a DNS record for this instance
         self.setup_dns(clone_db_identifier)
