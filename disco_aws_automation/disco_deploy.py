@@ -408,11 +408,11 @@ class DiscoDeploy(object):
                      "deployable" if deployable else "non-deployable", pipeline_dict["hostclass"], ami.id,
                      DEPLOYMENT_STRATEGY_BLUE_GREEN)
 
-        hostclass = pipeline_dict["hostclass"]
-        uses_elb = is_truthy(self.hostclass_option_default(hostclass, "elb", "no"))
-
         if dry_run:
             return
+
+        hostclass = pipeline_dict["hostclass"]
+        uses_elb = is_truthy(self.hostclass_option_default(hostclass, "elb", "no"))
 
         new_group_config = copy.deepcopy(pipeline_dict)
         new_group_config["sequence"] = 1
