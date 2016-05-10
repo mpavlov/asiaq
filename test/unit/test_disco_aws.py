@@ -21,10 +21,12 @@ def _get_meta_network_mock():
     ret = MagicMock()
     ret.security_group = MagicMock()
     ret.security_group.id = "sg-1234abcd"
-    ret.disco_subnets = [MagicMock() for _ in xrange(3)]
-    for disco_subnet in ret.disco_subnets:
-        disco_subnet.subnet_dict = dict()
-        disco_subnet.subnet_dict['SubnetId'] = "s-1234abcd"
+    ret.disco_subnets = {}
+    for _ in xrange(3):
+        zone_name = 'zone{0}'.format(_)
+        ret.disco_subnets[zone_name] = MagicMock()
+        ret.disco_subnets[zone_name].subnet_dict = dict()
+        ret.disco_subnets[zone_name].subnet_dict['SubnetId'] = "s-1234abcd"
     return MagicMock(return_value=ret)
 
 

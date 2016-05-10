@@ -193,7 +193,7 @@ class DiscoAWS(object):
         subnet_ips = self._get_hostclass_ip_address(hostclass)
 
         if not subnet_ips:
-            return [disco_subnet.subnet_dict for disco_subnet in meta_network.disco_subnets]
+            return [disco_subnet.subnet_dict for disco_subnet in meta_network.disco_subnets.values()]
 
         return [meta_network.subnet_by_ip(subnet_ip) for subnet_ip in subnet_ips.split(' ')]
 
@@ -251,7 +251,7 @@ class DiscoAWS(object):
             elb_meta_network_name = self.hostclass_option_default(hostclass, "elb_meta_network", None)
             if elb_meta_network_name:
                 elb_meta_network = self.get_meta_network_by_name(elb_meta_network_name)
-                elb_subnets = elb_meta_network.disco_subnets
+                elb_subnets = elb_meta_network.disco_subnets.values()
                 subnet_ids = [disco_subnet.subnet_dict['SubnetId'] for disco_subnet in elb_subnets]
             else:
                 elb_meta_network = self.get_meta_network(hostclass)

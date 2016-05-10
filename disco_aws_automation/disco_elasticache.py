@@ -279,7 +279,7 @@ class DiscoElastiCache(object):
                        CacheSubnetGroupName=subnet_group_name,
                        CacheSubnetGroupDescription=subnet_group_name,
                        SubnetIds=[disco_subnet.subnet_dict['SubnetId']
-                                  for disco_subnet in meta_network.disco_subnets])
+                                  for disco_subnet in meta_network.disco_subnets.values()])
 
     def _get_subnet_group(self, meta_network_name):
         try:

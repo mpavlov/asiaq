@@ -313,6 +313,19 @@ class DiscoVPC(object):
                 logging.debug("adding VGW route %s to %s", vgw_route, network_name)
                 network.add_route(vgw_route, virtual_private_gateway.id)
 
+    def _add_nat_gateway_routes(self):
+        logging.debug("Adding NAT gateway routes")
+        nat_gateway_routes = self.get_config("nat_gateway_routes")
+        if nat_gateway_routes:
+            nat_gateway_routes = nat_gateway_routes.split(" ")
+            for nat_gateway_route in nat_gateway_routes:
+                from_metanetwork = self.networks[nat_gateway_route.split("/")[0].strip()]
+                dest_metanetwork = self.networks[nat_gateway_route.split("/")[1].strip()]
+
+                from_metanetwork.add_nat_gateway_route(dest_metanetwork)
+        else:
+            logging.debug("No NAT gateway routes to add")
+
     def _find_vgw(self):
         """Locate VPN Gateway that corresponds to this VPN"""
         vgw_filter = {"tag:Name": self.environment_name}
@@ -449,13 +462,16 @@ class DiscoVPC(object):
         self.vpc.connection.attach_internet_gateway(internet_gateway.id, self.vpc.id)
         logging.debug("internet_gateway: %s", internet_gateway)
 
-        # Create NAT gateways
-        for network in self.networks.values():
-            self._update_nat_gateways(network)
-
         self._add_igw_routes(internet_gateway)
 
         self._attach_vgw()
+
+        # Create NAT gateways
+        for network in self.networks.values():
+            self._update_nat_gateways(network)
+        # Setup NAT gateway routs
+        self._add_nat_gateway_routes()
+
         self.configure_notifications()
         DiscoVPC.create_peering_connections(DiscoVPC.parse_peerings_config(self.vpc.id))
         self.rds.update_all_clusters_in_vpc()

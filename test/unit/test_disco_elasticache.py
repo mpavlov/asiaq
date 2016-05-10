@@ -15,7 +15,7 @@ def _get_mock_vpc():
 
     meta_network = MagicMock()
     meta_network.security_group.id = 'fake_security'
-    meta_network.disco_subnets = [disco_subnet]
+    meta_network.disco_subnets = {'zone1': disco_subnet}
 
     vpc.networks = {
         'intranet': meta_network

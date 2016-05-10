@@ -63,7 +63,7 @@ class DiscoMetaNetworkTests(TestCase):
                  call(MOCK_ZONE2.name, self.meta_network, "10.101.64.0/18", MOCK_ROUTE_TABLE.id),
                  call(MOCK_ZONE3.name, self.meta_network, "10.101.128.0/18", MOCK_ROUTE_TABLE.id)]
         mock_subnet_init.assert_has_calls(calls)
-        self.assertEquals(len(self.meta_network.disco_subnets), len(MOCK_ZONES))
+        self.assertEquals(len(self.meta_network.disco_subnets.values()), len(MOCK_ZONES))
 
     @patch('disco_aws_automation.disco_subnet.DiscoSubnet.__init__', return_value=None)
     @patch('disco_aws_automation.disco_subnet.DiscoSubnet.recreate_route_table', return_value=None)

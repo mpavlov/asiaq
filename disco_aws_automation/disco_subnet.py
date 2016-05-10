@@ -118,16 +118,8 @@ class DiscoSubnet(object):
         """ Delete the NAT gateway that is currently associated with the subnet """
         self.nat_eip_allocation_id = None
         if self.nat_gateway:
-            for route in self.route_table['Routes']:
-                if route.get('NatGatewayId') == self.nat_gateway['NatGatewayId']:
-                    self.boto3_ec2.delete_route(RouteTableId=self.route_table['RouteTableId'],
-                                                DestinationCidrBlock=route['DestinationCidrBlock'])
-
             self.boto3_ec2.delete_nat_gateway(NatGatewayId=self.nat_gateway['NatGatewayId'])
-
             self._nat_gateway = None
-
-            self._route_table = self._find_route_table()
 
     def create_peering_routes(self, peering_conn_id, cidr):
         """ create/update a route between the peering connection and the current subnet. """
@@ -168,6 +160,12 @@ class DiscoSubnet(object):
         return self._add_route(route_table_id=self.route_table['RouteTableId'],
                                destination_cidr_block=destination_cidr_block,
                                gateway_id=gateway_id)
+
+    def add_route_to_nat_gateway(self, destination_cidr_block, nat_gateway_id):
+        """ Try adding a route to a NAT gateway, if fails delete matching CIDR route and try again """
+        return self._add_route(route_table_id=self.route_table['RouteTableId'],
+                               destination_cidr_block=destination_cidr_block,
+                               nat_gateway_id=nat_gateway_id)
 
     def _add_route(self, route_table_id, destination_cidr_block,
                    gateway_id=None, instance_id=None, network_interface_id=None,
@@ -302,13 +300,6 @@ class DiscoSubnet(object):
         waiter = self.boto3_ec2.get_waiter('nat_gateway_available')
         waiter.wait(NatGatewayIds=[nat_gateway['NatGatewayId']])
 
-        # Add default route to the new NAT gateway
-        self._add_route(route_table_id=self.route_table['RouteTableId'],
-                        destination_cidr_block="0.0.0.0/0",
-                        nat_gateway_id=nat_gateway['NatGatewayId'])
-        logging.debug("Added default route to %s", nat_gateway)
-
-        self._route_table = self._find_route_table()
         return self._find_nat_gateway()
 
     def _resource_name(self, suffix=None):

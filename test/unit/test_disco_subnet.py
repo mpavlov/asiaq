@@ -227,12 +227,6 @@ class DiscoSubnetTests(TestCase):
         self.mock_ec2_conn.create_nat_gateway.assert_called_once_with(AllocationId=MOCK_ALLOCATION_ID,
                                                                       SubnetId=MOCK_SUBNET['SubnetId'])
 
-        # Make sure route table is updated
-        route_to_nat = [route for route in self.subnet.route_table['Routes']
-                        if route['DestinationCidrBlock'] == '0.0.0.0/0' and
-                        route['NatGatewayId'] == MOCK_NAT_GATEWAY_ID]
-        self.assertTrue(route_to_nat)
-
     def test_delete_nat_gateway(self):
         """ Verify that a NAT gateway can be properly deleted """
         self.subnet.create_nat_gateway(MOCK_ALLOCATION_ID)
@@ -241,15 +235,6 @@ class DiscoSubnetTests(TestCase):
 
         self.assertEqual(self.subnet.nat_eip_allocation_id, None)
         self.assertEqual(self.subnet.nat_gateway, None)
-        self.mock_ec2_conn.delete_route.assert_called_once_with(
-            DestinationCidrBlock='0.0.0.0/0',
-            RouteTableId=MOCK_ROUTE_TABLE_ID)
-
-        # Make sure the default route to the NAT gateway is deleted
-        route_to_nat = [route for route in self.subnet.route_table['Routes']
-                        if route['DestinationCidrBlock'] == '0.0.0.0/0' and
-                        route['NatGatewayId'] == MOCK_NAT_GATEWAY_ID]
-        self.assertFalse(route_to_nat)
 
     def test_recreate_route_table(self):
         """ Verify a new route table is created to replace an existing one """
