@@ -520,7 +520,6 @@ class DiscoDeploy(object):
         and raise a MaintenanceModeError exception.
         '''
         exit_code = 0
-        bad_instances = []
         for inst in instances:
             _code, _stdout = self._disco_aws.remotecmd(
                 inst, ["sudo", "/etc/asiaq/bin/testing_mode.sh", "on" if mode_on else "off"],
@@ -528,7 +527,6 @@ class DiscoDeploy(object):
             sys.stdout.write(_stdout)
             if _code:
                 exit_code = _code
-                bad_instances.append(inst)
         return exit_code == 0
 
     def get_host(self, hostclass):
