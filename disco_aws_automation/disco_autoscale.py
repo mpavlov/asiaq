@@ -121,7 +121,12 @@ class DiscoAutoscale(object):
                 pass
 
     def delete_groups(self, hostclass=None, group_name=None, force=False):
-        '''Delete a specific Autoscaling Group'''
+        '''
+        Delete autoscaling groups, filtering on either hostclass or the group_name.
+
+        If force is True, autoscaling groups will be forcibly destroyed, even if they are currently in use.
+        Defaults to False.
+        '''
         groups = self.get_existing_groups(hostclass=hostclass, group_name=group_name)
         for group in groups:
             try:
@@ -132,11 +137,18 @@ class DiscoAutoscale(object):
                 logging.info("Unable to delete group %s, try force deleting", group.name)
 
     def clean_groups(self, force=False):
-        '''Delete unused Autoscaling Groups in current environment'''
+        '''
+        Delete all autoscaling groups in the current environment
+
+        If force is True, all autoscaling groups will be forcibly destroyed, even if they are currently in
+        use. Defaults to False.'''
         self.delete_groups(force=force)
 
     def scaledown_group(self, hostclass=None, group_name=None):
-        '''Scales down number of instances in a hostclass's most recent autoscaling group to zero'''
+        '''
+        Scales down number of instances in a hostclass's most recent autoscaling group, or the given
+        autoscaling group, to zero
+        '''
         group = self.get_existing_group(hostclass=hostclass, group_name=group_name)
         group.min_size = group.max_size = group.desired_capacity = 0
         throttled_call(group.update)
