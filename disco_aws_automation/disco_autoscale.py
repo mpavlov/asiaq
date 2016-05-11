@@ -49,11 +49,12 @@ class DiscoAutoscale(object):
         '''Returns the hostclass when given an autoscaling group name'''
         return groupname.split('_')[1]
 
-    def _get_group_generator(self):
+    def _get_group_generator(self, group_names=None):
         '''Yields groups in current environment'''
         next_token = None
         while True:
             groups = throttled_call(self.connection.get_all_groups,
+                                    names=group_names,
                                     next_token=next_token)
             for group in self._filter_by_environment(groups):
                 yield group
@@ -248,14 +249,9 @@ class DiscoAutoscale(object):
         Returns all autoscaling groups for a given hostclass, sorted by most recent creation. If no
         autoscaling groups can be found, returns an empty list.
         """
-        groups = list(self._get_group_generator())
-        filtered_groups = []
-        for group in groups:
-            filters = [
-                not hostclass or self.get_hostclass(group.name) == hostclass,
-                not group_name or group.name == group_name]
-            if all(filters):
-                filtered_groups.append(group)
+        groups = list(self._get_group_generator(group_names=[group_name]))
+        filtered_groups = [group for group in groups
+                           if not hostclass or self.get_hostclass(group.name) == hostclass]
         filtered_groups.sort(key=lambda group: group.name, reverse=True)
         return filtered_groups
 
