@@ -204,7 +204,7 @@ class DiscoSubnet(object):
         return result
 
     def _find_subnet(self):
-        filters = copy.copy(self._resource_filter)
+        filters = self._resource_filter
         filters['Filters'].append({'Name': 'availabilityZone', 'Values': [self.name]})
         try:
             return handle_date_format(
@@ -235,7 +235,7 @@ class DiscoSubnet(object):
             return None
 
     def _find_route_table(self):
-        filters = copy.copy(self._resource_filter)
+        filters = self._resource_filter
         filters['Filters'].append({'Name': 'tag:subnet', 'Values': [self.name]})
         try:
             return handle_date_format(
