@@ -1064,6 +1064,28 @@ ranges can also be defined with `intranet_cidr`, `tunnel_cidr`,
     Usually the problem is not as severe as there are only 2-4
     Availability zones per region.
 
+##### Dynamic IP ranges
+
+The IP range for a VPC can also be dynamically alocated with the `ip_space` and `vpc_cidr_size` options. For example:
+
+    ip_space=10.0.0.0/16
+    vpc_cidr_size=20
+    
+A random IP range of size `vpc_cidr_size` inside of `ip_space` will be allocated for the VPC.
+The IP range chosen will not overlap with any existing VPCs or else an error will be thrown
+if its not possible. 
+
+In the same way, the IP range of the metaworks can be dynamically allocated
+by specifying `auto` for the metanetwork cidr options. For example:
+
+    intranet_cidr=auto
+    tunnel_cidr=auto
+    maintenance_cidr=auto
+    dmz_cidr=10.0.1.0/24
+
+The IP range of the VPC will be automatically divided to allocate the metanetworks. 
+The `auto` option can be used together with statically defined IP ranges for different metanetworks. 
+
 #### Security Group (firewall) Settings
 
 Each metanetwork have many Security Group rules associated with it. Each

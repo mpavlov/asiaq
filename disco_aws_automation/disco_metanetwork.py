@@ -32,9 +32,10 @@ class DiscoMetaNetwork(object):
     Representation of a disco meta-network. Contains a subnet for each availability zone,
     along with a route table which is applied all the subnets.
     """
-    def __init__(self, name, vpc):
+    def __init__(self, name, vpc, network_cidr):
         self.vpc = vpc
         self.name = name
+        self.network_cidr = IPNetwork(network_cidr)
         self._route_table = None  # lazily initialized
         self._security_group = None  # lazily initialized
         self._subnets = None  # lazily initialized
@@ -141,9 +142,8 @@ class DiscoMetaNetwork(object):
         zone_cidr_offset = ceil(log(len(zones), 2))
         logging.debug("zone_offset: %s", zone_cidr_offset)
 
-        network_cidr = IPNetwork(self.vpc.get_config("{0}_cidr".format(self.name)))
-        zone_cidrs = network_cidr.subnet(
-            int(network_cidr.prefixlen + zone_cidr_offset)
+        zone_cidrs = self.network_cidr.subnet(
+            int(self.network_cidr.prefixlen + zone_cidr_offset)
         )
 
         subnets = []
