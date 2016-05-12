@@ -1953,7 +1953,7 @@ Options:
 -   `db_instance_class` The instance type to use for database instances
 -   `engine` The type of database such as Oracle or Postgres
 -   `engine_version` The database version to use
--   `iops` Provisioned IOPS 
+-   `iops` Provisioned IOPS
 -   `master_username` Master username for connecting to the database
 -   `port` [Default 5432 for Postgres, 1521 for Oracle]
 -   `storage_encrypted` [Default True]
@@ -1967,15 +1967,15 @@ List RDS instances for an environment. Optionally display database URL.
 Create/update the RDS clusters in a environment from the `disco_rds.ini` config. Updates all RDS clusters in an environment by default or optionally specify a cluster to update.
 
     disco_rds.py update [--env ENV] [--cluster CLUSTER]
-    
+
 Delete a RDS cluster.
 
     disco_rds.py delete [--env ENV] [--cluster CLUSTER] [--skip-final-snapshot]
-    
+
 Delete old database snapshots.
 
     disco_rds.py cleanup_snapshots [--env ENV] [--age DAYS]
-    
+
 Clone a database from a different environment into the current environment. The new database will copy all configuration options from the source database and use the most recent database snapshot from source database.
 
     disco_rds.py clone [--env ENV] --source-db SOURCE_DB --source-env SOURCE_ENV
@@ -2063,11 +2063,11 @@ Blue/Green deployment strategy is currentlt opt-in only.
 The process is as follows:
 
 * A new ASG is created with an 'is_testing' tag and attached to a dedicated 'testing' ELB.
-* After waiting for smoke tests, integration tests are run against the isolated 'testing' ASG
-  * ASG is isolated because it is attached to a separate ELB and its services are modified via the 'is_testing' tag.
+* After waiting for smoke tests, integration tests are run against the isolated 'testing' ASG.
+  * ASG is isolated because it is attached to a separate ELB, a separate Nerve group, and its services should respect the 'is_testing' tag.
 * After integration tests pass, the instances in the new ASG are taken out of testing mode by executing `sudo /etc/asiaq/bin/testing_mode.sh off` as the `test_user`.
   * Exiting testing mode should restore the nerve configs to their proper groups as well as grabbing ENIs/EIPs/etc.
-* After exiting test mode, the new ASG is attached to the normal ELB and the processes pauses until the ELB registers and marks the new instances as healthy.
+* After exiting test mode, the new ASG is attached to the normal ELB and the deploy process pauses until the ELB registers and marks the new instances as healthy.
 * After the new instances are marked as Healthy by the ELB, the old ASG is destroyed.
 
-If at any point there is a problem, the new ASG and testing ELB should be destroyed without causing any problems for the already existing ASG and ELB.
+If at any point there is a problem, the new ASG and testing ELB will be destroyed. Service to the original ASG and ELB should not be interrupted.
