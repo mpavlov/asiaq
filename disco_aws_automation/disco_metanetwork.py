@@ -260,20 +260,19 @@ class DiscoMetaNetwork(object):
         Returns IpAddress object, usually you'll want
         to cast this to str.
         """
-        if offset.startswith("-"):
-            return max([
-                net[offset]
-                for net in
-                self.subnet_ip_networks
-            ])
-        elif offset.startswith("+"):
-            return min([
-                net[offset]
-                for net in
-                self.subnet_ip_networks
-            ])
-        else:
-            raise IndexError(
-                "Cannot find IP in metanetwork by offset {0}."
-                .format(offset)
+
+        try:
+            offset = int(offset)
+        except ValueError:
+            raise IPRangeError(
+                "Cannot find IP in metanetwork {0} by offset {1}."
+                .format(self.name, offset)
             )
+
+        subnets = sorted(self.subnet_ip_networks)
+        base_address = subnets[0].first if offset >= 0 else subnets[-1].last
+        desired_address = IPAddress(base_address + offset)
+        #Lazy check to ensure IP address is in metanetwork range
+        self.subnet_by_ip(desired_address)
+
+        return desired_address
