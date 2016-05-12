@@ -32,13 +32,34 @@ class DiscoMetaNetwork(object):
     Representation of a disco meta-network. Contains a subnet for each availability zone,
     along with a route table which is applied all the subnets.
     """
-    def __init__(self, name, vpc, network_cidr):
+    def __init__(self, name, vpc, network_cidr=None):
         self.vpc = vpc
         self.name = name
-        self.network_cidr = IPNetwork(network_cidr)
+        if network_cidr:
+            self._network_cidr = IPNetwork(network_cidr)
         self._route_table = None  # lazily initialized
         self._security_group = None  # lazily initialized
         self._subnets = None  # lazily initialized
+
+    @property
+    def network_cidr(self):
+        """Get the network_cidr for the meta network"""
+        if not self._network_cidr:
+            # if we don't have a network_cidr yet (if it wasn't passed in the constructor)
+            # then calculate it from the subnets
+            subnets = self._find_subnets()
+
+            # calculate how big the meta network must have been if we divided it into the subnets that we see
+            subnet_cidr_offset = int(ceil(log(len(subnets), 2)))
+
+            # pick one of the subnets to do our math from
+            subnet_network = IPNetwork(subnets[0].cidr_block)
+
+            # the meta network cidr is the cidr of one of the subnets but with a smaller prefix
+            subnet_network.prefixlen = subnet_network.prefixlen - subnet_cidr_offset
+            self._network_cidr = subnet_network.cidr
+
+        return self._network_cidr
 
     def _resource_name(self, suffix=None):
         suffix = "_{0}".format(suffix) if suffix else ""

@@ -30,8 +30,8 @@ class DiscoVPCTests(unittest.TestCase):
     # pylint: disable=unused-argument
     @patch('disco_aws_automation.disco_vpc.DiscoVPC.config', new_callable=PropertyMock)
     @patch('disco_aws_automation.disco_vpc.VPCConnection')
-    def test_get_meta_networks(self, vpc_conn_mock, config_mock):
-        """Test getting meta networks with dynamic ip ranges"""
+    def test_create_meta_networks(self, vpc_conn_mock, config_mock):
+        """Test creating meta networks with dynamic ip ranges"""
         vpc_mock = MagicMock()
         vpc_mock.cidr_block = '10.0.0.0/28'
 
