@@ -1256,7 +1256,8 @@ With this configuration host will be assigned private ip 10.0.0.5 in a
 10.0.0.0/16 network and 192.168.0.5 in a 192.168.0.0/16.
 
 WARNING! Setting a private IP on an instance will lock it a single
-availability zone. This is of AWS subnets.
+Availability Zone. This is a limitation of AWS' subnets, they cannot
+span multiple Availability Zones.
 
 EBS Snapshots
 -------------
