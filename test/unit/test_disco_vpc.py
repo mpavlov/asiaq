@@ -37,7 +37,7 @@ class DiscoVPCTests(unittest.TestCase):
 
         config_mock.return_value = get_mock_config({
             'envtype:auto-vpc-type': {
-                'vpc_cidr': '10.202.0.0/20',
+                'vpc_cidr': '10.0.0.0/28',
                 'intranet_cidr': 'auto',
                 'tunnel_cidr': 'auto',
                 'dmz_cidr': 'auto',
@@ -47,7 +47,7 @@ class DiscoVPCTests(unittest.TestCase):
 
         auto_vpc = DiscoVPC('auto-vpc', 'auto-vpc-type', vpc_mock)
 
-        meta_networks = auto_vpc.networks
+        meta_networks = auto_vpc._create_new_meta_networks()
         self.assertItemsEqual(['intranet', 'tunnel', 'dmz', 'maintenance'], meta_networks.keys())
 
         expected_subnets = ['10.0.0.0/30', '10.0.0.4/30', '10.0.0.8/30', '10.0.0.12/30']

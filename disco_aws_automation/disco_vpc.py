@@ -6,6 +6,7 @@ environments, and between an environment and the internet.  In particular non-VP
 
 import logging
 import random
+from itertools import groupby
 
 import time
 from ConfigParser import ConfigParser
@@ -167,6 +168,13 @@ class DiscoVPC(object):
         if self._networks:
             return self._networks
 
+        self._networks = self._get_meta_networks()
+
+        return self._networks
+
+    def _create_new_meta_networks(self):
+        """Read the VPC config and create the DiscoMetaNetwork objects that should exist in a new VPC"""
+
         # don't create networks we haven't defined
         # a map of network names to the configured cidr value or "auto"
         networks = {network: self.get_config("{0}_cidr".format(network))
@@ -190,7 +198,7 @@ class DiscoVPC(object):
         # keep a list of the cidrs used by the meta networks in case we need to pick a random one
         used_cidrs = [cidr for cidr in networks.values() if cidr != 'auto']
 
-        self._networks = {}
+        metanetworks = {}
         for network_name, cidr in networks.iteritems():
             # pick a random ip range if there isn't one configured for the network in the config
             if cidr == 'auto':
@@ -199,10 +207,44 @@ class DiscoVPC(object):
                 if not cidr:
                     raise VPCConfigError("Can't create metanetwork %s. No subnets available", network_name)
 
-            self._networks[network_name] = DiscoMetaNetwork(network_name, self, cidr)
+            metanetworks[network_name] = DiscoMetaNetwork(network_name, self, cidr)
             used_cidrs.append(cidr)
 
-        return self._networks
+        return metanetworks
+
+    def _get_meta_networks(self):
+        """Create DiscoMetaNetwork objects by querying an existing VPC"""
+        meta_networks = {}
+
+        # meta networks are not an AWS concept. They are a custom grouping of subnets that we created
+        # Therefore, we can't query AWS for the meta networks of a VPC
+        # But we can infer them by looking at the subnets of a VPC
+        subnets = self.vpc.connection.get_all_subnets(filters={
+            'vpcId': self.vpc.id
+        })
+
+        # sort the subnets before grouping them by meta network
+        subnets = sorted(subnets, key=lambda x: x.tags['meta_network'])
+
+        # a meta network is a group of subnets so we can discover the meta networks by looking at the subnets
+        for name, subnet_iter in groupby(subnets, lambda x: x.tags['meta_network']):
+            subnets = list(subnet_iter)
+
+            # calculate how big the meta network must have been if we divided it into the subnets that we see
+            subnet_cidr_offset = int(ceil(log(len(subnets), 2)))
+
+            # pick one of the subnets to do our math from
+            subnet_network = IPNetwork(subnets[0].cidr_block)
+
+            meta_network_size = subnet_network.prefixlen - subnet_cidr_offset
+
+            # the meta network cidr is the cidr of one of the subnets but with a smaller prefix
+            subnet_network.prefixlen = meta_network_size
+            meta_network_cidr = subnet_network.cidr
+
+            meta_networks[name] = DiscoMetaNetwork(name, self, meta_network_cidr)
+
+        return meta_networks
 
     def find_instance_route_table(self, instance):
         """ Return route tables corresponding to instance """
@@ -455,6 +497,7 @@ class DiscoVPC(object):
         vpc_conn.modify_vpc_attribute(self.vpc.id, enable_dns_hostnames=True)
 
         # Create metanetworks (subnets, route_tables and security groups)
+        self._networks = self._create_new_meta_networks()
         for network in self.networks.itervalues():
             network.create()
 
