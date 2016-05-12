@@ -50,10 +50,38 @@ class DiscoVPCTests(unittest.TestCase):
         meta_networks = auto_vpc._create_new_meta_networks()
         self.assertItemsEqual(['intranet', 'tunnel', 'dmz', 'maintenance'], meta_networks.keys())
 
-        expected_subnets = ['10.0.0.0/30', '10.0.0.4/30', '10.0.0.8/30', '10.0.0.12/30']
-        actual_subnets = [str(meta_network.network_cidr) for meta_network in meta_networks.values()]
+        expected_ip_ranges = ['10.0.0.0/30', '10.0.0.4/30', '10.0.0.8/30', '10.0.0.12/30']
+        actual_ip_ranges = [str(meta_network.network_cidr) for meta_network in meta_networks.values()]
 
-        self.assertItemsEqual(actual_subnets, expected_subnets)
+        self.assertItemsEqual(actual_ip_ranges, expected_ip_ranges)
+
+    # pylint: disable=unused-argument
+    @patch('disco_aws_automation.disco_vpc.DiscoVPC.config', new_callable=PropertyMock)
+    @patch('disco_aws_automation.disco_vpc.VPCConnection')
+    def test_create_meta_networks_mix_static_dynamic(self, vpc_conn_mock, config_mock):
+        """Test creating meta networks with a mix of static and dynamic ip ranges"""
+        vpc_mock = MagicMock()
+        vpc_mock.cidr_block = '10.0.0.0/28'
+
+        config_mock.return_value = get_mock_config({
+            'envtype:auto-vpc-type': {
+                'vpc_cidr': '10.0.0.0/28',
+                'intranet_cidr': 'auto',
+                'tunnel_cidr': 'auto',
+                'dmz_cidr': '10.0.0.4/31',
+                'maintenance_cidr': 'auto'
+            }
+        })
+
+        auto_vpc = DiscoVPC('auto-vpc', 'auto-vpc-type', vpc_mock)
+
+        meta_networks = auto_vpc._create_new_meta_networks()
+        self.assertItemsEqual(['intranet', 'tunnel', 'dmz', 'maintenance'], meta_networks.keys())
+
+        expected_ip_ranges = ['10.0.0.0/30', '10.0.0.4/31', '10.0.0.8/30', '10.0.0.12/30']
+        actual_ip_ranges = [str(meta_network.network_cidr) for meta_network in meta_networks.values()]
+
+        self.assertItemsEqual(actual_ip_ranges, expected_ip_ranges)
 
     # pylint: disable=unused-argument
     @patch('disco_aws_automation.disco_vpc.DiscoSNS')
