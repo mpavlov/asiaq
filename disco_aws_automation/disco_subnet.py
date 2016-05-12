@@ -191,7 +191,7 @@ class DiscoSubnet(object):
             self._route_table = self._find_route_table()
             return result
 
-        logging.exception("Failed to create route due to conflict. Deleting old route and re-trying.")
+        logging.info("Failed to create route due to conflict. Deleting old route and re-trying.")
         delete_params = {
             'RouteTableId': route_table_id,
             'DestinationCidrBlock': destination_cidr_block
@@ -204,7 +204,7 @@ class DiscoSubnet(object):
         return result
 
     def _find_subnet(self):
-        filters = copy.deepcopy(self._resource_filter)
+        filters = copy.copy(self._resource_filter)
         filters['Filters'].append({'Name': 'availabilityZone', 'Values': [self.name]})
         try:
             return handle_date_format(
@@ -235,7 +235,7 @@ class DiscoSubnet(object):
             return None
 
     def _find_route_table(self):
-        filters = copy.deepcopy(self._resource_filter)
+        filters = copy.copy(self._resource_filter)
         filters['Filters'].append({'Name': 'tag:subnet', 'Values': [self.name]})
         try:
             return handle_date_format(

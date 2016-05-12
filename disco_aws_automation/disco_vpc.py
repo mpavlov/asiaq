@@ -29,6 +29,7 @@ from .disco_metanetwork import DiscoMetaNetwork
 from .disco_elasticache import DiscoElastiCache
 from .disco_sns import DiscoSNS
 from .disco_rds import DiscoRDS
+from .disco_eip import DiscoEIP
 from .disco_elb import DiscoELB
 from .exceptions import (
     MultipleVPCsForVPCNameError, TimeoutError, VPCConfigError, VPCEnvironmentError, VPCPeeringSyntaxError,
@@ -59,6 +60,7 @@ class DiscoVPC(object):
         self._networks = None  # lazily initialized
         self._alarms_config = None  # lazily initialized
         self.rds = DiscoRDS(vpc=self)
+        self.eip = DiscoEIP()
         self.elb = DiscoELB(vpc=self)
         self.elasticache = DiscoElastiCache(vpc=self)
         self.log_metrics = DiscoLogMetrics(environment=environment_name)
@@ -235,11 +237,10 @@ class DiscoVPC(object):
             # No NAT config, delete the gateways if any
             network.delete_nat_gateways()
         else:
-            eips = eips.split(",")
+            eips = [eip.strip() for eip in eips.split(",")]
             allocation_ids = []
             for eip in eips:
-                eip = eip.strip()
-                address = self._find_eip_address(eip)
+                address = self.eip.find_eip_address(eip)
                 if not address:
                     raise EIPConfigError("Couldn't find Elastic IP: {0}".format(eip))
 
@@ -247,14 +248,6 @@ class DiscoVPC(object):
 
             if allocation_ids:
                 network.add_nat_gateways(allocation_ids)
-
-    def _find_eip_address(self, eip):
-        address_filter = dict()
-        address_filter['public-ip'] = eip
-        try:
-            return self.vpc.connection.get_all_addresses(filters=address_filter)[0]
-        except IndexError:
-            return None
 
     def _add_sg_rules(self, network):
         rules = self.get_config("{0}_sg_rules".format(network.name))
@@ -474,7 +467,7 @@ class DiscoVPC(object):
         # Create NAT gateways
         for network in self.networks.values():
             self._update_nat_gateways(network)
-        # Setup NAT gateway routs
+        # Setup NAT gateway routes
         self._add_nat_gateway_routes()
 
         self.configure_notifications()
