@@ -417,6 +417,13 @@ class DiscoRDS(object):
         Check if there are any custom parameters for this instance
         Custom Parameters are set in ./rds/engine_specific/{instance_identifier}.ini
         If this file doesn't exist, we'll use default RDS parameters
+        Args:
+            env_name (str): The environment name to use when reading the config file.
+                            This is only used in the section name of the config file.
+                            The parameter group is always created for the current environment
+            database_name:
+            db_parameter_group_name:
+            db_parameter_group_family:
         """
         try:
             self.client.delete_db_parameter_group(DBParameterGroupName=db_parameter_group_name)
