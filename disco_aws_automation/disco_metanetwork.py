@@ -151,7 +151,7 @@ class DiscoMetaNetwork(object):
         Return IPNetwork of all subnet CIDRs
         """
         return [
-            IPNetwork(subnet['CidrBlock'])
+            IPNetwork(subnet.subnet_dict['CidrBlock'])
             for subnet in
             self.disco_subnets.values()
         ]
