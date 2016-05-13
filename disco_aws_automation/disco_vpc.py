@@ -9,7 +9,6 @@ import random
 
 import time
 from ConfigParser import ConfigParser
-from math import ceil, log
 
 import boto
 import boto.ec2
@@ -17,6 +16,7 @@ from boto.vpc import VPCConnection
 from boto.exception import EC2ResponseError
 from netaddr import IPNetwork, IPSet
 
+from disco_aws_automation.network_helper import calc_subnet_offset
 from . import read_config, normalize_path
 from .resource_helper import keep_trying, wait_for_state
 from .disco_log_metrics import DiscoLogMetrics
@@ -187,7 +187,7 @@ class DiscoVPC(object):
 
         # calculate the extra cidr bits needed to represent the networks
         # for example breaking a /20 VPC into 4 meta networks will create /22 sized networks
-        cidr_offset = ceil(log(len(networks), 2))
+        cidr_offset = calc_subnet_offset(len(networks))
         vpc_size = IPNetwork(self.vpc.cidr_block).prefixlen
         meta_network_size = vpc_size + cidr_offset
 

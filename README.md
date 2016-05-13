@@ -1068,16 +1068,17 @@ ranges can also be defined with `intranet_cidr`, `tunnel_cidr`,
 
 The IP range for a VPC can also be dynamically alocated with the `ip_space` and `vpc_cidr_size` options. For example:
 
+    [envtype:sandbox]
     ip_space=10.0.0.0/16
     vpc_cidr_size=20
     
 A random IP range of size `vpc_cidr_size` inside of `ip_space` will be allocated for the VPC.
-The IP range chosen will not overlap with any existing VPCs or else an error will be thrown
-if its not possible. 
+The IP range chosen will not overlap with any existing VPCs or, if its not possible, an error will be thrown.
 
 In the same way, the IP range of the metaworks can be dynamically allocated
 by specifying `auto` for the metanetwork cidr options. For example:
 
+    [envtype:sandbox]
     intranet_cidr=auto
     tunnel_cidr=auto
     maintenance_cidr=auto

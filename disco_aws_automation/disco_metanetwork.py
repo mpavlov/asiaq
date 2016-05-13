@@ -3,7 +3,6 @@ Network abstraction
 """
 
 import logging
-from math import log, ceil
 from random import choice
 
 from netaddr import IPNetwork, IPAddress
@@ -13,6 +12,7 @@ from boto.ec2.networkinterface import (
 )
 from boto.exception import EC2ResponseError
 
+from disco_aws_automation.network_helper import calc_subnet_offset
 from .resource_helper import keep_trying
 from .disco_constants import NETWORKS
 from .exceptions import IPRangeError
@@ -49,8 +49,8 @@ class DiscoMetaNetwork(object):
             # then calculate it from the subnets
             subnets = self._find_subnets()
 
-            # calculate how big the meta network must have been if we divided it into the subnets that we see
-            subnet_cidr_offset = int(ceil(log(len(subnets), 2)))
+            # calculate how big the meta network must have been if we divided it into the existing subnets
+            subnet_cidr_offset = calc_subnet_offset(len(subnets))
 
             # pick one of the subnets to do our math from
             subnet_network = IPNetwork(subnets[0].cidr_block)
@@ -160,7 +160,7 @@ class DiscoMetaNetwork(object):
         # We'll need to split each subnet into smaller ones, one per zone
         # offset is how much we need to add to cidr divisor to create at least
         # that len(zone) subnets
-        zone_cidr_offset = ceil(log(len(zones), 2))
+        zone_cidr_offset = calc_subnet_offset(len(zones))
         logging.debug("zone_offset: %s", zone_cidr_offset)
 
         zone_cidrs = self.network_cidr.subnet(
