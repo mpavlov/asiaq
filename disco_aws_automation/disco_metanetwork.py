@@ -3,7 +3,6 @@ Network abstraction
 """
 
 import logging
-from math import log, ceil
 from random import choice
 
 from netaddr import IPNetwork, IPAddress
@@ -13,6 +12,7 @@ from boto.ec2.networkinterface import (
 )
 from boto.exception import EC2ResponseError
 
+from disco_aws_automation.network_helper import calc_subnet_offset
 from .resource_helper import keep_trying
 from .disco_constants import NETWORKS
 from .exceptions import IPRangeError
@@ -32,12 +32,34 @@ class DiscoMetaNetwork(object):
     Representation of a disco meta-network. Contains a subnet for each availability zone,
     along with a route table which is applied all the subnets.
     """
-    def __init__(self, name, vpc):
+    def __init__(self, name, vpc, network_cidr=None):
         self.vpc = vpc
         self.name = name
+        if network_cidr:
+            self._network_cidr = IPNetwork(network_cidr)
         self._route_table = None  # lazily initialized
         self._security_group = None  # lazily initialized
         self._subnets = None  # lazily initialized
+
+    @property
+    def network_cidr(self):
+        """Get the network_cidr for the meta network"""
+        if not self._network_cidr:
+            # if we don't have a network_cidr yet (if it wasn't passed in the constructor)
+            # then calculate it from the subnets
+            subnets = self._find_subnets()
+
+            # calculate how big the meta network must have been if we divided it into the existing subnets
+            subnet_cidr_offset = calc_subnet_offset(len(subnets))
+
+            # pick one of the subnets to do our math from
+            subnet_network = IPNetwork(subnets[0].cidr_block)
+
+            # the meta network cidr is the cidr of one of the subnets but with a smaller prefix
+            subnet_network.prefixlen = subnet_network.prefixlen - subnet_cidr_offset
+            self._network_cidr = subnet_network.cidr
+
+        return self._network_cidr
 
     def _resource_name(self, suffix=None):
         suffix = "_{0}".format(suffix) if suffix else ""
@@ -149,12 +171,11 @@ class DiscoMetaNetwork(object):
         # We'll need to split each subnet into smaller ones, one per zone
         # offset is how much we need to add to cidr divisor to create at least
         # that len(zone) subnets
-        zone_cidr_offset = ceil(log(len(zones), 2))
+        zone_cidr_offset = calc_subnet_offset(len(zones))
         logging.debug("zone_offset: %s", zone_cidr_offset)
 
-        network_cidr = IPNetwork(self.vpc.get_config("{0}_cidr".format(self.name)))
-        zone_cidrs = network_cidr.subnet(
-            int(network_cidr.prefixlen + zone_cidr_offset)
+        zone_cidrs = self.network_cidr.subnet(
+            int(self.network_cidr.prefixlen + zone_cidr_offset)
         )
 
         subnets = []
