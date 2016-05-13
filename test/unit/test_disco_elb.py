@@ -91,7 +91,7 @@ class DiscoELBTests(TestCase):
         elb_client.create_load_balancer = MagicMock(wraps=elb_client.create_load_balancer)
         self._create_elb()
         self.disco_elb.elb_client.create_load_balancer.assert_called_once_with(
-            LoadBalancerName='unittestenv-mhcunit',
+            LoadBalancerName=DiscoELB.get_elb_name('unittestenv', 'mhcunit'),
             Listeners=[{
                 'Protocol': 'HTTP',
                 'LoadBalancerPort': 80,
@@ -100,7 +100,11 @@ class DiscoELBTests(TestCase):
             }],
             Subnets=['sub-1'],
             SecurityGroups=['sec-1'],
-            Scheme='internal')
+            Scheme='internal',
+            Tags=[{
+                "Key": "elb_name",
+                "Value": DiscoELB.get_elb_name_for_humans('unittestenv', 'mhcunit')
+            }])
 
     @mock_elb
     def test_get_elb_internal_no_tls(self):
@@ -111,7 +115,7 @@ class DiscoELBTests(TestCase):
         elb_client.create_load_balancer = MagicMock(wraps=elb_client.create_load_balancer)
         self._create_elb()
         elb_client.create_load_balancer.assert_called_once_with(
-            LoadBalancerName='unittestenv-mhcunit',
+            LoadBalancerName=DiscoELB.get_elb_name('unittestenv', 'mhcunit'),
             Listeners=[{
                 'Protocol': 'HTTP',
                 'LoadBalancerPort': 80,
@@ -120,7 +124,11 @@ class DiscoELBTests(TestCase):
             }],
             Subnets=['sub-1'],
             SecurityGroups=['sec-1'],
-            Scheme='internal')
+            Scheme='internal',
+            Tags=[{
+                "Key": "elb_name",
+                "Value": DiscoELB.get_elb_name_for_humans('unittestenv', 'mhcunit')
+            }])
 
     @mock_elb
     def test_get_elb_external(self):
@@ -129,7 +137,7 @@ class DiscoELBTests(TestCase):
         elb_client.create_load_balancer = MagicMock(wraps=elb_client.create_load_balancer)
         self._create_elb(public=True)
         elb_client.create_load_balancer.assert_called_once_with(
-            LoadBalancerName='unittestenv-mhcunit',
+            LoadBalancerName=DiscoELB.get_elb_name('unittestenv', 'mhcunit'),
             Listeners=[{
                 'Protocol': 'HTTP',
                 'LoadBalancerPort': 80,
@@ -137,7 +145,11 @@ class DiscoELBTests(TestCase):
                 'InstancePort': 80
             }],
             Subnets=['sub-1'],
-            SecurityGroups=['sec-1'])
+            SecurityGroups=['sec-1'],
+            Tags=[{
+                "Key": "elb_name",
+                "Value": DiscoELB.get_elb_name_for_humans('unittestenv', 'mhcunit')
+            }])
 
     @mock_elb
     def test_get_elb_with_tls(self):
@@ -146,7 +158,7 @@ class DiscoELBTests(TestCase):
         elb_client.create_load_balancer = MagicMock(wraps=elb_client.create_load_balancer)
         self._create_elb(tls=True)
         elb_client.create_load_balancer.assert_called_once_with(
-            LoadBalancerName='unittestenv-mhcunit',
+            LoadBalancerName=DiscoELB.get_elb_name('unittestenv', 'mhcunit'),
             Listeners=[{
                 'Protocol': 'HTTPS',
                 'LoadBalancerPort': 443,
@@ -156,7 +168,11 @@ class DiscoELBTests(TestCase):
             }],
             Subnets=['sub-1'],
             SecurityGroups=['sec-1'],
-            Scheme='internal')
+            Scheme='internal',
+            Tags=[{
+                "Key": "elb_name",
+                "Value": DiscoELB.get_elb_name_for_humans('unittestenv', 'mhcunit')
+            }])
 
     @mock_elb
     def test_get_elb_with_tcp(self):
@@ -166,7 +182,7 @@ class DiscoELBTests(TestCase):
         self._create_elb(instance_protocol='TCP', instance_port=25,
                          elb_protocol='TCP', elb_port=25)
         elb_client.create_load_balancer.assert_called_once_with(
-            LoadBalancerName='unittestenv-mhcunit',
+            LoadBalancerName=DiscoELB.get_elb_name('unittestenv', 'mhcunit'),
             Listeners=[{
                 'Protocol': 'TCP',
                 'LoadBalancerPort': 25,
@@ -175,7 +191,11 @@ class DiscoELBTests(TestCase):
             }],
             Subnets=['sub-1'],
             SecurityGroups=['sec-1'],
-            Scheme='internal')
+            Scheme='internal',
+            Tags=[{
+                "Key": "elb_name",
+                "Value": DiscoELB.get_elb_name_for_humans('unittestenv', 'mhcunit')
+            }])
 
     @mock_elb
     def test_get_elb_with_idle_timeout(self):
@@ -186,7 +206,7 @@ class DiscoELBTests(TestCase):
         self._create_elb(idle_timeout=100)
 
         client.modify_load_balancer_attributes.assert_called_once_with(
-            LoadBalancerName='unittestenv-mhcunit',
+            LoadBalancerName=DiscoELB.get_elb_name('unittestenv', 'mhcunit'),
             LoadBalancerAttributes={'ConnectionDraining': {'Enabled': False, 'Timeout': 0},
                                     'ConnectionSettings': {'IdleTimeout': 100}}
         )
@@ -200,7 +220,7 @@ class DiscoELBTests(TestCase):
         self._create_elb(connection_draining_timeout=100)
 
         client.modify_load_balancer_attributes.assert_called_once_with(
-            LoadBalancerName='unittestenv-mhcunit',
+            LoadBalancerName=DiscoELB.get_elb_name('unittestenv', 'mhcunit'),
             LoadBalancerAttributes={'ConnectionDraining': {'Enabled': True, 'Timeout': 100}}
         )
 

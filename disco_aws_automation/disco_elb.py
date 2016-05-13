@@ -5,6 +5,7 @@ ELBs are load balancers that we can assign to auto scaling groups.
 import re
 import logging
 import time
+import hashlib
 
 import boto3
 import botocore
@@ -14,6 +15,7 @@ from .disco_acm import DiscoACM
 from .disco_iam import DiscoIAM
 from .exceptions import CommandError, TimeoutError
 from .resource_helper import throttled_call
+from .disco_aws_util import chunker
 
 
 STICKY_POLICY_NAME = 'session-cookie-policy'
@@ -54,9 +56,40 @@ class DiscoELB(object):
 
     def list(self):
         """Returns all of the ELBs for the current environment"""
-        return [elb for elb in
-                throttled_call(self.elb_client.describe_load_balancers).get('LoadBalancerDescriptions', [])
-                if elb['VPCId'] == self.vpc.vpc.id]
+        # Grab all of the ELBs in this environment
+        elbs_in_env = {
+            elb["LoadBalancerName"]: elb for elb in
+            throttled_call(self.elb_client.describe_load_balancers).get('LoadBalancerDescriptions', [])
+            if elb['VPCId'] == self.vpc.vpc.id}
+
+        elb_infos = []
+        tag_descriptions = []
+
+        # Grab their tags in chunks of 20
+        for elbs in chunker(elbs_in_env.keys(), 20):
+            tag_descriptions += [tag_description for tag_description
+                                 in throttled_call(self.elb_client.describe_tags,
+                                                   LoadBalancerNames=elbs).get('TagDescriptions', [])]
+
+        # Populate our ELB info dicts
+        for tag_description in tag_descriptions:
+            # If they have an 'elb_name' tag, use that instead of the actual LoadBalancerName
+            load_balancer_name = tag_description["LoadBalancerName"]
+            elb_name = self._get_tag_value(tag_description, "elb_name") or load_balancer_name
+            availability_zones = ','.join(elbs_in_env[load_balancer_name]["AvailabilityZones"])
+
+            elb_infos.append({
+                "elb_name": elb_name,
+                "availability_zones": availability_zones
+            })
+
+        return elb_infos
+
+    def _get_tag_value(self, tag_description, key):
+        for tag in tag_description["Tags"]:
+            if tag["Key"] == "elb_name":
+                return tag["Value"]
+        return None
 
     def get_cname(self, hostclass, domain_name, testing=False):
         """Get the expected subdomain for an ELB for a hostclass"""
@@ -126,6 +159,8 @@ class DiscoELB(object):
         """
         cname = self.get_cname(hostclass, hosted_zone_name, testing=testing)
         elb_name = DiscoELB.get_elb_name(self.vpc.environment_name, hostclass, testing=testing)
+        elb_name_human = DiscoELB.get_elb_name_for_humans(self.vpc.environment_name, hostclass,
+                                                          testing=testing)
         elb = self.get_elb(hostclass, testing=testing)
         if not elb:
             logging.info("Creating ELB %s", elb_name)
@@ -145,7 +180,10 @@ class DiscoELB(object):
                 'LoadBalancerName': elb_name,
                 'Listeners': [listener],
                 'SecurityGroups': security_groups,
-                'Subnets': subnets
+                'Subnets': subnets,
+                'Tags': [
+                    {'Key': 'elb_name', 'Value': elb_name_human}
+                ]
             }
 
             if not elb_public:
@@ -213,6 +251,13 @@ class DiscoELB(object):
 
     @staticmethod
     def get_elb_name(environment_name, hostclass, testing=False):
+        """Returns the elb name for a given hostclasses, hashed with SHA-256 and truncated to 32 characters"""
+        human_elb_name = DiscoELB.get_elb_name_for_humans(environment_name, hostclass=hostclass,
+                                                          testing=testing)
+        return hashlib.sha256(human_elb_name).hexdigest()[:32]
+
+    @staticmethod
+    def get_elb_name_for_humans(environment_name, hostclass, testing=False):
         """Returns the elb name for a given hostclass"""
         name = environment_name + '-' + hostclass
 

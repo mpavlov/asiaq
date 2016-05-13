@@ -9,6 +9,7 @@ from disco_aws_automation import DiscoAlarm, DiscoAlarmsConfig
 from disco_aws_automation import DiscoAlarmConfig
 from disco_aws_automation import DiscoSNS
 from disco_aws_automation import AlarmConfigError
+from disco_aws_automation import DiscoELB
 from test.helpers.patch_disco_aws import get_mock_config
 
 TOPIC_ARN = "arn:aws:sns:us-west-2:123456789012:ci"
@@ -193,4 +194,5 @@ class DiscoAlarmTests(TestCase):
 
         alarm_configs = disco_alarms_config.get_alarms('mhcbanana')
         self.assertEqual(1, len(alarm_configs))
-        self.assertEquals({'LoadBalancerName': 'testenv-mhcbanana'}, alarm_configs[0].dimensions)
+        self.assertEquals({'LoadBalancerName': DiscoELB.get_elb_name('testenv', 'mhcbanana')},
+                          alarm_configs[0].dimensions)
