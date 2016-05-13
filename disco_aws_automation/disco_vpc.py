@@ -894,7 +894,7 @@ class DiscoVPC(object):
             remote_vpc_names = vpc_map.keys()
             remote_vpc_names.remove(vpc_name)
 
-            network.create_peering_route(peering_conn, cidr_map[remote_vpc_names[0]])
+            network.create_peering_route(peering_conn, str(cidr_map[remote_vpc_names[0]]))
 
     @staticmethod
     def list_vpcs():
