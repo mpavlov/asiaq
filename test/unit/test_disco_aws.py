@@ -19,12 +19,14 @@ from test.helpers.patch_disco_aws import (patch_disco_aws,
 
 def _get_meta_network_mock():
     ret = MagicMock()
-    ret = MagicMock()
     ret.security_group = MagicMock()
     ret.security_group.id = "sg-1234abcd"
-    ret.subnets = [MagicMock() for _ in xrange(3)]
-    for subnet in ret.subnets:
-        subnet.id = "s-1234abcd"
+    ret.disco_subnets = {}
+    for _ in xrange(3):
+        zone_name = 'zone{0}'.format(_)
+        ret.disco_subnets[zone_name] = MagicMock()
+        ret.disco_subnets[zone_name].subnet_dict = dict()
+        ret.disco_subnets[zone_name].subnet_dict['SubnetId'] = "s-1234abcd"
     return MagicMock(return_value=ret)
 
 

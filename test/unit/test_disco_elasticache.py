@@ -10,12 +10,12 @@ from test.helpers.patch_disco_aws import get_mock_config
 def _get_mock_vpc():
     vpc = MagicMock()
 
-    subnet = MagicMock()
-    subnet.id = 'fake_subnet'
+    disco_subnet = MagicMock()
+    disco_subnet.subnet_dict = {'SubnetId': 'fake_subnet'}
 
     meta_network = MagicMock()
     meta_network.security_group.id = 'fake_security'
-    meta_network.subnets = [subnet]
+    meta_network.disco_subnets = {'zone1': disco_subnet}
 
     vpc.networks = {
         'intranet': meta_network

@@ -89,7 +89,9 @@ class DiscoVPCTests(unittest.TestCase):
     @patch('disco_aws_automation.disco_vpc.DiscoVPC._wait_for_vgw_states')
     @patch('disco_aws_automation.disco_vpc.DiscoVPC.config', new_callable=PropertyMock)
     @patch('disco_aws_automation.disco_vpc.VPCConnection')
-    def test_create_auto_vpc(self, vpc_conn_mock, config_mock, _wait_vgw_states_mock, sleep_mock, sns_mock):
+    @patch('disco_aws_automation.disco_metanetwork.DiscoSubnet')
+    def test_create_auto_vpc(self, subnet_mock, vpc_conn_mock, config_mock,
+                             _wait_vgw_states_mock, sleep_mock, sns_mock):
         """Test creating a VPC with a dynamic ip range"""
         # FIXME This needs to mock way too many things. DiscoVPC needs to be refactored
 
@@ -107,9 +109,11 @@ class DiscoVPCTests(unittest.TestCase):
         def _create_vpc_mock(cidr):
             vpc = MagicMock()
             vpc.cidr_block = cidr
+            vpc.connection = vpc_conn_mock.return_value
             return vpc
 
         vpc_conn_mock.return_value.create_vpc.side_effect = _create_vpc_mock
+        vpc_conn_mock.return_value.get_all_zones.return_value = [MagicMock()]
 
         auto_vpc = DiscoVPC('auto-vpc', 'auto-vpc-type')
 

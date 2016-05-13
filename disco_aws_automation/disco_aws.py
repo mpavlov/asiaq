@@ -196,10 +196,9 @@ class DiscoAWS(object):
         subnet_ips = self._get_hostclass_ip_address(hostclass)
 
         if not subnet_ips:
-            return meta_network.subnets
+            return [disco_subnet.subnet_dict for disco_subnet in meta_network.disco_subnets.values()]
 
-        subnets = {meta_network.subnet_by_ip(subnet_ip) for subnet_ip in subnet_ips.split(' ')}
-        return list(subnets)
+        return [meta_network.subnet_by_ip(subnet_ip) for subnet_ip in subnet_ips.split(' ')]
 
     def get_block_device_mappings(self, hostclass, ami=None,
                                   extra_space=None, extra_disk=None, iops=None,
@@ -255,10 +254,12 @@ class DiscoAWS(object):
             elb_meta_network_name = self.hostclass_option_default(hostclass, "elb_meta_network", None)
             if elb_meta_network_name:
                 elb_meta_network = self.get_meta_network_by_name(elb_meta_network_name)
-                elb_subnets = elb_meta_network.subnets
+                elb_subnets = elb_meta_network.disco_subnets.values()
+                subnet_ids = [disco_subnet.subnet_dict['SubnetId'] for disco_subnet in elb_subnets]
             else:
                 elb_meta_network = self.get_meta_network(hostclass)
                 elb_subnets = self.get_subnets(elb_meta_network, hostclass)
+                subnet_ids = [subnet['SubnetId'] for subnet in elb_subnets]
 
             elb_port = int(self.hostclass_option_default(hostclass, "elb_port", 80))
             elb_protocol = self.hostclass_option_default(hostclass, "elb_protocol", None) or \
@@ -270,7 +271,7 @@ class DiscoAWS(object):
             elb = self.elb.get_or_create_elb(
                 hostclass,
                 security_groups=[elb_meta_network.security_group.id],
-                subnets=[subnet.id for subnet in elb_subnets],
+                subnets=subnet_ids,
                 hosted_zone_name=self.hostclass_option_default(hostclass, "domain_name"),
                 health_check_url=self.hostclass_option_default(hostclass, "elb_health_check_url"),
                 instance_protocol=instance_protocol, instance_port=instance_port,
@@ -358,7 +359,8 @@ class DiscoAWS(object):
 
         group = self.autoscale.get_group(
             hostclass=hostclass, launch_config=launch_config.name,
-            vpc_zone_id=",".join([subnet.id for subnet in self.get_subnets(meta_network, hostclass)]),
+            vpc_zone_id=",".join([subnet['SubnetId'] for subnet
+                                  in self.get_subnets(meta_network, hostclass)]),
             min_size=size_as_minimum_int_or_none(min_size),
             max_size=size_as_maximum_int_or_none(max_size),
             desired_size=size_as_maximum_int_or_none(desired_size),
