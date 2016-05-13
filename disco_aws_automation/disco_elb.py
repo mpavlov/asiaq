@@ -80,6 +80,7 @@ class DiscoELB(object):
 
             elb_infos.append({
                 "elb_name": elb_name,
+                "load_balancer_name": load_balancer_name,
                 "availability_zones": availability_zones
             })
 
