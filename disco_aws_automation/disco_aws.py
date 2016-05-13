@@ -55,17 +55,46 @@ from .exceptions import (
 class DiscoAWS(object):
     '''Class orchestrating deployment on AWS'''
 
-    def __init__(self, config, environment_name):
+    def __init__(self, config, environment_name, boto2_conn=None, vpc=None, remote_exec=None, storage=None,
+                 autoscale=None, elb=None, log_metrics=None):
         self.environment_name = environment_name
         self._config = config
-        self._vpc = None  # lazily initialized
-        self.connection = boto.connect_ec2()
-        self.disco_storage = DiscoStorage(self.connection)
         self._project_name = self._config.get("disco_aws", "project_name")
-        self._disco_remote_exec = None  # lazily initialized
-        self.autoscale = DiscoAutoscale(environment_name=environment_name)
-        self._elb = None
-        self.log_metrics = DiscoLogMetrics(environment=environment_name)
+        self._connection = boto2_conn or None  # lazily initialized
+        self._vpc = vpc or None  # lazily initialized
+        self._disco_remote_exec = remote_exec or None  # lazily initialized
+        self._disco_storage = storage or None  # lazily initialized
+        self._autoscale = autoscale or None  # lazily initialized
+        self._elb = elb or None  # lazily initialized
+        self._log_metrics = log_metrics or None  # lazily initialized
+
+    @property
+    def connection(self):
+        """Lazily creates boto2 ec2 connection"""
+        if not self._connection:
+            self._connection = boto.connect_ec2()
+        return self._connection
+
+    @property
+    def disco_storage(self):
+        """Lazily creates disco storage object"""
+        if not self._disco_storage:
+            self._disco_storage = DiscoStorage(self.connection)
+        return self._disco_storage
+
+    @property
+    def autoscale(self):
+        """Lazily creates disco autoscale object"""
+        if not self._autoscale:
+            self._autoscale = DiscoAutoscale(environment_name=self.environment_name)
+        return self._autoscale
+
+    @property
+    def log_metrics(self):
+        """Lazily creates disco log metrics object"""
+        if not self._log_metrics:
+            self._log_metrics = DiscoLogMetrics(environment=self.environment_name)
+        return self._log_metrics
 
     @property
     def elb(self):

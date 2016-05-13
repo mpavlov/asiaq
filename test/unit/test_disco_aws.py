@@ -42,8 +42,7 @@ class DiscoAWSTests(TestCase):
     @patch_disco_aws
     def test_create_scaling_schedule_only_desired(self, mock_config, **kwargs):
         """test create_scaling_schedule with only desired schedule"""
-        aws = DiscoAWS(config=mock_config, environment_name=TEST_ENV_NAME)
-        aws.autoscale = MagicMock()
+        aws = DiscoAWS(config=mock_config, environment_name=TEST_ENV_NAME, autoscale=MagicMock())
         aws.create_scaling_schedule("mhcboo", "1", "2@1 0 * * *:3@6 0 * * *", "5")
         aws.autoscale.assert_has_calls([
             call.delete_all_recurring_group_actions(hostclass='mhcboo'),
@@ -56,16 +55,14 @@ class DiscoAWSTests(TestCase):
     @patch_disco_aws
     def test_create_scaling_schedule_no_sched(self, mock_config, **kwargs):
         """test create_scaling_schedule with only desired schedule"""
-        aws = DiscoAWS(config=mock_config, environment_name=TEST_ENV_NAME)
-        aws.autoscale = MagicMock()
+        aws = DiscoAWS(config=mock_config, environment_name=TEST_ENV_NAME, autoscale=MagicMock())
         aws.create_scaling_schedule("mhcboo", "1", "2", "5")
         aws.autoscale.assert_has_calls([call.delete_all_recurring_group_actions(hostclass='mhcboo')])
 
     @patch_disco_aws
     def test_create_scaling_schedule_overlapping(self, mock_config, **kwargs):
         """test create_scaling_schedule with only desired schedule"""
-        aws = DiscoAWS(config=mock_config, environment_name=TEST_ENV_NAME)
-        aws.autoscale = MagicMock()
+        aws = DiscoAWS(config=mock_config, environment_name=TEST_ENV_NAME, autoscale=MagicMock())
         aws.create_scaling_schedule("mhcboo",
                                     "1@1 0 * * *:2@6 0 * * *",
                                     "2@1 0 * * *:3@6 0 * * *",
@@ -81,8 +78,7 @@ class DiscoAWSTests(TestCase):
     @patch_disco_aws
     def test_create_scaling_schedule_mixed(self, mock_config, **kwargs):
         """test create_scaling_schedule with only desired schedule"""
-        aws = DiscoAWS(config=mock_config, environment_name=TEST_ENV_NAME)
-        aws.autoscale = MagicMock()
+        aws = DiscoAWS(config=mock_config, environment_name=TEST_ENV_NAME, autoscale=MagicMock())
         aws.create_scaling_schedule("mhcboo",
                                     "1@1 0 * * *:2@7 0 * * *",
                                     "2@1 0 * * *:3@6 0 * * *",
@@ -111,9 +107,8 @@ class DiscoAWSTests(TestCase):
         """
         Provision creates the proper launch configuration and autoscaling group
         """
-        aws = DiscoAWS(config=mock_config, environment_name=TEST_ENV_NAME)
+        aws = DiscoAWS(config=mock_config, environment_name=TEST_ENV_NAME, log_metrics=MagicMock())
         mock_ami = self._get_image_mock(aws)
-        aws.log_metrics = MagicMock()
         aws.update_elb = MagicMock(return_value=None)
 
         with patch("disco_aws_automation.DiscoAWS.get_meta_network", return_value=_get_meta_network_mock()):
@@ -143,9 +138,8 @@ class DiscoAWSTests(TestCase):
         """
         Provision creates the proper launch configuration and autoscaling group with no chaos
         """
-        aws = DiscoAWS(config=mock_config, environment_name=TEST_ENV_NAME)
+        aws = DiscoAWS(config=mock_config, environment_name=TEST_ENV_NAME, log_metrics=MagicMock())
         mock_ami = self._get_image_mock(aws)
-        aws.log_metrics = MagicMock()
         aws.update_elb = MagicMock(return_value=None)
 
         with patch("disco_aws_automation.DiscoAWS.get_meta_network", return_value=_get_meta_network_mock()):
@@ -178,9 +172,9 @@ class DiscoAWSTests(TestCase):
         """
         config_dict = get_default_config_dict()
         config_dict["mhcunittest"]["chaos"] = "True"
-        aws = DiscoAWS(config=get_mock_config(config_dict), environment_name=TEST_ENV_NAME)
+        aws = DiscoAWS(config=get_mock_config(config_dict), environment_name=TEST_ENV_NAME,
+                       log_metrics=MagicMock())
         mock_ami = self._get_image_mock(aws)
-        aws.log_metrics = MagicMock()
         aws.update_elb = MagicMock(return_value=None)
 
         with patch("disco_aws_automation.DiscoAWS.get_meta_network", return_value=_get_meta_network_mock()):
@@ -210,8 +204,7 @@ class DiscoAWSTests(TestCase):
         """
         Provision creates the proper autoscaling group sizes with scheduled sizes
         """
-        aws = DiscoAWS(config=mock_config, environment_name=TEST_ENV_NAME)
-        aws.log_metrics = MagicMock()
+        aws = DiscoAWS(config=mock_config, environment_name=TEST_ENV_NAME, log_metrics=MagicMock())
         aws.update_elb = MagicMock(return_value=None)
 
         with patch("disco_aws_automation.DiscoAWS.get_meta_network", return_value=_get_meta_network_mock()):
@@ -235,8 +228,7 @@ class DiscoAWSTests(TestCase):
         """
         Provision creates the proper autoscaling group sizes with scheduled sizes
         """
-        aws = DiscoAWS(config=mock_config, environment_name=TEST_ENV_NAME)
-        aws.log_metrics = MagicMock()
+        aws = DiscoAWS(config=mock_config, environment_name=TEST_ENV_NAME, log_metrics=MagicMock())
         aws.update_elb = MagicMock(return_value=None)
 
         with patch("disco_aws_automation.DiscoAWS.get_meta_network", return_value=_get_meta_network_mock()):
@@ -260,8 +252,7 @@ class DiscoAWSTests(TestCase):
         """
         Provision creates the proper autoscaling group sizes with scheduled sizes
         """
-        aws = DiscoAWS(config=mock_config, environment_name=TEST_ENV_NAME)
-        aws.log_metrics = MagicMock()
+        aws = DiscoAWS(config=mock_config, environment_name=TEST_ENV_NAME, log_metrics=MagicMock())
         aws.update_elb = MagicMock(return_value=None)
 
         with patch("disco_aws_automation.DiscoAWS.get_meta_network", return_value=_get_meta_network_mock()):
@@ -312,8 +303,7 @@ class DiscoAWSTests(TestCase):
     @patch_disco_aws
     def test_update_elb_delete(self, mock_config, **kwargs):
         '''Update ELB deletes ELBs that are no longer configured'''
-        aws = DiscoAWS(config=mock_config, environment_name=TEST_ENV_NAME)
-        aws._elb = MagicMock()
+        aws = DiscoAWS(config=mock_config, environment_name=TEST_ENV_NAME, elb=MagicMock())
         aws.elb.get_elb = MagicMock(return_value=True)
         aws.elb.delete_elb = MagicMock()
         aws.update_elb("mhcfoo", update_autoscaling=False)
@@ -339,7 +329,7 @@ class DiscoAWSTests(TestCase):
     @patch_disco_aws
     def test_update_elb_create(self, mock_config, **kwargs):
         '''DiscoELB called to update or create ELB when one is configured'''
-        aws = DiscoAWS(config=self._get_elb_config(), environment_name=TEST_ENV_NAME)
+        aws = DiscoAWS(config=self._get_elb_config(), environment_name=TEST_ENV_NAME, elb=MagicMock())
         aws.elb.get_or_create_elb = MagicMock(return_value=MagicMock())
         aws.get_meta_network_by_name = _get_meta_network_mock()
         aws.elb.delete_elb = MagicMock()
