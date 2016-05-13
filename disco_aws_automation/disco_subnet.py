@@ -18,7 +18,7 @@ class DiscoSubnet(object):
     Representation of a disco subnet, which contains an AWS subnet object, and its own
     route table and possibly a NAT gateway
     """
-    def __init__(self, name, metanetwork, cidr, centralized_route_table_id=None, boto3_connection=None):
+    def __init__(self, name, metanetwork, cidr=None, centralized_route_table_id=None, boto3_connection=None):
         self.name = name
         self.metanetwork = metanetwork
         self.cidr = cidr
@@ -213,6 +213,10 @@ class DiscoSubnet(object):
             return None
 
     def _create_subnet(self):
+        if not self.cidr:
+            raise RuntimeError("cidr is needed for creating subnet ({0}) in metanetwork ({1})"
+                               .format(self.name, self.metanetwork))
+
         params = {
             'VpcId': self.metanetwork.vpc.vpc.id,
             'CidrBlock': self.cidr,

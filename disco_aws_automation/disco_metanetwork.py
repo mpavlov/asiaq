@@ -49,13 +49,13 @@ class DiscoMetaNetwork(object):
         if not self._network_cidr:
             # if we don't have a network_cidr yet (if it wasn't passed in the constructor)
             # then calculate it from the subnets
-            subnets = self._create_subnets()
+            subnets = self._instantiate_subnets(try_creating_aws_subnets=False)
 
             # calculate how big the meta network must have been if we divided it into the existing subnets
-            subnet_cidr_offset = calc_subnet_offset(len(subnets))
+            subnet_cidr_offset = calc_subnet_offset(len(subnets.values()))
 
             # pick one of the subnets to do our math from
-            subnet_network = IPNetwork(subnets[0].cidr_block)
+            subnet_network = IPNetwork(subnets.values()[0].subnet_dict['CidrBlock'])
 
             # the meta network cidr is the cidr of one of the subnets but with a smaller prefix
             subnet_network.prefixlen = subnet_network.prefixlen - subnet_cidr_offset
@@ -142,7 +142,7 @@ class DiscoMetaNetwork(object):
     def disco_subnets(self):
         '''Creates the subnets for our metanetwork'''
         if not self._disco_subnets:
-            self._disco_subnets = self._create_subnets()
+            self._disco_subnets = self._instantiate_subnets()
         return self._disco_subnets
 
     @property
@@ -185,8 +185,9 @@ class DiscoMetaNetwork(object):
         for disco_subnet in self.disco_subnets.values():
             disco_subnet.delete_nat_gateway()
 
-    def _create_subnets(self):
-        logging.debug("creating subnets")
+    def _instantiate_subnets(self, try_creating_aws_subnets=True):
+        # FIXME needs to talk about and simplify this
+        logging.debug("instantiating subnets")
         zones = self.vpc.vpc.connection.get_all_zones()
         logging.debug("zones: %s", zones)
         # We'll need to split each subnet into smaller ones, one per zone
@@ -195,9 +196,12 @@ class DiscoMetaNetwork(object):
         zone_cidr_offset = calc_subnet_offset(len(zones))
         logging.debug("zone_offset: %s", zone_cidr_offset)
 
-        zone_cidrs = self.network_cidr.subnet(
-            int(self.network_cidr.prefixlen + zone_cidr_offset)
-        )
+        if try_creating_aws_subnets:
+            zone_cidrs = self.network_cidr.subnet(
+                int(self.network_cidr.prefixlen + zone_cidr_offset)
+            )
+        else:
+            zone_cidrs = ['' for _ in zones]
 
         subnets = {}
         for zone, cidr in zip(zones, zone_cidrs):
