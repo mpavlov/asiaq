@@ -23,10 +23,22 @@ class DiscoAutoscale(object):
 
     def __init__(self, environment_name, autoscaling_connection=None, boto3_autoscaling_connection=None):
         self.environment_name = environment_name
-        self.connection = autoscaling_connection or boto.ec2.autoscale.AutoScaleConnection(
-            use_block_device_types=True
-        )
-        self.boto3_autoscale = boto3_autoscaling_connection or boto3.client('autoscaling')
+        self._connection = autoscaling_connection or None  # lazily initialized
+        self._boto3_autoscale = boto3_autoscaling_connection or None  # lazily initialized
+
+    @property
+    def connection(self):
+        '''Lazily create boto autoscaling connection'''
+        if not self._connection:
+            self._connection = boto.ec2.autoscale.AutoScaleConnection(use_block_device_types=True)
+        return self._connection
+
+    @property
+    def boto3_autoscale(self):
+        '''Lazily create boto3 autoscaling connection'''
+        if not self._boto3_autoscale:
+            self._boto3_autoscale = boto3.client('autoscaling')
+        return self._boto3_autoscale
 
     def get_new_groupname(self, hostclass):
         '''Returns a new autoscaling group name when given a hostclass'''
