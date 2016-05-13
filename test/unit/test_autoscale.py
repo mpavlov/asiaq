@@ -211,7 +211,18 @@ class DiscoAutoscaleTests(TestCase):
         groups.__iter__.return_value = good_groups + bad_groups
         self._mock_connection.get_all_groups.return_value = groups
 
-        self.assertEqual(list(self._autoscale._get_group_generator()), good_groups)
+        self.assertEqual(set(self._autoscale.get_existing_groups()), set(good_groups))
+
+    def test_gg_filters_hostclass_correctly(self):
+        '''get_existing_groups correctly filters based on the hostclass'''
+        good_groups = [self.mock_group("mhcneedle")]
+        bad_groups = [self.mock_group("mhcfoo"), self.mock_group("mhcbar"), self.mock_group("mhcfoobar")]
+        groups = MagicMock()
+        groups.next_token = None
+        groups.__iter__.return_value = good_groups + bad_groups
+        self._mock_connection.get_all_groups.return_value = groups
+
+        self.assertEqual(set(self._autoscale.get_existing_groups(hostclass="mhcneedle")), set(good_groups))
 
     def test_ig_filters_env_correctly(self):
         '''inst_generator correctly filters based on the environment'''
@@ -222,7 +233,7 @@ class DiscoAutoscaleTests(TestCase):
         groups.__iter__.return_value = good_insts + bad_insts
         self._mock_connection.get_all_autoscaling_instances.return_value = groups
 
-        self.assertEqual(list(self._autoscale._get_instance_generator()), good_insts)
+        self.assertEqual(self._autoscale.get_instances(), good_insts)
 
     def test_ig_filters_hostclass_correctly(self):
         '''inst_generator correctly filters based on the hostclass'''
@@ -233,7 +244,7 @@ class DiscoAutoscaleTests(TestCase):
         groups.__iter__.return_value = good_insts + bad_insts
         self._mock_connection.get_all_autoscaling_instances.return_value = groups
 
-        self.assertEqual(list(self._autoscale._get_instance_generator(hostclass="mhcneedle")), good_insts)
+        self.assertEqual(self._autoscale.get_instances(hostclass="mhcneedle"), good_insts)
 
     def test_ig_filters_groupname_correctly(self):
         '''inst_generator correctly filters based on the group name'''
@@ -244,7 +255,7 @@ class DiscoAutoscaleTests(TestCase):
         groups.__iter__.return_value = good_insts + bad_insts
         self._mock_connection.get_all_autoscaling_instances.return_value = groups
 
-        self.assertEqual(list(self._autoscale._get_instance_generator(group_name=good_insts[0].group_name)),
+        self.assertEqual(self._autoscale.get_instances(group_name=good_insts[0].group_name),
                          good_insts)
 
     def test_cg_filters_env_correctly(self):
@@ -256,4 +267,4 @@ class DiscoAutoscaleTests(TestCase):
         groups.__iter__.return_value = good_lgs + bad_lgs
         self._mock_connection.get_all_launch_configurations.return_value = groups
 
-        self.assertEqual(list(self._autoscale._get_config_generator()), good_lgs)
+        self.assertEqual(self._autoscale.get_configs(), good_lgs)
