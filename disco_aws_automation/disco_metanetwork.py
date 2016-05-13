@@ -272,7 +272,7 @@ class DiscoMetaNetwork(object):
         subnets = sorted(self.subnet_ip_networks)
         base_address = subnets[0].first if offset >= 0 else subnets[-1].last
         desired_address = IPAddress(base_address + offset)
-        #Lazy check to ensure IP address is in metanetwork range
+        # Lazy check to ensure IP address is in metanetwork range
         self.subnet_by_ip(desired_address)
 
         return desired_address
