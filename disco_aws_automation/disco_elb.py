@@ -57,26 +57,33 @@ class DiscoELB(object):
     def list(self):
         """Returns all of the ELBs for the current environment"""
         # Grab all of the ELBs in this environment
-        elbs_in_env = {
-            elb["LoadBalancerName"]: elb for elb in
+        return [
+            elb for elb in
             throttled_call(self.elb_client.describe_load_balancers).get('LoadBalancerDescriptions', [])
-            if elb['VPCId'] == self.vpc.vpc.id}
+            if elb['VPCId'] == self.vpc.vpc.id]
 
-        elb_infos = []
+    def list_for_display(self):
+        """Returns information about all of the ELBs in the current environment for display purposes"""
+        # Grab all of the ELBs in this environment
+        elbs_in_env = self.list()
+
         tag_descriptions = []
 
         # Grab their tags in chunks of 20
-        for elbs in chunker(elbs_in_env.keys(), 20):
+        for elbs in chunker([elb["LoadBalancerName"] for elb in elbs_in_env], 20):
             tag_descriptions += [tag_description for tag_description
                                  in throttled_call(self.elb_client.describe_tags,
                                                    LoadBalancerNames=elbs).get('TagDescriptions', [])]
 
+        elb_infos = []
+
         # Populate our ELB info dicts
         for tag_description in tag_descriptions:
-            # If they have an 'elb_name' tag, use that instead of the actual LoadBalancerName
             load_balancer_name = tag_description["LoadBalancerName"]
+            # If they have an 'elb_name' tag, use that instead of the actual LoadBalancerName
             elb_name = self._get_tag_value(tag_description, "elb_name") or load_balancer_name
-            availability_zones = ','.join(elbs_in_env[load_balancer_name]["AvailabilityZones"])
+            elb = filter(lambda x: x["LoadBalancerName"] == load_balancer_name, elbs_in_env)[0]
+            availability_zones = ','.join(elb["AvailabilityZones"])
 
             elb_infos.append({
                 "elb_name": elb_name,
@@ -88,7 +95,7 @@ class DiscoELB(object):
 
     def _get_tag_value(self, tag_description, key):
         for tag in tag_description["Tags"]:
-            if tag["Key"] == "elb_name":
+            if tag["Key"] == key:
                 return tag["Value"]
         return None
 
@@ -98,9 +105,10 @@ class DiscoELB(object):
             hostclass += "-test"
         return hostclass + '-' + self.vpc.environment_name + '.' + domain_name
 
-    def _setup_health_check(self, elb_name, health_check_url, instance_protocol, instance_port):
+    def _setup_health_check(self, elb_name, health_check_url, instance_protocol, instance_port,
+                            elb_name_human):
         if not health_check_url:
-            logging.warning("No health check url configured for ELB %s", elb_name)
+            logging.warning("No health check url configured for ELB %s", elb_name_human)
             if instance_protocol.upper() in ('HTTP', 'HTTPS'):
                 health_check_url = '/'
             else:
@@ -117,9 +125,9 @@ class DiscoELB(object):
                            'UnhealthyThreshold': 2,
                            'HealthyThreshold': 2})
 
-    def _setup_sticky_cookies(self, elb_name, elb_port, sticky_app_cookie):
+    def _setup_sticky_cookies(self, elb_name, elb_port, sticky_app_cookie, elb_name_human):
         if sticky_app_cookie:
-            logging.warning("Using sticky sessions for ELB %s", elb_name)
+            logging.warning("Using sticky sessions for ELB %s", elb_name_human)
             throttled_call(self.elb_client.create_app_cookie_stickiness_policy,
                            LoadBalancerName=elb_name,
                            PolicyName=STICKY_POLICY_NAME,
@@ -164,7 +172,7 @@ class DiscoELB(object):
                                                           testing=testing)
         elb = self.get_elb(hostclass, testing=testing)
         if not elb:
-            logging.info("Creating ELB %s", elb_name)
+            logging.info("Creating ELB %s", elb_name_human)
 
             listener = {
                 'Protocol': elb_protocol,
@@ -195,8 +203,8 @@ class DiscoELB(object):
 
         self.route53.create_record(hosted_zone_name, cname, 'CNAME', elb['DNSName'])
 
-        self._setup_health_check(elb_name, health_check_url, instance_protocol, instance_port)
-        self._setup_sticky_cookies(elb_name, elb_port, sticky_app_cookie)
+        self._setup_health_check(elb_name, health_check_url, instance_protocol, instance_port, elb_name_human)
+        self._setup_sticky_cookies(elb_name, elb_port, sticky_app_cookie, elb_name_human)
         self._update_elb_attributes(elb_name, idle_timeout, connection_draining_timeout)
 
         return elb
@@ -244,7 +252,9 @@ class DiscoELB(object):
             logging.info("ELB for '%s' does not exist. Nothing to delete", hostclass)
             return
 
-        logging.info("Deleting ELB %s", elb['LoadBalancerName'])
+        logging.info("Deleting ELB %s", DiscoELB.get_elb_name_for_humans(self.vpc.environment_name,
+                                                                         hostclass=hostclass,
+                                                                         testing=testing))
 
         # delete any CNAME records that point to the deleted ELB because they are no longer valid
         self.route53.delete_records_by_value('CNAME', elb['DNSName'])
@@ -326,21 +336,23 @@ class DiscoELB(object):
         See http://boto3.readthedocs.io/en/latest/reference/services/elb.html
         """
         elb_name = DiscoELB.get_elb_name(self.vpc.environment_name, hostclass, testing=testing)
+        elb_name_human = DiscoELB.get_elb_name_for_humans(self.vpc.environment_name, hostclass,
+                                                          testing=testing)
         stop_time = time.time() + timeout
         original_scope = scope = instance_ids if instance_ids else "all instances"
         while time.time() < stop_time:
             instances = self._describe_instance_health(elb_name=elb_name, instance_ids=instance_ids)
             if len(instances) >= 1 and all(instance["State"] == state for instance in instances):
                 logging.info("Successfully waited for %s in ELB (%s) to enter state (%s)",
-                             original_scope, elb_name, state)
+                             original_scope, elb_name_human, state)
                 return
             # Update scope to be the instances that have not yet entered the desired state
             scope = [instance["InstanceId"] for instance in instances if instance["State"] != state]
             logging.info("Waiting for %s in ELB %s to enter state (%s)",
-                         scope or original_scope, elb_name, state)
+                         scope or original_scope, elb_name_human, state)
             time.sleep(5)
         raise TimeoutError(
             "Timed out after waiting {} seconds for {} in ELB ({}) to enter state ({})".format(timeout,
                                                                                                scope,
-                                                                                               elb_name,
+                                                                                               elb_name_human,
                                                                                                state))
