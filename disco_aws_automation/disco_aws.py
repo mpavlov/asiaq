@@ -154,7 +154,7 @@ class DiscoAWS(object):
         data["owner"] = owner or getpass.getuser()
         data["credential_buckets"] = " ".join(self.vpc.get_credential_buckets(self._project_name))
         data["zookeepers"] = "[\\\"{0}:2181\\\"]".format(
-            self._get_hostclass_ip_address((fixed_ip_hostclass['zookeeper'], ""))
+            self._get_hostclass_ip_address(fixed_ip_hostclass['zookeeper'], "")
         )
         data["is_testing"] = "1" if testing else "0"
         data["eip"] = self.hostclass_option_default(hostclass, "eip")
