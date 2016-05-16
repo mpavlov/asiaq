@@ -5,6 +5,7 @@ from unittest import TestCase
 from mock import MagicMock, PropertyMock, call
 from disco_aws_automation import DiscoElastiCache
 from test.helpers.patch_disco_aws import get_mock_config
+from test.helpers.matchers import MatchAnything
 
 
 def _get_mock_vpc():
@@ -39,13 +40,6 @@ def _get_mock_aws():
 def _get_mock_route53():
     route53 = MagicMock()
     return route53
-
-
-class MatchAnything(object):
-    """Helper class to use with assertions that can match any value"""
-
-    def __eq__(self, other):
-        return True
 
 
 class DiscoElastiCacheTests(TestCase):

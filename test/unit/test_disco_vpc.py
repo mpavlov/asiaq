@@ -3,29 +3,24 @@
 import unittest
 
 from mock import MagicMock, patch, PropertyMock
-from netaddr import IPSet
-
 from disco_aws_automation import DiscoVPC
 from test.helpers.patch_disco_aws import get_mock_config
+from test.helpers.matchers import MatchClass
+
+
+def create_vpc_mock(env_name, env_type):
+    """vpc mock"""
+    vpc = MagicMock()
+    vpc.tags = {
+        'Name': env_name,
+        'type': env_type
+    }
+
+    return vpc
 
 
 class DiscoVPCTests(unittest.TestCase):
     """Test DiscoVPC"""
-
-    def test_get_random_free_subnet(self):
-        """Test getting getting a random subnet from a network"""
-        subnet = DiscoVPC.get_random_free_subnet('10.0.0.0/28', 30, [])
-
-        possible_subnets = ['10.0.0.0/30', '10.0.0.4/30', '10.0.0.8/30', '10.0.0.12/30']
-        self.assertIn(str(subnet), possible_subnets)
-
-    def test_get_random_free_subnet_returns_none(self):
-        """Test that None is returned if no subnets are available"""
-        used_subnets = ['10.0.0.0/30', '10.0.0.4/32', '10.0.0.8/30', '10.0.0.12/30']
-
-        subnet = DiscoVPC.get_random_free_subnet('10.0.0.0/28', 30, used_subnets)
-        IPSet(subnet)
-        self.assertIsNone(subnet)
 
     # pylint: disable=unused-argument
     @patch('disco_aws_automation.disco_vpc.DiscoVPC.config', new_callable=PropertyMock)
@@ -119,3 +114,56 @@ class DiscoVPCTests(unittest.TestCase):
 
         possible_vpcs = ['10.0.0.0/26', '10.0.0.64/26', '10.0.0.128/26', '10.0.0.192/26']
         self.assertIn(str(auto_vpc.vpc.cidr_block), possible_vpcs)
+
+    @patch('disco_aws_automation.disco_vpc.DiscoVPC.config', new_callable=PropertyMock)
+    def test_parse_peering_connection(self, config_mock):
+        """test parsing a simple peering connection line"""
+        config_mock.return_value = get_mock_config({
+            'envtype:sandbox': {
+                'vpc_cidr': '10.0.0.0/16',
+                'intranet_cidr': 'auto'
+            }
+        })
+
+        existing_vpc = [create_vpc_mock('env1', 'sandbox'),
+                        create_vpc_mock('env2', 'sandbox')]
+
+        result = DiscoVPC.parse_peering_connection_line('env1:sandbox/intranet env2:sandbox/intranet',
+                                                        existing_vpc)
+
+        peering_info = result['env1:sandbox/intranet env2:sandbox/intranet']
+
+        self.assertEquals(peering_info['vpc_metanetwork_map'], {'env1': 'intranet', 'env2': 'intranet'})
+        self.assertEquals(peering_info['vpc_map'], {'env1': MatchClass(DiscoVPC),
+                                                    'env2': MatchClass(DiscoVPC)})
+
+    @patch('disco_aws_automation.disco_vpc.DiscoVPC.config', new_callable=PropertyMock)
+    def test_parse_peering_connection_wildcards(self, config_mock):
+        """test parsing a peering connection line with wildcards"""
+        config_mock.return_value = get_mock_config({
+            'envtype:sandbox': {
+                'vpc_cidr': '10.0.0.0/16',
+                'intranet_cidr': 'auto'
+            }
+        })
+
+        existing_vpc = [create_vpc_mock('env1', 'sandbox'),
+                        create_vpc_mock('env2', 'sandbox'),
+                        create_vpc_mock('env3', 'sandbox')]
+
+        result = DiscoVPC.parse_peering_connection_line('*:sandbox/intranet env3:sandbox/intranet',
+                                                        existing_vpc)
+
+        self.assertEquals(2, len(result))
+
+        peering_info1 = result['env1:sandbox/intranet env3:sandbox/intranet']
+
+        self.assertEquals(peering_info1['vpc_metanetwork_map'], {'env1': 'intranet', 'env3': 'intranet'})
+        self.assertEquals(peering_info1['vpc_map'], {'env1': MatchClass(DiscoVPC),
+                                                     'env3': MatchClass(DiscoVPC)})
+
+        peering_info2 = result['env2:sandbox/intranet env3:sandbox/intranet']
+
+        self.assertEquals(peering_info2['vpc_metanetwork_map'], {'env2': 'intranet', 'env3': 'intranet'})
+        self.assertEquals(peering_info2['vpc_map'], {'env2': MatchClass(DiscoVPC),
+                                                     'env3': MatchClass(DiscoVPC)})

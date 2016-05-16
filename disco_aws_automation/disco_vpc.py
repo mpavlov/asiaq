@@ -5,7 +5,7 @@ environments, and between an environment and the internet.  In particular non-VP
 """
 
 import logging
-import random
+from itertools import product
 
 import time
 from ConfigParser import ConfigParser
@@ -15,9 +15,9 @@ import boto.ec2
 from boto.vpc import VPCConnection
 from boto.exception import EC2ResponseError
 import boto3
-from netaddr import IPNetwork, IPSet
+from netaddr import IPNetwork
 
-from disco_aws_automation.network_helper import calc_subnet_offset
+from disco_aws_automation.network_helper import calc_subnet_offset, get_random_free_subnet
 from . import read_config, normalize_path
 
 from .resource_helper import (
@@ -212,7 +212,7 @@ class DiscoVPC(object):
         for network_name, cidr in networks.iteritems():
             # pick a random ip range if there isn't one configured for the network in the config
             if cidr == 'auto':
-                cidr = DiscoVPC.get_random_free_subnet(self.vpc.cidr_block, meta_network_size, used_cidrs)
+                cidr = get_random_free_subnet(self.vpc.cidr_block, meta_network_size, used_cidrs)
 
                 if not cidr:
                     raise VPCConfigError("Can't create metanetwork %s. No subnets available", network_name)
@@ -480,7 +480,7 @@ class DiscoVPC(object):
             # get the cidr for all other VPCs so we can avoid overlapping with other VPCs
             occupied_network_cidrs = [vpc.cidr_block for vpc in self.list_vpcs()]
 
-            vpc_cidr = DiscoVPC.get_random_free_subnet(ip_space, int(vpc_size), occupied_network_cidrs)
+            vpc_cidr = get_random_free_subnet(ip_space, int(vpc_size), occupied_network_cidrs)
 
             if vpc_cidr is None:
                 raise VPCConfigError('Cannot create VPC %s. No subnets available' % self.environment_name)
@@ -744,68 +744,119 @@ class DiscoVPC(object):
             raise MultipleVPCsForVPCNameError("More than 1 VPC is named as {}".format(vpc_name))
 
     @staticmethod
-    def parse_peering_connection_line(line, vpc_conn):
+    # Pylint thinks this function has too many local variables
+    # pylint: disable=R0914
+    def parse_peering_connection_line(line, existing_vpcs):
         """
-        Parses vpc connections of the form `vpc_name[:vpc_type]/metanetwork vpc_name[:vpc_type]/metanetwork`
-        and returns the data in two dictionaries: vpc_name -> DiscoVPC instance and vpc_name -> metanetwork.
-        vpc_type defaults to vpc_name if unspecified.
+        Parse vpc peering config lines and return data for creating the vpc peering connections
+
+        Args:
+            line (str): A vpc peering config line of the form
+                            `vpc_name[:vpc_type]/metanetwork vpc_name[:vpc_type]/metanetwork`
+
+                        `vpc_name` may be the name of a VPC or a `*` wildcard to peer with any VPC of vpc_type
+            existing_vpcs (List[VPC]): A list of Boto VPC objects for all the existing AWS VPCs
+
+        Returns:
+            data necessary to create peering connections for the VPCs as a dictionary record for each
+            peering connection containing two other dictionaries: vpc_name -> DiscoVPC instance
+            and vpc_name -> metanetwork name
         """
         logging.debug('checking existence for peering %s', line)
         endpoints = line.split(' ')
+        if not len(endpoints) == 2:
+            raise VPCConfigError('Invalid peering config "%s". Peering config must be of the format '
+                                 'vpc_name[:vpc_type]/metanetwork vpc_name[:vpc_type]/metanetwork' % line)
 
-        def get_vpc_name(endpoint):
-            """return name from `name[:type]/metanetwork`"""
-            return endpoint.split('/')[0].split(':')[0].strip()
+        def get_endpoint_info(endpoint):
+            """ Get a dict of peering info from a peering config section """
+            return {
+                # get name from `name[:type]/metanetwork
+                'vpc_name': endpoint.split('/')[0].split(':')[0].strip(),
+                # get type from `name[:type]/metanetwork`, defaulting to name if type is omitted
+                'vpc_type': endpoint.split('/')[0].split(':')[-1].strip(),
+                # get metanetwork from `name[:type]/metanetwork`
+                'metanetwork': endpoint.split('/')[1].strip()
+            }
 
-        def get_vpc_type(endpoint):
-            """return type from `name[:type]/metanetwork`, defaulting to name if type is omitted"""
-            return endpoint.split('/')[0].split(':')[-1].strip()
+        def get_matching_vpcs(vpc_name, vpc_type, existing_vpcs):
+            """return a list of VPC names for VPCs that match the given vpc_name and vpc_type"""
+            return [vpc.tags['Name'] for vpc in existing_vpcs
+                    if vpc_name in ('*', vpc.tags['Name']) and vpc.tags['type'] == vpc_type]
 
-        def get_metanetwork(endpoint):
-            """return metanetwork from `name[:type]/metanetwork`"""
-            return endpoint.split('/')[1].strip()
+        source_info = get_endpoint_info(endpoints[0])
+        target_info = get_endpoint_info(endpoints[1])
 
-        def safe_get_from_list(_list, i):
-            """returns the i-th element in a list, or None if it doesn't exist"""
-            return _list[i] if _list and len(_list) > i else None
+        if source_info['vpc_type'] == '*' or target_info['vpc_type'] == '*':
+            raise VPCConfigError('Wildcards are not allowed for VPC type in "%s". '
+                                 'Please specify a VPC type when using a wild card for the VPC name' % line)
 
-        vpc_type_map = {
-            get_vpc_name(endpoint): get_vpc_type(endpoint)
-            for endpoint in endpoints
+        disco_vpc_objects = {
+            vpc.tags['Name']: DiscoVPC(vpc.tags['Name'], vpc.tags['type'], vpc)
+            for vpc in existing_vpcs
         }
 
-        vpc_objects = {
-            vpc_name: safe_get_from_list(
-                vpc_conn.get_all_vpcs(filters={'tag:Name': vpc_name}), 0)
-            for vpc_name in vpc_type_map.keys()
-        }
+        # find the VPCs that match the peering config. Replace wildcards with real VPC names
+        source_vpc_names = get_matching_vpcs(source_info['vpc_name'],
+                                             source_info['vpc_type'],
+                                             existing_vpcs)
+        target_vpc_names = get_matching_vpcs(target_info['vpc_name'],
+                                             target_info['vpc_type'],
+                                             existing_vpcs)
 
-        missing_vpcs = [vpc_name for vpc_name, vpc_object in vpc_objects.items() if not vpc_object]
+        # the source or target side might not have matched any VPCs
+        missing_vpcs = []
+        if not source_vpc_names:
+            missing_vpcs.append('%s:%s' % (source_info['vpc_name'], source_info['vpc_type']))
+        if not target_vpc_names:
+            missing_vpcs.append('%s:%s' % (target_info['vpc_name'], target_info['vpc_type']))
+
         if missing_vpcs:
             logging.debug(
                 "Skipping peering %s because the following VPC(s) are not up: %s",
-                line, ", ".join(map(str, missing_vpcs)))
+                line, ", ".join(missing_vpcs))
             return {}
 
-        vpc_map = {
-            k: DiscoVPC(k, v, vpc_objects[k])
-            for k, v in vpc_type_map.iteritems()
-        }
+        # peer every combination of source and target VPCs
+        # don't peer a VPC with itself
+        peerings = [peering for peering in product(source_vpc_names, target_vpc_names)
+                    if peering[0] != peering[1]]
 
-        for vpc in vpc_map.values():
-            if not vpc.networks:
-                raise RuntimeError("No metanetworks found for vpc {}. Are you sure it's of type {}?".format(
-                    vpc.environment_name, vpc.environment_type))
+        peering_configs = {}
+        for peering in peerings:
+            source_vpc_name = peering[0]
+            target_vpc_name = peering[1]
+            # create a new peering connection line with all wildcards replaced
+            peering_id = '%s:%s/%s %s:%s/%s' % (
+                source_vpc_name,
+                disco_vpc_objects[source_vpc_name].environment_type,
+                source_info['metanetwork'],
+                target_vpc_name,
+                disco_vpc_objects[target_vpc_name].environment_type,
+                target_info['metanetwork'],
+            )
 
-        vpc_metanetwork_map = {
-            get_vpc_name(endpoint): get_metanetwork(endpoint)
-            for endpoint in endpoints
-        }
+            vpc_map = {
+                source_vpc_name: disco_vpc_objects[source_vpc_name],
+                target_vpc_name: disco_vpc_objects[target_vpc_name]
+            }
 
-        return {
-            'vpc_metanetwork_map': vpc_metanetwork_map,
-            'vpc_map': vpc_map
-        }
+            vpc_metanetwork_map = {
+                source_vpc_name: source_info['metanetwork'],
+                target_vpc_name: target_info['metanetwork']
+            }
+
+            for vpc in vpc_map.values():
+                if not vpc.networks:
+                    raise RuntimeError("No metanetworks found for vpc %s. Are you sure it's of type %s?"
+                                       % (vpc.environment_name, vpc.environment_type))
+
+            peering_configs[peering_id] = {
+                'vpc_map': vpc_map,
+                'vpc_metanetwork_map': vpc_metanetwork_map
+            }
+
+        return peering_configs
 
     @staticmethod
     def parse_peerings_config(vpc_id=None):
@@ -835,16 +886,19 @@ class DiscoVPC(object):
                     "Expected 2 space-delimited endpoints but found: '{}'".format(peering))
 
         peering_configs = {}
+        existing_vpcs = [vpc for vpc in vpc_conn.get_all_vpcs()
+                         if 'type' in vpc.tags and 'Name' in vpc.tags]
         for peering in peerings:
-            peering_config = DiscoVPC.parse_peering_connection_line(peering, vpc_conn)
-            vpc_ids_in_peering = [vpc.vpc.id for vpc in peering_config.get("vpc_map", {}).values()]
+            peering_info = DiscoVPC.parse_peering_connection_line(peering, existing_vpcs)
+            for peering_id, peering_config in peering_info.iteritems():
+                vpc_ids_in_peering = [vpc.vpc.id for vpc in peering_config.get("vpc_map", {}).values()]
 
-            if len(vpc_ids_in_peering) < 2:
-                pass  # not all vpcs were up, nothing to do
-            elif vpc_id and vpc_id not in vpc_ids_in_peering:
-                logging.debug("Skipping peering %s because it doesn't include %s", peering, vpc_id)
-            else:
-                peering_configs[peering] = peering_config
+                if len(vpc_ids_in_peering) < 2:
+                    pass  # not all vpcs were up, nothing to do
+                elif vpc_id and vpc_id not in vpc_ids_in_peering:
+                    logging.debug("Skipping peering %s because it doesn't include %s", peering, vpc_id)
+                else:
+                    peering_configs[peering_id] = peering_config
 
         return peering_configs
 
@@ -936,26 +990,3 @@ class DiscoVPC(object):
                 vpc_conn.delete_vpc_peering_connection(peering.id)
             except EC2ResponseError:
                 raise RuntimeError('Failed to delete VPC Peering connection {}'.format(peering.id))
-
-    @staticmethod
-    def get_random_free_subnet(network_cidr, network_size, occupied_network_cidrs):
-        """
-        Pick a random available subnet from a bigger network
-        Args:
-            network_cidr (str): CIDR string describing a network
-            network_size (int): The number of bits for the CIDR of the subnet
-            occupied_network_cidrs (List[str]): List of CIDR strings describing existing networks
-                                                to avoid overlapping with
-
-        Returns str: The CIDR of a randomly chosen subnet that doesn't intersect with
-                     the ip ranges of any of the given other networks
-        """
-        possible_subnets = IPNetwork(network_cidr).subnet(int(network_size))
-        occupied_networks = [IPSet(IPNetwork(cidr)) for cidr in occupied_network_cidrs]
-
-        # find the subnets that don't overlap with any other networks
-        available_subnets = [subnet for subnet in possible_subnets
-                             if all([IPSet(subnet).isdisjoint(occupied_network)
-                                     for occupied_network in occupied_networks])]
-
-        return random.choice(available_subnets) if available_subnets else None
