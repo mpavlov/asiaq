@@ -82,7 +82,8 @@ class DiscoELB(object):
             load_balancer_name = tag_description["LoadBalancerName"]
             # If they have an 'elb_name' tag, use that instead of the actual LoadBalancerName
             elb_name = self._get_tag_value(tag_description, "elb_name") or load_balancer_name
-            elb = filter(lambda x: x["LoadBalancerName"] == load_balancer_name, elbs_in_env)[0]
+            elb = [elb_in_env["LoadBalancerName"] for elb_in_env in elbs_in_env
+                   if elb_in_env["LoadBalancerName"] == load_balancer_name][0]
             availability_zones = ','.join(elb["AvailabilityZones"])
 
             elb_infos.append({
