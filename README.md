@@ -1064,6 +1064,29 @@ ranges can also be defined with `intranet_cidr`, `tunnel_cidr`,
     Usually the problem is not as severe as there are only 2-4
     Availability zones per region.
 
+##### Dynamic IP ranges
+
+The IP range for a VPC can also be dynamically alocated with the `ip_space` and `vpc_cidr_size` options. For example:
+
+    [envtype:sandbox]
+    ip_space=10.0.0.0/16
+    vpc_cidr_size=20
+    
+A random IP range of size `vpc_cidr_size` inside of `ip_space` will be allocated for the VPC.
+The IP range chosen will not overlap with any existing VPCs or, if its not possible, an error will be thrown.
+
+In the same way, the IP range of the metaworks can be dynamically allocated
+by specifying `auto` for the metanetwork cidr options. For example:
+
+    [envtype:sandbox]
+    intranet_cidr=auto
+    tunnel_cidr=auto
+    maintenance_cidr=auto
+    dmz_cidr=10.0.1.0/24
+
+The IP range of the VPC will be automatically divided to allocate the metanetworks. 
+The `auto` option can be used together with statically defined IP ranges for different metanetworks. 
+
 #### Security Group (firewall) Settings
 
 Each metanetwork have many Security Group rules associated with it. Each
@@ -1233,9 +1256,31 @@ nature the way amazon maps subnets to specific availability zones any
 instance with a static IP gets locked into one arbitrary availability
 zone.
 
-Just like with EIPs the `@` notation (see above) can be used to assign
-different private static IP to instance in different IPs.
+There are two ways to assign static private IP. By metanetwork (subnet)
+offset and absolute IP address. The latter is straight forward:
 
+    [myhostclass]
+    ...
+    private_ip=10.0.0.5
+    ...
+
+But setting absolute IPs can very quickly become bothersome. If you have
+5 different environments with different ip spaces you'd have to explicitly
+set eip for each environment using the `@` notation (same as in EIP example
+above). So instead you can use the metanetwork offset, that is, specify
+that a host should take the 5th ip from the beginning of the metanetwork range:
+
+    [myhostclass]
+    ...
+    private_ip=+5
+    ...
+
+With this configuration host will be assigned private ip 10.0.0.5 in a
+10.0.0.0/16 network and 192.168.0.5 in a 192.168.0.0/16.
+
+WARNING! Setting a private IP on an instance will lock it a single
+Availability Zone. This is a limitation of AWS' subnets, they cannot
+span multiple Availability Zones.
 
 EBS Snapshots
 -------------
