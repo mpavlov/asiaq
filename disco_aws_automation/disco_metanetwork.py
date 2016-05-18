@@ -267,21 +267,61 @@ class DiscoMetaNetwork(object):
             groups=[self.security_group.id]
         )
 
-    def add_sg_rule(self, protocol, ports, sg_source=None, cidr_source=None):
-        """ Add a security rule to the network """
-        sg_args = {
-            "group_id": self.security_group.id,
-            "ip_protocol": protocol
+    @staticmethod
+    def _convert_sg_rule_tuple_to_dict(sg_rule_tuple):
+        sg_rule = {
+            "group_id": sg_rule_tuple[0],
+            "ip_protocol": sg_rule_tuple[1]
         }
-        if sg_source:
-            sg_args["src_security_group_group_id"] = sg_source
-        if cidr_source:
-            sg_args["cidr_ip"] = cidr_source
+        if sg_rule_tuple[4]:
+            sg_rule["src_security_group_group_id"] = sg_rule_tuple[4]
+        elif sg_rule_tuple[5]:
+            sg_rule["cidr_ip"] = sg_rule_tuple[5]
 
-        sg_args["from_port"] = ports[0]
-        sg_args["to_port"] = ports[1]
-        logging.debug("Adding sg_rule: %s", sg_args)
-        self._connection.authorize_security_group(**sg_args)
+        sg_rule["from_port"] = sg_rule_tuple[2]
+        sg_rule["to_port"] = sg_rule_tuple[3]
+
+        return sg_rule
+
+    def create_sg_rule_tuple(self, protocol, ports, sg_source=None, cidr_source=None):
+        """ Creates a tuple represeting a security group rule with the security groupd ID
+        of the current meta network added """
+        return self.security_group.id, protocol, ports[0], ports[1], sg_source, cidr_source
+
+    def update_sg_rules(self, new_sg_rules):
+        """ Update the security rules of the meta network so that they conform to
+        the new rules being passed in """
+        logging.debug("Update security rules for meta network {0}".format(self.name))
+        current_sg_rules = []
+        for rule in self.security_group.rules:
+            for grant in rule.grants:
+                current_sg_rules.append(
+                    self.create_sg_rule_tuple(rule.ip_protocol,
+                                              [int(rule.from_port), int(rule.to_port)],
+                                              grant.group_id,
+                                              grant.cidr_ip))
+
+        current_sg_rules = set(current_sg_rules)
+        new_sg_rules = set(new_sg_rules)
+
+        logging.debug("Adding new security group rules {0}".format(list(new_sg_rules - current_sg_rules)))
+        self.add_sg_rules(list(new_sg_rules - current_sg_rules))
+        logging.debug("Revoking security group rules {0}".format(list(current_sg_rules - new_sg_rules)))
+        self.revoke_sg_rules(list(current_sg_rules - new_sg_rules))
+
+    def revoke_sg_rules(self, rule_tuples):
+        """ Revoke the list of security group rules from the current meta network """
+        for rule in rule_tuples:
+            rule = DiscoMetaNetwork._convert_sg_rule_tuple_to_dict(rule)
+            if not self._connection.revoke_security_group(**rule):
+                logging.warning("Failed to revoke security group {0}".format(rule))
+
+    def add_sg_rules(self, rule_tuples):
+        """ Add a list of security rules to the current meta network """
+        for rule in rule_tuples:
+            rule = DiscoMetaNetwork._convert_sg_rule_tuple_to_dict(rule)
+            if not self._connection.authorize_security_group(**rule):
+                logging.warning("Failed to authorize security group {0}".format(rule))
 
     def ip_by_offset(self, offset):
         """

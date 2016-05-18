@@ -110,7 +110,7 @@ class DiscoVPC(object):
 
     def get_vpc_id(self):
         ''' Returns the vpc id '''
-        return self.vpc['Vpc']['VpcId'] if self.vpc['Vpc'] else None
+        return self.vpc['VpcId'] if self.vpc else None
 
     def ami_stage(self):
         '''Returns default AMI stage to deploy in a development environment'''
@@ -166,18 +166,20 @@ class DiscoVPC(object):
         Returns an instance of this class for the specified VPC, or None if it does not exist
         """
         client = boto3.client('ec2')
-        if vpc_id:
-            vpc = client.describe_vpcs(Filters=[{'Name': 'vpc-id', 'Values': [vpc_id]}])
-        elif environment_name:
-            vpc = client.describe_vpcs(Filters=[{'Name': 'tag:Name', 'Values': [environment_name]}])
-        else:
-            raise VPCEnvironmentError("Expect vpc_id or environment_name")
-        if vpc['Vpcs']:
-            tags = tag2dict(vpc['Vpcs'][0]['Tags'] if 'Tags' in vpc else None)
-            vpc['Vpc'] = vpc['Vpcs'][0]
-            return cls(tags.get("Name", '-'), tags.get("type", '-'), vpc)
-        else:
+        try:
+            if vpc_id:
+                vpc = client.describe_vpcs(
+                    Filters=[{'Name': 'vpc-id', 'Values': [vpc_id]}])['Vpcs'][0]
+            elif environment_name:
+                vpc = client.describe_vpcs(
+                    Filters=[{'Name': 'tag:Name', 'Values': [environment_name]}])['Vpcs'][0]
+            else:
+                raise VPCEnvironmentError("Expect vpc_id or environment_name")
+        except IndexError:
             return None
+
+        tags = tag2dict(vpc['Tags'] if 'Tags' in vpc else None)
+        return cls(tags.get("Name", '-'), tags.get("type", '-'), vpc)
 
     @property
     def networks(self):
@@ -322,13 +324,23 @@ class DiscoVPC(object):
             if allocation_ids:
                 network.add_nat_gateways(allocation_ids)
 
+    def _update_sg_rules(self, network):
+        new_sg_rule_tuples = self._get_sg_rule_tuples(network)
+
+        network.update_sg_rules(new_sg_rule_tuples)
+
     def _add_sg_rules(self, network):
+        sg_rule_tuples = self._get_sg_rule_tuples(network)
+        network.add_sg_rules(sg_rule_tuples)
+
+    def _get_sg_rule_tuples(self, network):
         rules = self.get_config("{0}_sg_rules".format(network.name))
         if not rules:
             # No config, nothing to do
             return
 
         rules = rules.split(",")
+        sg_rule_tuples = []
         for rule in rules:
             rule = rule.strip().split()
             if len(rule) < 3 or not all(rule):
@@ -336,29 +348,34 @@ class DiscoVPC(object):
                     "Cannot make heads or tails of rule {0} for metanetwork {1}."
                     .format(" ".join(rule), network.name)
                 )
+
             protocol = rule[0]
             source = rule[1]
             ports = rule[2:]
+
             for port_def in ports:
                 port_def = self._extract_port_range(port_def)
                 if source.lower() == "all":
                     # Handle rule where source is all other networks
                     for source_network in self.networks.values():
-                        network.add_sg_rule(
+                        sg_rule_tuples.append(network.create_sg_rule_tuple(
                             protocol,
                             port_def,
                             sg_source=source_network.security_group.id
-                        )
+                        ))
                 elif "/" in source:
                     # Handle CIDR based sources
-                    network.add_sg_rule(protocol, port_def, cidr_source=source)
+                    sg_rule_tuples.append(network.create_sg_rule_tuple(
+                        protocol, port_def, cidr_source=source))
                 else:
                     # Single network wide source
-                    network.add_sg_rule(
+                    sg_rule_tuples.append(network.create_sg_rule_tuple(
                         protocol,
                         port_def,
                         sg_source=self.networks[source].security_group.id
-                    )
+                    ))
+
+        return sg_rule_tuples
 
     def _add_igw_routes(self, internet_gateway):
         logging.debug("Adding IGW routes")
@@ -486,30 +503,17 @@ class DiscoVPC(object):
 
     def _update_environment(self):
         """Update the disco style environment VPC"""
+        # TODO: We should probably ignore changes in cidr
+        """
         vpc_cidr = self.get_config("vpc_cidr")
-        vpcs = self.client.describe_vpcs(Filters=[{'Name': 'tag-value', 'Values': [self.environment_name]}])
-
-        if vpcs is None:
-            logging.error("Failed to find vpc : %s", self.environment_name)
-            raise Exception("Failed to find vpc : {}".format(self.environment_name))
-
-        if len(vpcs['Vpcs']) > 1:
-            vpc_names = [tag['Value'] for vpc in vpcs['Vpcs'] if 'Tags' in vpc
-                         for tag in vpc['Tags'] if tag['Key'] == 'Name']
-            logging.error("More than one vpc was found : %s", vpc_names)
-            raise Exception("More than one vpc was found : %s" % vpc_names)
-
-        vpc = vpcs['Vpcs'][0]
-
-        if vpc_cidr != vpc['CidrBlock']:
+        if vpc_cidr != self.vpc['CidrBlock']:
             logging.error("VPC cannot be updated, Cidr values are different, %s instead of"
-                          "%s", vpc_cidr, vpc['CidrBlock'])
+                          "%s", vpc_cidr, self.vpc['CidrBlock'])
+        """
 
-        vpc_id = vpc['VpcId']
+        for network in self.networks.values():
+            self._update_sg_rules(network)
 
-        sgs = self.client.describe_security_groups(Filters=[{'Name': 'vpc-id', 'Values': [vpc_id]}])
-
-        print sgs
         networks = self.networks
 
         print networks
@@ -538,9 +542,9 @@ class DiscoVPC(object):
         # Create VPC
         self.vpc = self.client.create_vpc(vpc_cidr)
         waiter = self.client.get_waiter('vpc_available')
-        waiter.wait(VpcIds=[self.vpc['Vpc']['VpcId']])
+        waiter.wait(VpcIds=[self.vpc['VpcId']])
         ec2 = boto3.resource('ec2')
-        vpc = ec2.Vpc(self.vpc['Vpc']['VpcId'])
+        vpc = ec2.Vpc(self.vpc['VpcId'])
         tags = vpc.create_tags(Tags=[{'Key': 'Name', 'Value': self.environment_name},
                                      {'Key': 'type', 'Value': self.environment_type}])
         logging.debug("vpc: %s", self.vpc)
@@ -548,12 +552,12 @@ class DiscoVPC(object):
 
         dhcp_options = self._configure_dhcp()[0]
         self.client.associate_dhcp_options(DhcpOptionsId=dhcp_options['DhcpOptionsId'],
-                                           VpcId=self.vpc['Vpc']['VpcId'])
+                                           VpcId=self.vpc['VpcId'])
 
         # Enable DNS
-        self.client.modify_vpc_attribute(VpcId=self.vpc['Vpc']['VpcId'],
+        self.client.modify_vpc_attribute(VpcId=self.vpc['VpcId'],
                                          EnableDnsSupport={'Value': True})
-        self.client.modify_vpc_attribute(VpcId=self.vpc['Vpc']['VpcId'],
+        self.client.modify_vpc_attribute(VpcId=self.vpc['VpcId'],
                                          EnableDnsHostnames={'Value': True})
 
         # Create metanetworks (subnets, route_tables and security groups)
@@ -643,7 +647,7 @@ class DiscoVPC(object):
 
     def vpc_filter(self):
         """Filter used to get only the current VPC when filtering an AWS reply by 'vpc-id'"""
-        return {"Name": "vpc-id", "Values": [self.vpc['Vpc']['VpcId']]}
+        return {"Name": "vpc-id", "Values": [self.vpc['VpcId']]}
 
     def update(self):
         ''' Update an existing VPC '''
@@ -785,7 +789,7 @@ class DiscoVPC(object):
         # get_all_dhcp_options does not support filter. Because we cannot easily find the default dhcp
         # options, re-assigning default dhcp option is not trivial.
         # delete_dhcp_options = self.vpc.connection.delete_dhcp_options
-        dhcp_options_id = self.vpc['Vpc']['DhcpOptionsId']
+        dhcp_options_id = self.vpc['DhcpOptionsId']
 
         self.client.delete_vpc(VpcId=self.get_vpc_id())
         # delete_status = keep_trying(30, self.vpc.delete)
