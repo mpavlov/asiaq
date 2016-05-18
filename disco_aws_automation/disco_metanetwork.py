@@ -283,10 +283,10 @@ class DiscoMetaNetwork(object):
 
         return sg_rule
 
-    def create_sg_rule_tuple(self, protocol, ports, sg_source=None, cidr_source=None):
+    def create_sg_rule_tuple(self, protocol, ports, sg_source_id=None, cidr_source=None):
         """ Creates a tuple represeting a security group rule with the security groupd ID
         of the current meta network added """
-        return self.security_group.id, protocol, ports[0], ports[1], sg_source, cidr_source
+        return self.security_group.id, protocol, ports[0], ports[1], sg_source_id, cidr_source
 
     def update_sg_rules(self, new_sg_rules):
         """ Update the security rules of the meta network so that they conform to

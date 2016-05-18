@@ -80,7 +80,7 @@ class DiscoVPC(object):
         if vpc:
             self.vpc = vpc
         else:
-            self._configure_environment()
+            self._create_environment()
 
     @property
     def config(self):
@@ -274,38 +274,6 @@ class DiscoVPC(object):
         ports = port_def.split(":")
         return [int(ports[0]), int(ports[1] if len(ports) > 1 else ports[0])]
 
-    def _open_customer_ports(self):
-        # TODO port to _add_sg_rules
-        customer_ports = self.get_config("customer_ports", "").split()
-        customer_cidrs = self.get_config("customer_cidr", "").split()
-        for port_def in customer_ports:
-            port_range = DiscoVPC._extract_port_range(port_def)
-            for customer_cidr in customer_cidrs:
-                # Allow traffic from customer to dmz
-                self.vpc.connection.authorize_security_group(
-                    group_id=self.networks["dmz"].security_group.id,
-                    ip_protocol="tcp",
-                    from_port=port_range[0],
-                    to_port=port_range[1],
-                    cidr_ip=customer_cidr
-                )
-            # Allow within DMZ so that vpn host can talk to lbexternal
-            self.vpc.connection.authorize_security_group(
-                group_id=self.networks["dmz"].security_group.id,
-                ip_protocol="tcp",
-                from_port=port_range[0],
-                to_port=port_range[1],
-                src_security_group_group_id=self.networks["dmz"].security_group.id
-            )
-            # Allow traffic from dmz to intranet (for lbexternal)
-            self.vpc.connection.authorize_security_group(
-                group_id=self.networks["intranet"].security_group.id,
-                ip_protocol="tcp",
-                from_port=port_range[0],
-                to_port=port_range[1],
-                src_security_group_group_id=self.networks["dmz"].security_group.id
-            )
-
     def _update_nat_gateways(self, network):
         eips = self.get_config("{0}_nat_gateways".format(network.name))
         if not eips:
@@ -359,9 +327,8 @@ class DiscoVPC(object):
                     # Handle rule where source is all other networks
                     for source_network in self.networks.values():
                         sg_rule_tuples.append(network.create_sg_rule_tuple(
-                            protocol,
-                            port_def,
-                            sg_source=source_network.security_group.id
+                            protocol, port_def,
+                            sg_source_id=source_network.security_group.id
                         ))
                 elif "/" in source:
                     # Handle CIDR based sources
@@ -370,10 +337,58 @@ class DiscoVPC(object):
                 else:
                     # Single network wide source
                     sg_rule_tuples.append(network.create_sg_rule_tuple(
-                        protocol,
-                        port_def,
-                        sg_source=self.networks[source].security_group.id
+                        protocol, port_def,
+                        sg_source_id=self.networks[source].security_group.id
                     ))
+
+        # Add security rules for customer ports
+        sg_rule_tuples += self._get_dmz_customer_ports_sg_rules(network) +\
+            self._get_intranet_customer_ports_sg_rules(network)
+
+        # Add security rules to allow ICMP (ping, traceroute & etc) and DNS
+        # traffic for all subnets
+        sg_rule_tuples += self._get_icmp_sg_rules(network)
+
+        return sg_rule_tuples
+
+    def _get_icmp_sg_rules(self, network):
+        return [network.create_sg_rule_tuple("icmp", [-1, -1],
+                                             cidr_source=self.vpc['CidrBlock']),
+                network.create_sg_rule_tuple("udp", [53, 53],
+                                             cidr_source=self.vpc['CidrBlock'])]
+
+    def _get_dmz_customer_ports_sg_rules(self, network):
+        sg_rule_tuples = []
+        if network.name == "dmz":
+            customer_ports = self.get_config("customer_ports", "").split()
+            customer_cidrs = self.get_config("customer_cidr", "").split()
+
+            for port_def in customer_ports:
+                port_range = DiscoVPC._extract_port_range(port_def)
+                for customer_cidr in customer_cidrs:
+                    # Allow traffic from customer to dmz
+                    sg_rule_tuples.append(network.create_sg_rule_tuple(
+                        "tcp", port_range, cidr_source=customer_cidr))
+
+                # Allow within DMZ so that vpn host can talk to lbexternal
+                sg_rule_tuples.append(network.create_sg_rule_tuple(
+                    "tcp", port_range,
+                    sg_source_id=network.security_group.id
+                ))
+
+        return sg_rule_tuples
+
+    def _get_intranet_customer_ports_sg_rules(self, network):
+        sg_rule_tuples = []
+        if network.name == "intranet":
+            customer_ports = self.get_config("customer_ports", "").split()
+            for port_def in customer_ports:
+                port_range = DiscoVPC._extract_port_range(port_def)
+                # Allow traffic from dmz to intranet (for lbexternal)
+                sg_rule_tuples.append(network.create_sg_rule_tuple(
+                    "tcp", port_range,
+                    sg_source_id=self.networks["dmz"].security_group.id
+                ))
 
         return sg_rule_tuples
 
@@ -518,7 +533,7 @@ class DiscoVPC(object):
 
         print networks
 
-    def _configure_environment(self):
+    def _create_environment(self):
         """Create a new disco style environment VPC"""
         vpc_cidr = self.get_config("vpc_cidr")
 
@@ -565,29 +580,9 @@ class DiscoVPC(object):
         for network in self.networks.values():
             network.create()
 
-        # Configure security group rules
+        # Configure security group rules for all meta networks
         for network in self.networks.values():
             self._add_sg_rules(network)
-
-        # Set up security group rules
-        self._open_customer_ports()
-
-        # Allow ICMP (ping, traceroute & etc) and DNS traffic for all subnets
-        for network in self.networks.values():
-            self.client.authorize_security_group_ingress(
-                GroupId=network.security_group.id,
-                IpProtocol="icmp",
-                FromPort=-1,
-                ToPort=-1,
-                CidrIp=vpc_cidr
-            )
-            self.client.authorize_security_group_ingress(
-                GroupId=network.security_group.id,
-                IpProtocol="udp",
-                FromPort=53,
-                ToPort=53,
-                CidrIp=vpc_cidr
-            )
 
         # Setup internet gateway
         internet_gateway = self.client.create_internet_gateway()
