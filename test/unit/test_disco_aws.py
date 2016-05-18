@@ -19,12 +19,14 @@ from test.helpers.patch_disco_aws import (patch_disco_aws,
 
 def _get_meta_network_mock():
     ret = MagicMock()
-    ret = MagicMock()
     ret.security_group = MagicMock()
     ret.security_group.id = "sg-1234abcd"
-    ret.subnets = [MagicMock() for _ in xrange(3)]
-    for subnet in ret.subnets:
-        subnet.id = "s-1234abcd"
+    ret.disco_subnets = {}
+    for _ in xrange(3):
+        zone_name = 'zone{0}'.format(_)
+        ret.disco_subnets[zone_name] = MagicMock()
+        ret.disco_subnets[zone_name].subnet_dict = dict()
+        ret.disco_subnets[zone_name].subnet_dict['SubnetId'] = "s-1234abcd"
     return MagicMock(return_value=ret)
 
 
@@ -357,6 +359,17 @@ class DiscoAWSTests(TestCase):
 
         user_data = aws.create_userdata(hostclass="mhcunittest", owner="unittestuser")
         self.assertEqual(user_data["eip"], eip)
+
+    @patch_disco_aws
+    def test_create_userdata_with_zookeeper(self, **kwargs):
+        """
+        create_userdata sets 'zookeepers' key
+        """
+        config_dict = get_default_config_dict()
+        aws = DiscoAWS(config=get_mock_config(config_dict), environment_name=TEST_ENV_NAME)
+
+        user_data = aws.create_userdata(hostclass="mhcunittest", owner="unittestuser", testing=False)
+        self.assertEqual(user_data["zookeepers"], "[\\\"10.0.0.1:2181\\\"]")
 
     @patch_disco_aws
     def test_smoketest_all_good(self, mock_config, **kwargs):
