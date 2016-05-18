@@ -259,3 +259,13 @@ class DiscoELBTests(TestCase):
         self._create_elb(hostclass='mhcfoo')
         self.disco_elb.destroy_all_elbs()
         self.assertEquals(len(self.disco_elb.list()), 0)
+
+    @mock_elb
+    def test_wait_for_instance_health(self):
+        """Test that we can wait for instances attached to an ELB to enter a specific state"""
+        self._create_elb(hostclass='mhcbar')
+        elb_name = self.disco_elb.get_elb_name(TEST_ENV_NAME, 'mhcbar')
+        instances = [{"InstanceId": "i-123123aa"}]
+        self.disco_elb.elb_client.register_instances_with_load_balancer(LoadBalancerName=elb_name,
+                                                                        Instances=instances)
+        self.disco_elb.wait_for_instance_health_state(hostclass='mhcbar')

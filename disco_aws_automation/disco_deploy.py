@@ -409,7 +409,7 @@ class DiscoDeploy(object):
                      DEPLOYMENT_STRATEGY_BLUE_GREEN)
 
         if dry_run:
-            return
+            return True
 
         hostclass = pipeline_dict["hostclass"]
         uses_elb = is_truthy(self.hostclass_option_default(hostclass, "elb", "no"))
@@ -421,9 +421,9 @@ class DiscoDeploy(object):
 
         # If there is an already existing ASG, use its sizing. Otherwise, use the pipeline's sizing.
         if old_group:
-            new_group_config["max_size"] = old_group.desired_capacity or pipeline_dict["desired_size"]
-            new_group_config["min_size"] = old_group.max_size or pipeline_dict["max_size"]
-            new_group_config["desired_size"] = old_group.min_size or pipeline_dict["min_size"]
+            new_group_config["desired_size"] = old_group.desired_capacity or pipeline_dict["desired_size"]
+            new_group_config["max_size"] = old_group.max_size or pipeline_dict["max_size"]
+            new_group_config["min_size"] = old_group.min_size or pipeline_dict["min_size"]
 
         # Spinup our new autoscaling group in testing mode, making one even if one already exists.
         self._disco_aws.spinup([new_group_config], create_if_exists=True, testing=True)
@@ -434,15 +434,16 @@ class DiscoDeploy(object):
             raise RuntimeError("Old group and new group should not be the same.")
 
         try:
-            if (self.wait_for_smoketests(ami.id, new_group_config["desired_size"] or 1) and
-                    (not run_tests or self.run_integration_tests(ami, wait_for_elb=uses_elb))):
+            smoke_tests = self.wait_for_smoketests(ami.id, new_group_config["desired_size"] or 1)
+            integration_tests = not run_tests or self.run_integration_tests(ami, wait_for_elb=uses_elb)
+            if smoke_tests and integration_tests:
                 # If testing passed, mark AMI as tested
                 self._promote_ami(ami, "tested")
                 # Get list of instances in group
                 group_instance_ids = [inst.instance_id for inst in
                                       self._disco_autoscale.get_instances(group_name=new_group.name)]
                 group_instances = self._disco_aws.instances(instance_ids=group_instance_ids)
-                # If we are actually deploying and are able to leave testing mode and start serving requests
+                # If we are actually deploying and are able to leave testing mode
                 if deployable and self._set_testing_mode(hostclass, group_instances, False):
                     logging.info("Successfully left testing mode for group %s", new_group.name)
                     # Update ASG to exit testing mode and attach to the normal ELB if applicable.
@@ -460,6 +461,7 @@ class DiscoDeploy(object):
                                 # Destroy the testing ELB
                                 self._disco_elb.delete_elb(hostclass, testing=True)
                             return False
+
                     # we can destroy the old group
                     if old_group:
                         # Destroy the original ASG
@@ -480,7 +482,9 @@ class DiscoDeploy(object):
                     if uses_elb:
                         # Destroy the testing ELB
                         self._disco_elb.delete_elb(hostclass, testing=True)
-                    return True
+                    # If deployable was False, return True, otherwise we're here because testing mode broke,
+                    # so return False
+                    return not deployable or False
             else:
                 self._promote_ami(ami, "failed")
         except (MaintenanceModeError, IntegrationTestError):
@@ -586,8 +590,8 @@ class DiscoDeploy(object):
                                                                         DEPLOYMENT_STRATEGY_CLASSIC)
 
         if desired_deployment_strategy == DEPLOYMENT_STRATEGY_BLUE_GREEN:
-            self.handle_blue_green_ami(pipeline_hostclass_dict, ami, group, deployable=deployable,
-                                       run_tests=testable, dry_run=dry_run)
+            return self.handle_blue_green_ami(pipeline_hostclass_dict, ami, group, deployable=deployable,
+                                              run_tests=testable, dry_run=dry_run)
         elif not deployable:
             self.handle_nodeploy_ami(
                 pipeline_hostclass_dict, ami, desired_capacity, dry_run=dry_run)
