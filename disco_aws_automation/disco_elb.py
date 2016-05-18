@@ -10,6 +10,7 @@ import hashlib
 import boto3
 import botocore
 
+from .disco_aws_util import get_tag_value
 from .disco_route53 import DiscoRoute53
 from .disco_acm import DiscoACM
 from .disco_iam import DiscoIAM
@@ -81,7 +82,7 @@ class DiscoELB(object):
         for tag_description in tag_descriptions:
             load_balancer_name = tag_description["LoadBalancerName"]
             # If they have an 'elb_name' tag, use that instead of the actual LoadBalancerName
-            elb_name = self._get_tag_value(tag_description, "elb_name") or load_balancer_name
+            elb_name = get_tag_value(tag_description["Tags"], "elb_name") or load_balancer_name
             elb = [elb_in_env["LoadBalancerName"] for elb_in_env in elbs_in_env
                    if elb_in_env["LoadBalancerName"] == load_balancer_name][0]
             availability_zones = ','.join(elb["AvailabilityZones"])
@@ -93,12 +94,6 @@ class DiscoELB(object):
             })
 
         return elb_infos
-
-    def _get_tag_value(self, tag_description, key):
-        for tag in tag_description["Tags"]:
-            if tag["Key"] == key:
-                return tag["Value"]
-        return None
 
     def get_cname(self, hostclass, domain_name, testing=False):
         """Get the expected subdomain for an ELB for a hostclass"""

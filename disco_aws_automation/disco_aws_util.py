@@ -18,6 +18,17 @@ class EasyExit(Exception):
     pass
 
 
+def get_tag_value(tag_list, key):
+    """
+    Given a list of dictionaries representing tags, returns the value of the given key, or None if the key
+    cannot be found.
+    """
+    for tag in tag_list:
+        if tag["Key"] == key:
+            return tag["Value"]
+    return None
+
+
 def is_truthy(value):
     """
     Return true if value resembles a affirmation
