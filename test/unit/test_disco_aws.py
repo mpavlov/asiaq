@@ -368,7 +368,7 @@ class DiscoAWSTests(TestCase):
         config_dict = get_default_config_dict()
         aws = DiscoAWS(config=get_mock_config(config_dict), environment_name=TEST_ENV_NAME)
 
-        user_data = aws.create_userdata(hostclass="mhcunittest", owner="unittestuser", testing=False)
+        user_data = aws.create_userdata(hostclass="mhcunittest", owner="unittestuser")
         self.assertEqual(user_data["zookeepers"], "[\\\"10.0.0.1:2181\\\"]")
 
     @patch_disco_aws
