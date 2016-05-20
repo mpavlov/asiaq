@@ -473,7 +473,8 @@ class DiscoDeploy(object):
                     # we can destroy the old group
                     if old_group:
                         # Empty the original ASG for connection draining purposes
-                        self._disco_autoscale.scaledown_groups(group_name=old_group.name, wait=True, noerror=True)
+                        self._disco_autoscale.scaledown_groups(group_name=old_group.name, wait=True,
+                                                               noerror=True)
                         # Destroy the original ASG
                         self._disco_autoscale.delete_groups(group_name=old_group.name, force=True)
                     if uses_elb:
