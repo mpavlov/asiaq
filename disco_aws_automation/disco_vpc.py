@@ -812,7 +812,7 @@ class DiscoVPC(object):
             missing_vpcs.append('%s:%s' % (target_info['vpc_name'], target_info['vpc_type']))
 
         if missing_vpcs:
-            logging.debug(
+            logging.warn(
                 "Skipping peering %s because the following VPC(s) are not up: %s",
                 line, ", ".join(missing_vpcs))
             return {}
