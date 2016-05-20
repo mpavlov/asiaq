@@ -433,14 +433,18 @@ class DiscoDeployTests(TestCase):
         self._ci_deploy.run_integration_tests = MagicMock(return_value=True)
         new_group = self.mock_group("mhcbluegreen")
         self._disco_autoscale.get_existing_group.side_effect = [None, new_group]
+        instances = [self.mock_instance(), self.mock_instance(), self.mock_instance()]
+        self._disco_autoscale.get_instances.return_value = instances
+        self._disco_aws.instances.return_value = instances
+        self._disco_aws.remotecmd.return_value = (0, "Okay")
         self.assertTrue(self._ci_deploy.test_ami(ami, dry_run=False))
         self._disco_bake.promote_ami.assert_called_once_with(ami, 'tested')
         self._disco_aws.spinup.assert_has_calls(
-            [call([{'ami': 'ami-12345678', 'sequence': 1, 'deployable': 'yes',
+            [call([{'ami': 'ami-12345678', 'sequence': 1, 'deployable': 'yes', 'max_size': 1,
                     'min_size': 1, 'integration_test': "blue_green_service", 'desired_size': 1,
                     'smoke_test': 'no', 'hostclass': 'mhcbluegreen'}], testing=True, create_if_exists=True),
              call([{'ami': 'ami-12345678', 'sequence': 1, 'deployable': 'yes',
-                    'min_size': 1, 'desired_size': 1,
+                    'min_size': 1, 'desired_size': 1, 'max_size': 1,
                     'integration_test': "blue_green_service", 'smoke_test': 'no',
                     'hostclass': 'mhcbluegreen'}], group_name=new_group.name)])
         self._disco_autoscale.delete_groups.assert_not_called()
@@ -455,10 +459,14 @@ class DiscoDeployTests(TestCase):
         self._ci_deploy.run_integration_tests = MagicMock(return_value=True)
         new_group = self.mock_group("mhcbluegreennondeployable")
         self._disco_autoscale.get_existing_group.side_effect = [None, new_group]
+        instances = [self.mock_instance(), self.mock_instance(), self.mock_instance()]
+        self._disco_autoscale.get_instances.return_value = instances
+        self._disco_aws.instances.return_value = instances
+        self._disco_aws.remotecmd.return_value = (0, "Okay")
         self.assertTrue(self._ci_deploy.test_ami(ami, dry_run=False))
         self._disco_bake.promote_ami.assert_called_once_with(ami, 'tested')
         self._disco_aws.spinup.assert_called_once_with([{
-            'ami': 'ami-12345678', 'sequence': 1, 'deployable': 'no', 'min_size': 1,
+            'ami': 'ami-12345678', 'sequence': 1, 'deployable': 'no', 'min_size': 1, 'max_size': 1,
             'integration_test': "blue_green_service", 'desired_size': 1, 'smoke_test': 'no',
             'hostclass': 'mhcbluegreennondeployable'}], testing=True, create_if_exists=True)
         self._disco_autoscale.delete_groups.assert_called_once_with(group_name=new_group.name, force=True)
@@ -474,6 +482,10 @@ class DiscoDeployTests(TestCase):
         old_group = self.mock_group("mhcbluegreen", min_size=2, max_size=4, desired_size=3)
         new_group = self.mock_group("mhcbluegreen")
         self._disco_autoscale.get_existing_group.side_effect = [old_group, new_group]
+        instances = [self.mock_instance(), self.mock_instance(), self.mock_instance()]
+        self._disco_autoscale.get_instances.return_value = instances
+        self._disco_aws.instances.return_value = instances
+        self._disco_aws.remotecmd.return_value = (0, "Okay")
         self.assertTrue(self._ci_deploy.test_ami(ami, dry_run=False))
         self._disco_bake.promote_ami.assert_called_once_with(ami, 'tested')
         self._disco_aws.spinup.assert_has_calls(

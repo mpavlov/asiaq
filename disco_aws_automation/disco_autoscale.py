@@ -10,6 +10,7 @@ import boto.ec2.autoscale.launchconfig
 import boto.ec2.autoscale.group
 from boto.ec2.autoscale.policy import ScalingPolicy
 from boto.exception import BotoServerError
+from botocore.exceptions import WaiterError
 import boto3
 
 from .resource_helper import throttled_call
@@ -21,10 +22,12 @@ DEFAULT_TERMINATION_POLICIES = ["OldestLaunchConfiguration"]
 class DiscoAutoscale(object):
     '''Class orchestrating autoscaling'''
 
-    def __init__(self, environment_name, autoscaling_connection=None, boto3_autoscaling_connection=None):
+    def __init__(self, environment_name, autoscaling_connection=None, boto3_autoscaling_connection=None,
+                 boto3_ec_connection=None):
         self.environment_name = environment_name
         self._connection = autoscaling_connection or None  # lazily initialized
         self._boto3_autoscale = boto3_autoscaling_connection or None  # lazily initialized
+        self._boto3_ec = boto3_ec_connection or None  # lazily initialized
 
     @property
     def connection(self):
@@ -40,6 +43,13 @@ class DiscoAutoscale(object):
             self._boto3_autoscale = boto3.client('autoscaling')
         return self._boto3_autoscale
 
+    @property
+    def boto3_ec(self):
+        '''Lazily create boto3 ec2 connection'''
+        if not self._boto3_ec:
+            self._boto3_ec = boto3.client('ec2')
+        return self._boto3_ec
+
     def get_new_groupname(self, hostclass):
         '''Returns a new autoscaling group name when given a hostclass'''
         return self.environment_name + '_' + hostclass + "_" + str(int(time.time()))
@@ -52,6 +62,7 @@ class DiscoAutoscale(object):
         ]
 
     def _filter_instance_by_environment(self, items):
+        """Filter instances by environment via their group_name"""
         return [
             item for item in items
             if item.group_name.startswith("{0}_".format(self.environment_name))
@@ -157,14 +168,30 @@ class DiscoAutoscale(object):
         use. Defaults to False.'''
         self.delete_groups(force=force)
 
-    def scaledown_group(self, hostclass=None, group_name=None):
+    def scaledown_groups(self, hostclass=None, group_name=None, wait=False, noerror=False):
         '''
-        Scales down number of instances in a hostclass's most recent autoscaling group, or the given
-        autoscaling group, to zero
+        Scales down number of instances in a hostclass's autoscaling group, or the given autoscaling group,
+        to zero. If wait is true, this function will block until all instances are terminated, or it will
+        raise a WaiterError if this process times out, unless noerror is True.
         '''
-        group = self.get_existing_group(hostclass=hostclass, group_name=group_name)
-        group.min_size = group.max_size = group.desired_capacity = 0
-        throttled_call(group.update)
+        groups = self.get_existing_groups(hostclass=hostclass, group_name=group_name)
+        for group in groups:
+            group.min_size = group.max_size = group.desired_capacity = 0
+            logging.info("Scaling down group %s", group.name)
+            throttled_call(group.update)
+
+            if wait:
+                waiter = throttled_call(self.boto3_ec.get_waiter, 'instance_terminated')
+                instance_ids = [inst.instance_id for inst in self.get_instances(group_name=group_name)]
+
+                try:
+                    logging.info("Waiting for scaledown of group %s", group.name)
+                    waiter.wait(InstanceIds=instance_ids)
+                except WaiterError:
+                    if noerror:
+                        logging.exception("Unable to wait for scaling down of %s", group_name)
+                    else:
+                        raise
 
     @staticmethod
     def create_autoscale_tags(group_name, tags):
@@ -346,6 +373,7 @@ class DiscoAutoscale(object):
 
     @staticmethod
     def _get_snapshot_dev(launch_config, hostclass):
+        """Returns the snapshot device config"""
         snapshot_devs = [key for key, value in launch_config.block_device_mappings.iteritems()
                          if value.snapshot_id]
         if not snapshot_devs:
@@ -356,6 +384,7 @@ class DiscoAutoscale(object):
         return snapshot_devs[0]
 
     def _create_new_launchconfig(self, hostclass, launch_config):
+        """Creates a launch configuration"""
         return self.get_config(
             name='{0}_{1}_{2}'.format(self.environment_name, hostclass, str(random.randrange(0, 9999999))),
             image_id=launch_config.image_id,
