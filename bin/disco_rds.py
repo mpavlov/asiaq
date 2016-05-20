@@ -96,7 +96,7 @@ def run():
             print(line)
     elif args.mode == "update":
         if args.cluster:
-            rds.update_cluster(args.cluster)
+            rds.update_cluster_by_id(args.cluster)
         else:
             rds.update_all_clusters_in_vpc()
     elif args.mode == "delete":
