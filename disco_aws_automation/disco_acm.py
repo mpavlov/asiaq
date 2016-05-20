@@ -12,9 +12,24 @@ class DiscoACM(object):
     A class to manage the Amazon Certificate Service
 
     """
+    WILDCARD_PREFIX = "*."
 
     def __init__(self, connection=None):
         self._acm = connection
+
+    def _in_domain(self, domain, dns_name):
+        """Returns whether the host is in the ACM certificate domain"""
+        if dns_name == domain:
+            return True
+
+        # handle wildcard cert domains
+        name, subdomain = dns_name.split('.', 1)
+        if not name:
+            return False
+
+        domain_suffix = (domain[len(self.WILDCARD_PREFIX):]
+            if domain.startswith(self.WILDCARD_PREFIX) else domain)
+        return subdomain.endswith(domain_suffix)
 
     @property
     def acm(self):
@@ -26,7 +41,7 @@ class DiscoACM(object):
         """
         if not self._acm:
             try:
-                self._acm = boto3.client('acm', region_name='us-east-1')
+                self._acm = boto3.client('acm')
             except Exception:
                 logging.warning("ACM service does not exist in current region")
                 return None
@@ -39,7 +54,7 @@ class DiscoACM(object):
 
         try:
             certs = self.acm.list_certificates()["CertificateSummaryList"]
-            cert = [cert['CertificateArn'] for cert in certs if cert['DomainName'] == dns_name]
+            cert = [cert['CertificateArn'] for cert in certs if self._in_domain(cert['DomainName'], dns_name)]
             return cert[0] if cert else None
         except (botocore.exceptions.EndpointConnectionError,
                 botocore.vendored.requests.exceptions.ConnectionError):
