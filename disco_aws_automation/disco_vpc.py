@@ -241,11 +241,17 @@ class DiscoVPC(object):
         internal_dns = self.get_config("internal_dns")
         external_dns = self.get_config("external_dns")
         domain_name = self.get_config("domain_name")
+
         ntp_server = self.get_config("ntp_server")
+        if not ntp_server:
+            ntp_server_metanetwork = self.get_config("ntp_server_metanetwork")
+            ntp_server_offset = self.get_config("ntp_server_offset")
+            ntp_server = self.networks[ntp_server_metanetwork].ip_by_offset(ntp_server_offset)
 
         # internal_dns server should be default, and for this reason it comes last.
-        dhcp_options = self.vpc.connection.create_dhcp_options(domain_name,
-                                                               [internal_dns, external_dns], ntp_server)
+        dhcp_options = self.vpc.connection.create_dhcp_options(
+            domain_name, [internal_dns, external_dns], ntp_server
+        )
         keep_trying(300, dhcp_options.add_tag, "Name", self.environment_name)
         return dhcp_options
 
@@ -492,17 +498,17 @@ class DiscoVPC(object):
         keep_trying(300, self.vpc.add_tag, "type", self.environment_type)
         logging.debug("vpc: %s", self.vpc)
 
+        # Create metanetworks (subnets, route_tables and security groups)
+        self._networks = self._create_new_meta_networks()
+        for network in self.networks.values():
+            network.create()
+
         dhcp_options = self._configure_dhcp()
         self.vpc.connection.associate_dhcp_options(dhcp_options.id, self.vpc.id)
 
         # Enable DNS
         vpc_conn.modify_vpc_attribute(self.vpc.id, enable_dns_support=True)
         vpc_conn.modify_vpc_attribute(self.vpc.id, enable_dns_hostnames=True)
-
-        # Create metanetworks (subnets, route_tables and security groups)
-        self._networks = self._create_new_meta_networks()
-        for network in self.networks.values():
-            network.create()
 
         # Configure security group rules
         for network in self.networks.values():

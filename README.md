@@ -1157,6 +1157,16 @@ We use AWS resolver by specifying AmazonProvidedDNS for internal_dns
 and external_dns, alternatively the APIPA address 169.254.169.253 can
 be used.
 
+##### NTP server by offset.
+
+NTP server can also be [assigned by metanetwork offset](#assigning-private-ips):
+
+    ntp_server_metanetwork=tunnel
+    ntp_server_offset=+5
+
+For this to work the ntp_sever option must not be specified, as it takes
+presidence.
+
 #### DirectConnect / VPN Gateway
 
 The important bits of DirectConnect / VPN Gateway are configured by
