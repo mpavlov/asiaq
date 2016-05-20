@@ -28,7 +28,7 @@ class DiscoACM(object):
             return False
 
         domain_suffix = (domain[len(self.WILDCARD_PREFIX):]
-            if domain.startswith(self.WILDCARD_PREFIX) else domain)
+                         if domain.startswith(self.WILDCARD_PREFIX) else domain)
         return subdomain.endswith(domain_suffix)
 
     @property
