@@ -423,9 +423,9 @@ class DiscoRDS(object):
             env_name (str): The environment name to use when reading the config file.
                             This is only used in the section name of the config file.
                             The parameter group is always created for the current environment
-            database_name:
-            db_parameter_group_name:
-            db_parameter_group_family:
+            database_name (str): The database name such as 'txdb'
+            db_parameter_group_name (str): Usually the same as the database identifier such as 'ci-txdb'
+            db_parameter_group_family (str): Parameter group family such as 'oracle-se2-12.1'
         """
         try:
             self.client.delete_db_parameter_group(DBParameterGroupName=db_parameter_group_name)
