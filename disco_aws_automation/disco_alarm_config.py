@@ -117,15 +117,21 @@ class DiscoAlarmConfig(object):
         Raises AlarmConfigError if unable to parse the alarm name.
         """
         parts = name.split("_")
-        if len(parts) == 5:
+        if len(parts) >= 5:
+            # alarm names that have extra underscores
+            # Assume this means the metric name portion has underscores
+            # FIXME this won't work if the alarm is missing a team name AND the metric name has underscores
+            # FIXME consider using different delimiters in the future
             return {
                 "team": parts[0],
                 "env": parts[1],
                 "hostclass": parts[2],
-                "metric_name": parts[3],
-                "threshold_type": parts[4],
+                # some metric names have '_'. Assume that any extra '_' in the alarm name are the metric name
+                "metric_name": '_'.join(parts[3:-1]),
+                "threshold_type": parts[-1],
             }
         elif len(parts) == 4:
+            # alarm names that don't contain a team name and a metric name without underscores
             return {
                 "team": None,
                 "env": parts[0],
