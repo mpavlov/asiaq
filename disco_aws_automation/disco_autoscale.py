@@ -173,6 +173,8 @@ class DiscoAutoscale(object):
         Scales down number of instances in a hostclass's autoscaling group, or the given autoscaling group,
         to zero. If wait is true, this function will block until all instances are terminated, or it will
         raise a WaiterError if this process times out, unless noerror is True.
+
+        Returns true if the autoscaling groups were successfully scaled down, False otherwise.
         '''
         groups = self.get_existing_groups(hostclass=hostclass, group_name=group_name)
         for group in groups:
@@ -190,8 +192,10 @@ class DiscoAutoscale(object):
                 except WaiterError:
                     if noerror:
                         logging.exception("Unable to wait for scaling down of %s", group_name)
+                        return False
                     else:
                         raise
+            return True
 
     @staticmethod
     def create_autoscale_tags(group_name, tags):
