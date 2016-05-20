@@ -133,6 +133,18 @@ class DiscoAlarmTests(TestCase):
         self.assertEqual(
             DiscoAlarmConfig.decode_alarm_name("rocket_ci_mhcscone_CPUUtilization_max"), expected)
 
+    def test_decode_alarm_name_extra_underscores(self):
+        """Decoding Team based Alarm Names works with metric names containing underscores"""
+        expected = {
+            "team": "rocket",
+            "env": "ci",
+            "hostclass": "mhcscone",
+            "metric_name": "HTTPCode_Backend_5xx",
+            "threshold_type": "max",
+        }
+        self.assertEqual(
+            DiscoAlarmConfig.decode_alarm_name("rocket_ci_mhcscone_HTTPCode_Backend_5xx_max"), expected)
+
     def test_decode_bogus_alarm_name_raises(self):
         """decode_alarm_name raises on bogus name"""
         self.assertRaises(AlarmConfigError, DiscoAlarmConfig.decode_alarm_name, "bogus")
