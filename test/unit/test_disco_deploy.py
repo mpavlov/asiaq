@@ -87,6 +87,8 @@ MOCK_CONFIG_DEFINITON = {
 }
 
 
+# Too many tests is probably not a bad thing
+# pylint: disable=too-many-lines
 class DiscoDeployTests(TestCase):
     '''Test DiscoDeploy class'''
 
