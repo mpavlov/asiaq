@@ -601,6 +601,29 @@ class DiscoDeployTests(TestCase):
         self._disco_autoscale.delete_groups.assert_called_once_with(group_name=new_group.name, force=True)
         self._disco_elb.delete_elb.assert_called_once_with("mhcbluegreen", testing=True)
 
+    def test_bg_with_hostclass_not_in_pipeline(self):
+        '''Blue/green deploys as non-deployable if hostclass is not in pipeline'''
+        ami = MagicMock()
+        ami.name = "mhcfoo 2"
+        ami.id = "ami-12345678"
+        self._ci_deploy.wait_for_smoketests = MagicMock(return_value=True)
+        self._ci_deploy.run_integration_tests = MagicMock(return_value=True)
+        old_group = self.mock_group("mhcfoo", min_size=2, max_size=4, desired_size=3)
+        new_group = self.mock_group("mhcfoo")
+        self._disco_autoscale.get_existing_group.side_effect = [old_group, new_group]
+        instances = [self.mock_instance(), self.mock_instance(), self.mock_instance()]
+        self._disco_autoscale.get_instances.return_value = instances
+        self._disco_aws.instances.return_value = instances
+        self._disco_aws.remotecmd.return_value = (1, "Not Okay")
+        self.assertTrue(self._ci_deploy.test_ami(ami, deployment_strategy='blue_green', dry_run=False))
+        self._disco_bake.promote_ami.assert_called_once_with(ami, 'tested')
+        self._disco_elb.wait_for_instance_health_state.assert_not_called()
+        self._disco_aws.spinup.assert_called_once_with([{
+            'ami': 'ami-12345678', 'sequence': 1, 'deployable': 'no', 'min_size': 2,
+            'integration_test': None, 'desired_size': 3, 'max_size': 4, 'smoke_test': 'no',
+            'hostclass': 'mhcfoo'}], testing=True, create_if_exists=True)
+        self._disco_autoscale.delete_groups.assert_called_once_with(group_name=new_group.name, force=True)
+
     def test_integration_tests_with_elb(self):
         '''Integration tests should wait for ELB'''
         ami = MagicMock()
