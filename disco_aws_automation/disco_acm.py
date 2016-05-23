@@ -6,6 +6,9 @@ import logging
 import boto3
 import botocore
 
+CERT_SUMMARY_LIST_KEY = 'CertificateSummaryList'
+CERT_ARN_KEY = 'CertificateArn'
+DOMAIN_NAME_KEY = 'DomainName'
 
 class DiscoACM(object):
     """
@@ -36,7 +39,6 @@ class DiscoACM(object):
         """
         Lazily creates ACM connection
 
-        NOTE!!! As of 2016-02-11 ACM is not supported outside the us-east-1 region.
         Return None if service does not exist in current region
         """
         if not self._acm:
@@ -53,8 +55,8 @@ class DiscoACM(object):
             return None
 
         try:
-            certs = self.acm.list_certificates()["CertificateSummaryList"]
-            cert = [cert['CertificateArn'] for cert in certs if self._in_domain(cert['DomainName'], dns_name)]
+            certs = self.acm.list_certificates()[CERT_SUMMARY_LIST_KEY]
+            cert = [cert[CERT_ARN_KEY] for cert in certs if self._in_domain(cert[DOMAIN_NAME_KEY], dns_name)]
             return cert[0] if cert else None
         except (botocore.exceptions.EndpointConnectionError,
                 botocore.vendored.requests.exceptions.ConnectionError):
