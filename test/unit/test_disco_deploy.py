@@ -438,7 +438,7 @@ class DiscoDeployTests(TestCase):
         instances = [self.mock_instance(), self.mock_instance(), self.mock_instance()]
         self._disco_autoscale.get_instances.return_value = instances
         self._disco_aws.instances.return_value = instances
-        self._disco_aws.remotecmd.return_value = (0, "Okay")
+        self._disco_aws.remotecmd.return_value = (0, "")
         self.assertTrue(self._ci_deploy.test_ami(ami, dry_run=False))
         self._disco_bake.promote_ami.assert_called_once_with(ami, 'tested')
         self._disco_aws.spinup.assert_has_calls(
@@ -464,7 +464,7 @@ class DiscoDeployTests(TestCase):
         instances = [self.mock_instance(), self.mock_instance(), self.mock_instance()]
         self._disco_autoscale.get_instances.return_value = instances
         self._disco_aws.instances.return_value = instances
-        self._disco_aws.remotecmd.return_value = (0, "Okay")
+        self._disco_aws.remotecmd.return_value = (0, "")
         self.assertTrue(self._ci_deploy.test_ami(ami, dry_run=False))
         self._disco_bake.promote_ami.assert_called_once_with(ami, 'tested')
         self._disco_aws.spinup.assert_called_once_with([{
@@ -487,7 +487,7 @@ class DiscoDeployTests(TestCase):
         instances = [self.mock_instance(), self.mock_instance(), self.mock_instance()]
         self._disco_autoscale.get_instances.return_value = instances
         self._disco_aws.instances.return_value = instances
-        self._disco_aws.remotecmd.return_value = (0, "Okay")
+        self._disco_aws.remotecmd.return_value = (0, "")
         self.assertTrue(self._ci_deploy.test_ami(ami, dry_run=False))
         self._disco_bake.promote_ami.assert_called_once_with(ami, 'tested')
         self._disco_aws.spinup.assert_has_calls(
@@ -563,7 +563,7 @@ class DiscoDeployTests(TestCase):
         instance_ids = [inst.instance_id for inst in instances]
         self._disco_autoscale.get_instances.return_value = instances
         self._disco_aws.instances.return_value = instances
-        self._disco_aws.remotecmd.return_value = (0, "Okay")
+        self._disco_aws.remotecmd.return_value = (0, "")
         self.assertFalse(self._ci_deploy.test_ami(ami, dry_run=False))
         self._disco_bake.promote_ami.assert_called_once_with(ami, 'tested')
         self._disco_elb.wait_for_instance_health_state.assert_called_with(hostclass="mhcbluegreen",
@@ -592,7 +592,7 @@ class DiscoDeployTests(TestCase):
         instances = [self.mock_instance(), self.mock_instance(), self.mock_instance()]
         self._disco_autoscale.get_instances.return_value = instances
         self._disco_aws.instances.return_value = instances
-        self._disco_aws.remotecmd.return_value = (1, "Not Okay")
+        self._disco_aws.remotecmd.return_value = (1, "")
         self.assertFalse(self._ci_deploy.test_ami(ami, dry_run=False))
         self._disco_bake.promote_ami.assert_called_once_with(ami, 'tested')
         self._disco_elb.wait_for_instance_health_state.assert_not_called()
@@ -616,7 +616,7 @@ class DiscoDeployTests(TestCase):
         instances = [self.mock_instance(), self.mock_instance(), self.mock_instance()]
         self._disco_autoscale.get_instances.return_value = instances
         self._disco_aws.instances.return_value = instances
-        self._disco_aws.remotecmd.return_value = (1, "Not Okay")
+        self._disco_aws.remotecmd.return_value = (1, "")
         self.assertTrue(self._ci_deploy.test_ami(ami, deployment_strategy='blue_green', dry_run=False))
         self._disco_bake.promote_ami.assert_called_once_with(ami, 'tested')
         self._disco_elb.wait_for_instance_health_state.assert_not_called()
@@ -632,7 +632,7 @@ class DiscoDeployTests(TestCase):
         ami.name = "mhcbluegreen 2"
         ami.id = "ami-12345678"
         self._ci_deploy.get_host = MagicMock()
-        self._disco_aws.remotecmd.return_value = (0, "Okay")
+        self._disco_aws.remotecmd.return_value = (0, "")
         self.assertTrue(self._ci_deploy.run_integration_tests(ami, True))
         self._disco_elb.wait_for_instance_health_state.assert_called_with(hostclass="mhcbluegreen",
                                                                           testing=True)
