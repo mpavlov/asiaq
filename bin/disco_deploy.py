@@ -15,8 +15,12 @@ Usage:
                     [--ami AMI | --hostclass HOSTCLASS] [--allow-any-hostclass]
 
 Commands:
-     test           For CI and Build env only! Provision, Test, and Promote one new untested AMI if one exists
-     update         For Production! Update one hostclass to a new passing AMI if one exists
+     test           For CI and Build env only! Provision, Test, and Promote one new untested AMI if one
+                    exists. If the hostclass of the AMI is not in the supplied pipeline, the hostclass is
+                    assumed to be non-deployable and will be removed after the tests finish running.
+     update         For Production! Update one hostclass to a new passing AMI if one exists. It is assumed
+                    that if the hostclass is not present in the pipeline, it should be considered deployable.
+                    This is in contrast to the behavior of the 'test' command.
      list           Provides information about AMIs in a pipeline
 
 Options:

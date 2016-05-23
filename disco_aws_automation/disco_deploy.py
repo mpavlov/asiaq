@@ -601,6 +601,12 @@ class DiscoDeploy(object):
                                                                         DEPLOYMENT_STRATEGY_CLASSIC)
 
         if desired_deployment_strategy == DEPLOYMENT_STRATEGY_BLUE_GREEN:
+            # We are only deployable in testing if we are in the pipeline. Otherwise assume that we aren't
+            # deployable. This must be done because we don't want to deploy things that shouldn't end up in
+            # the testing environment and but do need to be tested. An example would be hostclasses that are
+            # only expected to exist in the bakery_environment. This doesn't hold true for update, which
+            # should just always deploy things unless explicitly told no.
+            deployable = pipeline_hostclass_dict and deployable
             return self.handle_blue_green_ami(pipeline_hostclass_dict, ami, group, deployable=deployable,
                                               run_tests=testable, dry_run=dry_run)
         elif not deployable:
