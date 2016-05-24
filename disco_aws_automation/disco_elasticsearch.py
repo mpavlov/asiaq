@@ -25,8 +25,9 @@ class DiscoElasticsearch(object):
     """
 
     def __init__(self, environment_name, config_aws=None, config_es=None,
-                 route53=None):
+                 config_vpc=None, route53=None):
         self.config_aws = config_aws or read_config()
+        self.config_vpc = config_vpc or read_config('disco_vpc.ini')
         self.config_es = config_es or read_config(CONFIG_FILE)
         self.route53 = route53 or DiscoRoute53()
 
@@ -192,8 +193,10 @@ class DiscoElasticsearch(object):
         """
         proxy_hostclass = self.get_aws_option('http_proxy_hostclass')
         proxy_ip = self.get_hostclass_option('eip', proxy_hostclass)
+        nat_eips = self._get_nat_eips().split(',')
 
         allowed_source_ips.append(proxy_ip)
+        allowed_source_ips += nat_eips
 
         resource = "arn:aws:es:{region}:{account}:domain/{domain_name}/*".format(region=self.region,
                                                                                  account=self.account_id,
@@ -416,3 +419,7 @@ class DiscoElasticsearch(object):
     def get_hostclass_option_default(self, option, hostclass, default=None):
         """Fetch a hostclass configuration option, if it does not exist get the default"""
         return self.get_aws_option_default(option, hostclass, default)
+
+    def _get_nat_eips(self):
+        env_option = 'envtype:{}'.format(self.environment_name)
+        return self.config_vpc.get(env_option, 'tunnel_nat_gateways')
