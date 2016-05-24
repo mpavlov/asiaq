@@ -5,8 +5,9 @@ Deploys newly baked hostclasses
 Usage:
     disco_deploy.py [options] test --pipeline PIPELINE
                     [--environment ENV] [--ami AMI | --hostclass HOSTCLASS] [--allow-any-hostclass]
+                    [--strategy STRATEGY]
     disco_deploy.py [options] update --pipeline PIPELINE --environment ENV
-                    [--ami AMI | --hostclass HOSTCLASS] [--allow-any-hostclass]
+                    [--ami AMI | --hostclass HOSTCLASS] [--allow-any-hostclass] [--strategy STRATEGY]
     disco_deploy.py [options] list (--tested|--untested|--failed|--failures|--testable)
                     [--pipeline PIPELINE] [--environment ENV] [--ami AMI | --hostclass HOSTCLASS]
                     [--allow-any-hostclass]
@@ -14,8 +15,12 @@ Usage:
                     [--ami AMI | --hostclass HOSTCLASS] [--allow-any-hostclass]
 
 Commands:
-     test           For CI and Build env only! Provision, Test, and Promote one new untested AMI if one exists
-     update         For Production! Update one hostclass to a new passing AMI if one exists
+     test           For CI and Build env only! Provision, Test, and Promote one new untested AMI if one
+                    exists. If the hostclass of the AMI is not in the supplied pipeline, the hostclass is
+                    assumed to be non-deployable and will be removed after the tests finish running.
+     update         For Production! Update one hostclass to a new passing AMI if one exists. It is assumed
+                    that if the hostclass is not present in the pipeline, it should be considered deployable.
+                    This is in contrast to the behavior of the 'test' command.
      list           Provides information about AMIs in a pipeline
 
 Options:
@@ -28,6 +33,7 @@ Options:
      --hostclass HOSTCLASS  Limit command to a specific hostclass
      --environment ENV      Environment to operate in
      --allow-any-hostclass  Do not limit command to hostclasses defined in pipeline
+     --strategy STRATEGY    The deployment strategy to use. Currently supported: 'classic' or 'blue_green'.
 
      --tested               List of latest tested AMI for each hostclass
      --untested             List of latest untested AMI for each hostclass
@@ -45,13 +51,15 @@ import sys
 
 from docopt import docopt
 
-from disco_aws_automation import DiscoAWS, DiscoBake, DiscoDeploy, read_config
+from disco_aws_automation import (DiscoAWS, DiscoAutoscale, DiscoBake, DiscoDeploy, DiscoELB, DiscoVPC,
+                                  read_config)
 from disco_aws_automation.disco_aws_util import run_gracefully
 from disco_aws_automation.disco_logging import configure_logging
 
 
 # R0912 Allow more than 12 branches so we can parse a lot of commands..
-# pylint: disable=R0912
+# R0914 Allow more than 15 local variables so we can parse a lot of commands.
+# pylint: disable=R0912,R0914
 def run():
     """Parses command line and dispatches the commands"""
     config = read_config()
@@ -76,16 +84,18 @@ def run():
     else:
         test_aws = aws
 
+    vpc = DiscoVPC.fetch_environment(environment_name=env)
+
     deploy = DiscoDeploy(
-        aws, test_aws, DiscoBake(config, aws.connection),
+        aws, test_aws, DiscoBake(config, aws.connection), DiscoAutoscale(env), DiscoELB(vpc),
         pipeline_definition=pipeline_definition,
         ami=args.get("--ami"), hostclass=args.get("--hostclass"),
         allow_any_hostclass=args["--allow-any-hostclass"])
 
     if args["test"]:
-        deploy.test(dry_run=args["--dry-run"])
+        deploy.test(dry_run=args["--dry-run"], deployment_strategy=args["--strategy"])
     elif args["update"]:
-        deploy.update(dry_run=args["--dry-run"])
+        deploy.update(dry_run=args["--dry-run"], deployment_strategy=args["--strategy"])
     elif args["list"]:
         missing = "-" if len(pipeline_definition) else ""
         if args["--tested"]:

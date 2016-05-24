@@ -121,6 +121,11 @@ class DiscoRDSTests(unittest.TestCase):
             Port=1521,
             PubliclyAccessible=False)
 
+        self.rds.client.create_db_parameter_group.assert_called_once_with(
+            DBParameterGroupName='unittestenv-db-name',
+            DBParameterGroupFamily='oracle12.1',
+            Description='Custom params-unittestenv-db-name')
+
         r53_mock.return_value.create_record.assert_called_once_with('example.com',
                                                                     'unittestenv-db-name.example.com.',
                                                                     'CNAME',

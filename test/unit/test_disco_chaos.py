@@ -35,7 +35,7 @@ class DiscoChaosTests(TestCase):
         '''Test that get_autoscaling_groups makes only valid calls'''
         self.chaos._disco_aws.autoscale = create_autospec(DiscoAutoscale)
         self.chaos._get_autoscaling_groups()
-        self.assertEqual(self.chaos._disco_aws.autoscale.get_groups.call_count, 1)
+        self.assertEqual(self.chaos._disco_aws.autoscale.get_existing_groups.call_count, 1)
 
     def test_terminate_right_params(self):
         '''Test that terminate makes only valid calls'''

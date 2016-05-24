@@ -9,6 +9,7 @@ from disco_aws_automation import DiscoAlarm, DiscoAlarmsConfig
 from disco_aws_automation import DiscoAlarmConfig
 from disco_aws_automation import DiscoSNS
 from disco_aws_automation import AlarmConfigError
+from disco_aws_automation import DiscoELB
 from test.helpers.patch_disco_aws import get_mock_config
 
 TOPIC_ARN = "arn:aws:sns:us-west-2:123456789012:ci"
@@ -133,6 +134,18 @@ class DiscoAlarmTests(TestCase):
         self.assertEqual(
             DiscoAlarmConfig.decode_alarm_name("rocket_ci_mhcscone_CPUUtilization_max"), expected)
 
+    def test_decode_alarm_name_extra_underscores(self):
+        """Decoding Team based Alarm Names works with metric names containing underscores"""
+        expected = {
+            "team": "rocket",
+            "env": "ci",
+            "hostclass": "mhcscone",
+            "metric_name": "HTTPCode_Backend_5xx",
+            "threshold_type": "max",
+        }
+        self.assertEqual(
+            DiscoAlarmConfig.decode_alarm_name("rocket_ci_mhcscone_HTTPCode_Backend_5xx_max"), expected)
+
     def test_decode_bogus_alarm_name_raises(self):
         """decode_alarm_name raises on bogus name"""
         self.assertRaises(AlarmConfigError, DiscoAlarmConfig.decode_alarm_name, "bogus")
@@ -193,4 +206,5 @@ class DiscoAlarmTests(TestCase):
 
         alarm_configs = disco_alarms_config.get_alarms('mhcbanana')
         self.assertEqual(1, len(alarm_configs))
-        self.assertEquals({'LoadBalancerName': 'testenv-mhcbanana'}, alarm_configs[0].dimensions)
+        self.assertEquals({'LoadBalancerName': DiscoELB.get_elb_id('testenv', 'mhcbanana')},
+                          alarm_configs[0].dimensions)
