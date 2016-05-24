@@ -196,6 +196,9 @@ class DiscoELB(object):
             throttled_call(self.elb_client.create_load_balancer, **elb_args)
             elb = self.get_elb(hostclass, testing=testing)
 
+        # Make sure elb_id refers to the load balancer name that was returned/picked.
+        elb_id = elb["LoadBalancerName"]
+
         self.route53.create_record(hosted_zone_name, cname, 'CNAME', elb['DNSName'])
 
         self._setup_health_check(elb_id, health_check_url, instance_protocol, instance_port, elb_name)
@@ -228,13 +231,22 @@ class DiscoELB(object):
                            LoadBalancerAttributes=updates)
 
     def get_elb(self, hostclass, testing=False):
-        """Get an existing ELB without creating it"""
-        name = DiscoELB.get_elb_id(self.vpc.environment_name, hostclass, testing=testing)
+        """
+        Get an existing ELB without creating it.
+        This method will try to lookup an ELB by both it's ID and its name.
+        """
+        # Use both names to make this backwards compatible with old-style ELB names.
+        elb_id = DiscoELB.get_elb_id(self.vpc.environment_name, hostclass, testing=testing)
+        elb_name = DiscoELB.get_elb_name(self.vpc.environment_name, hostclass, testing=testing)
 
+        return self._get_elb(elb_id) or self._get_elb(elb_name)
+
+    def _get_elb(self, load_balancer_name):
+        """Get an ELB by its name"""
         try:
-            load_balancers = throttled_call(self.elb_client.describe_load_balancers,
-                                            LoadBalancerNames=[name]).get('LoadBalancerDescriptions', [])
-
+            load_balancers = throttled_call(
+                self.elb_client.describe_load_balancers,
+                LoadBalancerNames=[load_balancer_name]).get('LoadBalancerDescriptions', [])
             return load_balancers[0] if load_balancers else None
         except botocore.exceptions.ClientError:
             return None
