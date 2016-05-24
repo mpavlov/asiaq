@@ -487,12 +487,21 @@ class DiscoDeploy(object):
                         reason = "Unable to exit testing mode for group {}".format(new_group.name)
                     else:
                         reason = "{} is not deployable".format(hostclass)
+
                     logging.error("%s, destroying new autoscaling group", reason)
+
                     # Destroy the testing ASG
                     self._disco_autoscale.delete_groups(group_name=new_group.name, force=True)
+
                     if uses_elb:
                         # Destroy the testing ELB
                         self._disco_elb.delete_elb(hostclass, testing=True)
+
+                    # If the hostclass isn't deployable and an old group exists, we should update the old
+                    # group so that new instances from that old group are spun up with the newly tested AMI.
+                    if not deployable and old_group:
+                        self._disco_aws.spinup([new_group_config], group_name=old_group.name)
+
                     # If deployable was False, return True, otherwise we're here because testing mode broke,
                     # so return False
                     return not deployable or False
