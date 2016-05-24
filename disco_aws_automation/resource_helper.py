@@ -19,6 +19,14 @@ INSTANCE_SSHABLE_POLL_INTERVAL = 15  # seconds
 MAX_POLL_INTERVAL = 60  # seconds
 
 
+def get_name_tag_value(tags):
+    for tag in tags:
+        if tag['Key'] == 'Name':
+            return tag['Value']
+
+    return None
+
+
 def handle_date_format(obj):
     """
     Helper function that properly handles date object returned from AWS.

@@ -118,7 +118,7 @@ def list_vpc_command(args):
 
 
 def proxy_peerings_command(args):
-    """ handle peerins command actions"""
+    """ handle peerings command actions"""
     if args.vpc_name and args.vpc_id:
         logging.error("Don't use vpc_name and vpc_id at the same time.")
         sys.exit(2)

@@ -12,6 +12,7 @@ from boto.ec2.networkinterface import (
 )
 from boto.exception import EC2ResponseError
 from boto.vpc import VPCConnection
+import boto3
 
 from disco_aws_automation.network_helper import calc_subnet_offset
 from .disco_subnet import DiscoSubnet
@@ -32,7 +33,7 @@ class DiscoMetaNetwork(object):
     Representation of a disco meta-network. Contains a subnet for each availability zone,
     along with a route table which is applied all the subnets.
     """
-    def __init__(self, name, vpc, network_cidr=None):
+    def __init__(self, name, vpc, network_cidr=None, boto3_connection=None):
         self.vpc = vpc
         self.name = name
         if network_cidr:
@@ -44,6 +45,8 @@ class DiscoMetaNetwork(object):
         self._security_group = None  # lazily initialized
         self._connection = VPCConnection()
         self._disco_subnets = None  # lazily initialized
+        self._boto3_connection = boto3_connection  # Lazily initialized if parameter is None
+
 
     @property
     def network_cidr(self):
@@ -64,6 +67,15 @@ class DiscoMetaNetwork(object):
             self._network_cidr = subnet_network.cidr
 
         return self._network_cidr
+
+    @property
+    def boto3_ec2(self):
+        """
+        Lazily creates boto3 EC2 connection
+        """
+        if not self._boto3_connection:
+            self._boto3_connection = boto3.client('ec2')
+        return self._boto3_connection
 
     def _resource_name(self, suffix=None):
         suffix = "_{0}".format(suffix) if suffix else ""
@@ -288,26 +300,35 @@ class DiscoMetaNetwork(object):
         of the current meta network added """
         return self.security_group.id, protocol, ports[0], ports[1], sg_source_id, cidr_source
 
-    def update_sg_rules(self, new_sg_rules):
-        """ Update the security rules of the meta network so that they conform to
-        the new rules being passed in """
+    def update_sg_rules(self, desire_sg_rules):
+        """
+        Update the security rules of the meta network so that they conform to
+        the new rules being passed in. Each rule is a tuple that contains 6 values:
+        desire_sg_rules[0]: security groupd ID
+        desire_sg_rules[1]: protocol, e.g. tcp, icmp
+        desire_sg_rules[2]: from port
+        desire_sg_rules[3]: end port
+        desire_sg_rules[4]: source security group ID
+        desire_sg_rules[5]: source CIDR
+        """
         logging.debug("Update security rules for meta network {0}".format(self.name))
-        current_sg_rules = []
-        for rule in self.security_group.rules:
-            for grant in rule.grants:
-                current_sg_rules.append(
-                    self.create_sg_rule_tuple(rule.ip_protocol,
-                                              [int(rule.from_port), int(rule.to_port)],
-                                              grant.group_id,
-                                              grant.cidr_ip))
+        current_sg_rules = [
+            self.create_sg_rule_tuple(
+                rule.ip_protocol, [int(rule.from_port), int(rule.to_port)],
+                grant.group_id, grant.cidr_ip)
+            for rule in self.security_group.rules
+            for grant in rule.grants]
 
         current_sg_rules = set(current_sg_rules)
-        new_sg_rules = set(new_sg_rules)
+        desired_sg_rules = set(desire_sg_rules)
 
-        logging.debug("Adding new security group rules {0}".format(list(new_sg_rules - current_sg_rules)))
-        self.add_sg_rules(list(new_sg_rules - current_sg_rules))
-        logging.debug("Revoking security group rules {0}".format(list(current_sg_rules - new_sg_rules)))
-        self.revoke_sg_rules(list(current_sg_rules - new_sg_rules))
+        logging.debug("Adding new security group rules {0}"
+                      .format(list(desired_sg_rules - current_sg_rules)))
+        self.add_sg_rules(list(desired_sg_rules - current_sg_rules))
+
+        logging.debug("Revoking security group rules {0}"
+                      .format(list(current_sg_rules - desired_sg_rules)))
+        self.revoke_sg_rules(list(current_sg_rules - desired_sg_rules))
 
     def revoke_sg_rules(self, rule_tuples):
         """ Revoke the list of security group rules from the current meta network """
@@ -348,7 +369,69 @@ class DiscoMetaNetwork(object):
 
         return desired_address
 
-    def add_route(self, destination_cidr_block, gateway_id):
+    def add_gateway_routes(self, route_tuples):
+        """"
+        Add a list of gateway routes to all the subnets' route tables. Each route
+        is a tuple that contains 2 values:
+        new_route_tuples[0]: destination CIDR block
+        new_route_tuples[1]: gateway ID
+        """
+        for route_tuple in route_tuples:
+            self._add_gateway_route(route_tuple[0], route_tuple[1])
+
+    def delete_gateway_routes(self, dest_cidr_blocks):
+        """"
+        Delete the routes to destination CIDR blocks from all the subnets' route tables.
+        """
+        if self.centralized_route_table:
+            for dest_cidr_block in dest_cidr_blocks:
+                self._connection.delete_route(
+                    route_table_id=self.centralized_route_table.id,
+                    destination_cidr_block=dest_cidr_block
+                )
+        else:
+            for dest_cidr_block in dest_cidr_blocks:
+                for disco_subnet in self.disco_subnets.values():
+                    disco_subnet.delete_route(dest_cidr_block)
+
+    def update_gateway_routes(self, desired_route_tuples, dry_run=False):
+        """
+        Update gateway routes in the meta network so that they conform to
+        the new routes being passed in. Each new route is a tuple that contains 2 values:
+        desired_route_tuples[0]: destination CIDR block
+        desired_route_tuples[1]: gateway ID
+        """
+        logging.debug("Updating gateway routes for meta network {0} using {1}".format(
+            self.name, desired_route_tuples))
+
+        desired_route_tuples = set(desired_route_tuples)
+
+        # Getting the routes currently in the route table(s)
+        current_route_tuples = []
+        if self.centralized_route_table:
+            for route in self.centralized_route_table.routes:
+                if route.gateway_id and route.gateway_id != 'local':
+                    current_route_tuples.append((route.destination_cidr_block, route.gateway_id))
+        else:
+            # Only need to get from one subnet since they are the same
+            for route in self.disco_subnets.values()[0].route_table['Routes']:
+                if route.get('GatewayId') and route.get('GatewayId') != 'local':
+                    current_route_tuples.append(
+                        (route['DestinationCidrBlock'], route['GatewayId']))
+        current_route_tuples = set(current_route_tuples)
+
+        routes_to_delete = list(current_route_tuples - desired_route_tuples)
+        routes_to_add = list(desired_route_tuples - current_route_tuples)
+
+        logging.debug("Routes to delete: {0}".format(routes_to_delete))
+        logging.debug("Routes to add: {0}".format(routes_to_add))
+
+        if not dry_run:
+            # TODO: Use client.replace_route to avoid downtime
+            self.delete_gateway_routes([route[0] for route in routes_to_delete])
+            self.add_gateway_routes(routes_to_add)
+
+    def _add_gateway_route(self, destination_cidr_block, gateway_id):
         """ Add a gateway route to the centralized route table or to all the
         subnets' route tables"""
 
@@ -388,14 +471,42 @@ class DiscoMetaNetwork(object):
                 dest_metanetwork.disco_subnets[zone].nat_gateway['NatGatewayId']
             )
 
-    def create_peering_route(self, peering_conn, cidr):
+    def delete_nat_gateway_route(self):
+        """ Deletes the default route to NAT gateway """
+        for disco_subnet in self.disco_subnets.values():
+            disco_subnet.delete_route('0.0.0.0/0')
+
+    def get_nat_gateway_metanetwork(self):
+        """ If this meta network's default route is going to a NAT gateway, returns the name of
+        the meta network in which the NAT resides. Otherwise, returns None. """
+        for route in self.disco_subnets.values()[0].route_table['Routes']:
+            if route.get('NatGatewayId') and route['DestinationCidrBlock'] == '0.0.0.0/0':
+                try:
+                    nat_gateway = self.boto3_ec2.describe_nat_gateways(
+                        NatGatewayIds=[route['NatGatewayId']])['NatGateways'][0]
+                except IndexError:
+                    raise RuntimeError("Phantom NatGatewayId {0} found in meta network {1}."
+                                       .format(self.name))
+
+                subnet = self.boto3_ec2.describe_subnets(
+                    SubnetIds=[nat_gateway['SubnetId']])['Subnets'][0]
+
+                for tag in subnet['Tags']:
+                    if tag['Key'] == 'meta_network':
+                        return tag['Value']
+
+                raise RuntimeError("The meta_network tag is missing in subnet {0}."
+                                   .format(subnet['SubnetId']))
+        return None
+
+    def create_peering_route(self, peering_conn_id, cidr):
         """ create/update a route between the peering connection and all the subnets.
         If a centralized route table is used, add the route there. If not, add the route
         to all the subnets. """
         if self.centralized_route_table:
             peering_routes_for_peering = [
                 _ for _ in self.centralized_route_table.routes
-                if _.vpc_peering_connection_id == peering_conn
+                if _.vpc_peering_connection_id == peering_conn_id
             ]
             if not peering_routes_for_peering:
                 peering_routes_for_cidr = [
@@ -405,18 +516,18 @@ class DiscoMetaNetwork(object):
                 if not peering_routes_for_cidr:
                     logging.info(
                         'create routes for (route_table: %s, dest_cidr: %s, connection: %s)',
-                        self.centralized_route_table.id, cidr, peering_conn.id)
+                        self.centralized_route_table.id, cidr, peering_conn_id)
                     self._connection.create_route(route_table_id=self.centralized_route_table.id,
                                                   destination_cidr_block=cidr,
-                                                  vpc_peering_connection_id=peering_conn.id)
+                                                  vpc_peering_connection_id=peering_conn_id)
                 else:
                     logging.info(
                         'update routes for (route_table: %s, dest_cidr: %s, connection: %s)',
-                        self.centralized_route_table.id, cidr, peering_conn.id)
+                        self.centralized_route_table.id, cidr, peering_conn_id)
                     self._connection.replace_route(route_table_id=self.centralized_route_table.id,
                                                    destination_cidr_block=cidr,
-                                                   vpc_peering_connection_id=peering_conn.id)
+                                                   vpc_peering_connection_id=peering_conn_id)
         else:
             # No centralized route table here, so add a route to each subnet
             for disco_subnet in self.disco_subnets.values():
-                disco_subnet.create_peering_routes(peering_conn.id, cidr)
+                disco_subnet.create_peering_routes(peering_conn_id, cidr)
