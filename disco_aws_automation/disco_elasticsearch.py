@@ -194,10 +194,10 @@ class DiscoElasticsearch(object):
         """
         proxy_hostclass = self.get_aws_option('http_proxy_hostclass')
         proxy_ip = self.get_hostclass_option('eip', proxy_hostclass)
-        nat_eips = self._get_nat_eips().split(',')
-
         allowed_source_ips.append(proxy_ip)
-        allowed_source_ips += nat_eips
+        if self._get_nat_eips():
+            nat_eips = self._get_nat_eips().split(',')
+            allowed_source_ips += nat_eips
 
         resource = "arn:aws:es:{region}:{account}:domain/{domain_name}/*".format(region=self.region,
                                                                                  account=self.account_id,
@@ -423,4 +423,7 @@ class DiscoElasticsearch(object):
 
     def _get_nat_eips(self):
         env_option = 'envtype:{}'.format(self.environment_name)
-        return self.config_vpc.get(env_option, 'tunnel_nat_gateways')
+        if self.config_vpc.has_option(env_option, 'tunnel_nat_gateways'):
+            return self.config_vpc.get(env_option, 'tunnel_nat_gateways')
+        else:
+            return None
