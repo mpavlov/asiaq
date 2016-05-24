@@ -30,7 +30,7 @@ def get_parser():
         'create', help='Creates an unformated EBS volume snapshot in a random availibility zone')
     parser_create.set_defaults(mode='create')
     parser_create.add_argument('--size', dest='size', required=True, type=int, help='Volume size in GB')
-    parser_create.add_argument('--hostclass', dest='hostclasses', default=[], action='append', type=str,
+    parser_create.add_argument('--hostclass', dest='hostclass', type=str,
                                help="hostclass that uses this snapshot")
 
     parser_list = subparsers.add_parser('list', help='List all EBS snapshots')
