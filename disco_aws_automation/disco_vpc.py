@@ -615,20 +615,18 @@ class DiscoVPC(object):
             logging.exception("Failed to detach VPN Gateways (Timeout).")
 
     def _update_peering_connections(self):
-        """
-        desired_peerings_map = {self.get_peering_tuple(peering_line): config
-                                for peering_line, config in
-                                DiscoVPC.parse_peerings_config(self.get_vpc_id()).iteritems()}
-        """
-        current_peerings = self._get_current_peerings()
-        
-        print '$$$$$$$$$$$$$$$'
-        print current_peerings
-        # TODO: Test this!!!!!!!!!!
+        desired_peerings = DiscoVPC.parse_peering_strs_config(self.environment_name)
+        existing_peerings = self._get_existing_peerings()
 
-       # DiscoVPC.create_peering_connections(DiscoVPC.parse_peerings_config(self.get_vpc_id()))
+        if existing_peerings > desired_peerings:
+            raise RuntimeError("Some existing VPC peering connections are not "
+                               "defined in the configuration: {0}. Deletion of VPC peerings is"
+                               "not implemented yet."
+                               .format(existing_peerings - desired_peerings))
 
-    def _get_current_peerings(self):
+        DiscoVPC.create_peering_connections(DiscoVPC.parse_peerings_config(self.get_vpc_id()))
+
+    def _get_existing_peerings(self):
         current_peerings = set()
 
         for peering in DiscoVPC.list_peerings(self.get_vpc_id()):
@@ -693,14 +691,11 @@ class DiscoVPC(object):
                           "%s", vpc_cidr, self.vpc['CidrBlock'])
         """
 
-        #self._update_sg_rules()
-        #self._update_gateway_routes()
-        #self._update_nat_gateways_and_routes()
-
+        self._update_sg_rules()
+        self._update_gateway_routes()
+        self._update_nat_gateways_and_routes()
         self._update_peering_connections()
-        #self.configure_notifications()
-        #DiscoVPC.create_peering_connections(DiscoVPC.parse_peerings_config(self.get_vpc_id()))
-        #self.rds.update_all_clusters_in_vpc()
+        self.configure_notifications()
 
     def _create_environment(self):
         """Create a new disco style environment VPC"""
@@ -1030,11 +1025,60 @@ class DiscoVPC(object):
         }
 
     @staticmethod
+    def parse_peering_strs_config(source_vpc_name):
+        """
+        """
+        def parse_endponit(endpoint):
+            endpoint_parts = endpoint.split('/')
+            vpc_parts = endpoint_parts[0].strip().split(':')
+            vpc_name = vpc_parts[0].strip()
+            vpc_type = vpc_parts[-1].strip()
+            network_name = endpoint_parts[1].strip()
+
+            return vpc_name, vpc_name + ':' + vpc_type + '/' + network_name
+
+        peering_strs = set()
+        peering_lines = DiscoVPC._get_peering_lines()
+        for line in peering_lines:
+            endpoints_map = {}
+            for endpoint in line.split(' '):
+                endpoint = parse_endponit(endpoint)
+                endpoints_map[endpoint[0]] = endpoint[1]
+
+            if source_vpc_name in endpoints_map.keys():
+                peer_vpc_name = [vpc_name for vpc_name in endpoints_map.keys()
+                                 if vpc_name != source_vpc_name][0]
+
+                peering_strs.add(endpoints_map[source_vpc_name] +
+                                 ' ' + endpoints_map[peer_vpc_name])
+
+        return peering_strs
+
+    @staticmethod
     def parse_peerings_config(vpc_id=None):
         """
         Parses configuration from disco_vpc.ini's peerings sections.
         If vpc_id is specified, only configuration relevant to vpc_id is included.
         """
+        peerings = DiscoVPC._get_peering_lines()
+
+        client = boto3.client('ec2')
+        peering_configs = {}
+        for peering in peerings:
+            peering_config = DiscoVPC.parse_peering_connection_line(peering, client)
+            vpc_ids_in_peering = [vpc.vpc['VpcId'] for vpc in peering_config.get("vpc_map", {}).values()]
+
+            if len(vpc_ids_in_peering) < 2:
+                pass  # not all vpcs were up, nothing to do
+            elif vpc_id and vpc_id not in vpc_ids_in_peering:
+                logging.debug("Skipping peering %s because it doesn't include %s", peering, vpc_id)
+            else:
+                peering_configs[peering] = peering_config
+
+        return peering_configs
+
+    @staticmethod
+    def _get_peering_lines():
         logging.debug("Parsing peerings configuration specified in %s", CONFIG_FILE)
         config = read_config(CONFIG_FILE)
 
@@ -1055,21 +1099,7 @@ class DiscoVPC(object):
                     "Syntax error in vpc peering connection. "
                     "Expected 2 space-delimited endpoints but found: '{}'".format(peering))
 
-        # vpc_conn = VPCConnection()
-        client = boto3.client('ec2')
-        peering_configs = {}
-        for peering in peerings:
-            peering_config = DiscoVPC.parse_peering_connection_line(peering, client)
-            vpc_ids_in_peering = [vpc.vpc['VpcId'] for vpc in peering_config.get("vpc_map", {}).values()]
-
-            if len(vpc_ids_in_peering) < 2:
-                pass  # not all vpcs were up, nothing to do
-            elif vpc_id and vpc_id not in vpc_ids_in_peering:
-                logging.debug("Skipping peering %s because it doesn't include %s", peering, vpc_id)
-            else:
-                peering_configs[peering] = peering_config
-
-        return peering_configs
+        return peerings
 
     @staticmethod
     def create_peering_connections(peering_configs):
