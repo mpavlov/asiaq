@@ -44,60 +44,56 @@ class DiscoAWSTests(TestCase):
     @patch_disco_aws
     def test_create_scaling_schedule_only_desired(self, mock_config, **kwargs):
         """test create_scaling_schedule with only desired schedule"""
-        aws = DiscoAWS(config=mock_config, environment_name=TEST_ENV_NAME)
-        aws.autoscale = MagicMock()
+        aws = DiscoAWS(config=mock_config, environment_name=TEST_ENV_NAME, autoscale=MagicMock())
         aws.create_scaling_schedule("mhcboo", "1", "2@1 0 * * *:3@6 0 * * *", "5")
         aws.autoscale.assert_has_calls([
-            call.delete_all_recurring_group_actions('mhcboo'),
-            call.create_recurring_group_action('mhcboo', '1 0 * * *',
+            call.delete_all_recurring_group_actions(hostclass='mhcboo'),
+            call.create_recurring_group_action('1 0 * * *', hostclass='mhcboo',
                                                min_size=None, desired_capacity=2, max_size=None),
-            call.create_recurring_group_action('mhcboo', '6 0 * * *',
+            call.create_recurring_group_action('6 0 * * *', hostclass='mhcboo',
                                                min_size=None, desired_capacity=3, max_size=None)
         ], any_order=True)
 
     @patch_disco_aws
     def test_create_scaling_schedule_no_sched(self, mock_config, **kwargs):
         """test create_scaling_schedule with only desired schedule"""
-        aws = DiscoAWS(config=mock_config, environment_name=TEST_ENV_NAME)
-        aws.autoscale = MagicMock()
+        aws = DiscoAWS(config=mock_config, environment_name=TEST_ENV_NAME, autoscale=MagicMock())
         aws.create_scaling_schedule("mhcboo", "1", "2", "5")
-        aws.autoscale.assert_has_calls([call.delete_all_recurring_group_actions('mhcboo')])
+        aws.autoscale.assert_has_calls([call.delete_all_recurring_group_actions(hostclass='mhcboo')])
 
     @patch_disco_aws
     def test_create_scaling_schedule_overlapping(self, mock_config, **kwargs):
         """test create_scaling_schedule with only desired schedule"""
-        aws = DiscoAWS(config=mock_config, environment_name=TEST_ENV_NAME)
-        aws.autoscale = MagicMock()
+        aws = DiscoAWS(config=mock_config, environment_name=TEST_ENV_NAME, autoscale=MagicMock())
         aws.create_scaling_schedule("mhcboo",
                                     "1@1 0 * * *:2@6 0 * * *",
                                     "2@1 0 * * *:3@6 0 * * *",
                                     "6@1 0 * * *:9@6 0 * * *")
         aws.autoscale.assert_has_calls([
-            call.delete_all_recurring_group_actions('mhcboo'),
-            call.create_recurring_group_action('mhcboo', '1 0 * * *',
+            call.delete_all_recurring_group_actions(hostclass='mhcboo'),
+            call.create_recurring_group_action('1 0 * * *', hostclass='mhcboo',
                                                min_size=1, desired_capacity=2, max_size=6),
-            call.create_recurring_group_action('mhcboo', '6 0 * * *',
+            call.create_recurring_group_action('6 0 * * *', hostclass='mhcboo',
                                                min_size=2, desired_capacity=3, max_size=9)
         ], any_order=True)
 
     @patch_disco_aws
     def test_create_scaling_schedule_mixed(self, mock_config, **kwargs):
         """test create_scaling_schedule with only desired schedule"""
-        aws = DiscoAWS(config=mock_config, environment_name=TEST_ENV_NAME)
-        aws.autoscale = MagicMock()
+        aws = DiscoAWS(config=mock_config, environment_name=TEST_ENV_NAME, autoscale=MagicMock())
         aws.create_scaling_schedule("mhcboo",
                                     "1@1 0 * * *:2@7 0 * * *",
                                     "2@1 0 * * *:3@6 0 * * *",
                                     "6@2 0 * * *:9@6 0 * * *")
         aws.autoscale.assert_has_calls([
-            call.delete_all_recurring_group_actions('mhcboo'),
-            call.create_recurring_group_action('mhcboo', '1 0 * * *',
+            call.delete_all_recurring_group_actions(hostclass='mhcboo'),
+            call.create_recurring_group_action('1 0 * * *', hostclass='mhcboo',
                                                min_size=1, desired_capacity=2, max_size=None),
-            call.create_recurring_group_action('mhcboo', '2 0 * * *',
+            call.create_recurring_group_action('2 0 * * *', hostclass='mhcboo',
                                                min_size=None, desired_capacity=None, max_size=6),
-            call.create_recurring_group_action('mhcboo', '6 0 * * *',
+            call.create_recurring_group_action('6 0 * * *', hostclass='mhcboo',
                                                min_size=None, desired_capacity=3, max_size=9),
-            call.create_recurring_group_action('mhcboo', '7 0 * * *',
+            call.create_recurring_group_action('7 0 * * *', hostclass='mhcboo',
                                                min_size=2, desired_capacity=None, max_size=None)
         ], any_order=True)
 
@@ -113,9 +109,8 @@ class DiscoAWSTests(TestCase):
         """
         Provision creates the proper launch configuration and autoscaling group
         """
-        aws = DiscoAWS(config=mock_config, environment_name=TEST_ENV_NAME)
+        aws = DiscoAWS(config=mock_config, environment_name=TEST_ENV_NAME, log_metrics=MagicMock())
         mock_ami = self._get_image_mock(aws)
-        aws.log_metrics = MagicMock()
         aws.update_elb = MagicMock(return_value=None)
 
         with patch("disco_aws_automation.DiscoAWS.get_meta_network", return_value=_get_meta_network_mock()):
@@ -133,9 +128,9 @@ class DiscoAWSTests(TestCase):
         _lc = aws.autoscale.get_configs()[0]
         self.assertRegexpMatches(_lc.name, r".*_mhcunittest_[0-9]*")
         self.assertEqual(_lc.image_id, mock_ami.id)
-        self.assertTrue(aws.autoscale.has_group("mhcunittest"))
-        _ag = aws.autoscale.get_groups()[0]
-        self.assertEqual(_ag.name, "unittestenv_mhcunittest")
+        self.assertTrue(aws.autoscale.get_existing_group(hostclass="mhcunittest"))
+        _ag = aws.autoscale.get_existing_groups()[0]
+        self.assertRegexpMatches(_ag.name, r"unittestenv_mhcunittest_[0-9]*")
         self.assertEqual(_ag.min_size, 1)
         self.assertEqual(_ag.max_size, 1)
         self.assertEqual(_ag.desired_capacity, 1)
@@ -145,9 +140,8 @@ class DiscoAWSTests(TestCase):
         """
         Provision creates the proper launch configuration and autoscaling group with no chaos
         """
-        aws = DiscoAWS(config=mock_config, environment_name=TEST_ENV_NAME)
+        aws = DiscoAWS(config=mock_config, environment_name=TEST_ENV_NAME, log_metrics=MagicMock())
         mock_ami = self._get_image_mock(aws)
-        aws.log_metrics = MagicMock()
         aws.update_elb = MagicMock(return_value=None)
 
         with patch("disco_aws_automation.DiscoAWS.get_meta_network", return_value=_get_meta_network_mock()):
@@ -166,9 +160,9 @@ class DiscoAWSTests(TestCase):
         _lc = aws.autoscale.get_configs()[0]
         self.assertRegexpMatches(_lc.name, r".*_mhcunittest_[0-9]*")
         self.assertEqual(_lc.image_id, mock_ami.id)
-        self.assertTrue(aws.autoscale.has_group("mhcunittest"))
-        _ag = aws.autoscale.get_groups()[0]
-        self.assertEqual(_ag.name, "unittestenv_mhcunittest")
+        self.assertTrue(aws.autoscale.get_existing_group(hostclass="mhcunittest"))
+        _ag = aws.autoscale.get_existing_groups()[0]
+        self.assertRegexpMatches(_ag.name, r"unittestenv_mhcunittest_[0-9]*")
         self.assertEqual(_ag.min_size, 1)
         self.assertEqual(_ag.max_size, 1)
         self.assertEqual(_ag.desired_capacity, 1)
@@ -180,9 +174,9 @@ class DiscoAWSTests(TestCase):
         """
         config_dict = get_default_config_dict()
         config_dict["mhcunittest"]["chaos"] = "True"
-        aws = DiscoAWS(config=get_mock_config(config_dict), environment_name=TEST_ENV_NAME)
+        aws = DiscoAWS(config=get_mock_config(config_dict), environment_name=TEST_ENV_NAME,
+                       log_metrics=MagicMock())
         mock_ami = self._get_image_mock(aws)
-        aws.log_metrics = MagicMock()
         aws.update_elb = MagicMock(return_value=None)
 
         with patch("disco_aws_automation.DiscoAWS.get_meta_network", return_value=_get_meta_network_mock()):
@@ -200,9 +194,9 @@ class DiscoAWSTests(TestCase):
         _lc = aws.autoscale.get_configs()[0]
         self.assertRegexpMatches(_lc.name, r".*_mhcunittest_[0-9]*")
         self.assertEqual(_lc.image_id, mock_ami.id)
-        self.assertTrue(aws.autoscale.has_group("mhcunittest"))
-        _ag = aws.autoscale.get_groups()[0]
-        self.assertEqual(_ag.name, "unittestenv_mhcunittest")
+        self.assertTrue(aws.autoscale.get_existing_group(hostclass="mhcunittest"))
+        _ag = aws.autoscale.get_existing_groups()[0]
+        self.assertRegexpMatches(_ag.name, r"unittestenv_mhcunittest_[0-9]*")
         self.assertEqual(_ag.min_size, 1)
         self.assertEqual(_ag.max_size, 1)
         self.assertEqual(_ag.desired_capacity, 1)
@@ -212,8 +206,7 @@ class DiscoAWSTests(TestCase):
         """
         Provision creates the proper autoscaling group sizes with scheduled sizes
         """
-        aws = DiscoAWS(config=mock_config, environment_name=TEST_ENV_NAME)
-        aws.log_metrics = MagicMock()
+        aws = DiscoAWS(config=mock_config, environment_name=TEST_ENV_NAME, log_metrics=MagicMock())
         aws.update_elb = MagicMock(return_value=None)
 
         with patch("disco_aws_automation.DiscoAWS.get_meta_network", return_value=_get_meta_network_mock()):
@@ -227,7 +220,7 @@ class DiscoAWSTests(TestCase):
                                       desired_size="2@1 0 * * *:3@6 0 * * *",
                                       max_size="6@1 0 * * *:9@6 0 * * *")
 
-        _ag = aws.autoscale.get_groups()[0]
+        _ag = aws.autoscale.get_existing_groups()[0]
         self.assertEqual(_ag.min_size, 1)  # minimum of listed sizes
         self.assertEqual(_ag.desired_capacity, 3)  # maximum of listed sizes
         self.assertEqual(_ag.max_size, 9)  # maximum of listed sizes
@@ -237,8 +230,7 @@ class DiscoAWSTests(TestCase):
         """
         Provision creates the proper autoscaling group sizes with scheduled sizes
         """
-        aws = DiscoAWS(config=mock_config, environment_name=TEST_ENV_NAME)
-        aws.log_metrics = MagicMock()
+        aws = DiscoAWS(config=mock_config, environment_name=TEST_ENV_NAME, log_metrics=MagicMock())
         aws.update_elb = MagicMock(return_value=None)
 
         with patch("disco_aws_automation.DiscoAWS.get_meta_network", return_value=_get_meta_network_mock()):
@@ -251,7 +243,7 @@ class DiscoAWSTests(TestCase):
                                       min_size="",
                                       desired_size="2@1 0 * * *:3@6 0 * * *", max_size="")
 
-        _ag = aws.autoscale.get_groups()[0]
+        _ag = aws.autoscale.get_existing_groups()[0]
         print("({0}, {1}, {2})".format(_ag.min_size, _ag.desired_capacity, _ag.max_size))
         self.assertEqual(_ag.min_size, 0)  # minimum of listed sizes
         self.assertEqual(_ag.desired_capacity, 3)  # maximum of listed sizes
@@ -262,8 +254,7 @@ class DiscoAWSTests(TestCase):
         """
         Provision creates the proper autoscaling group sizes with scheduled sizes
         """
-        aws = DiscoAWS(config=mock_config, environment_name=TEST_ENV_NAME)
-        aws.log_metrics = MagicMock()
+        aws = DiscoAWS(config=mock_config, environment_name=TEST_ENV_NAME, log_metrics=MagicMock())
         aws.update_elb = MagicMock(return_value=None)
 
         with patch("disco_aws_automation.DiscoAWS.get_meta_network", return_value=_get_meta_network_mock()):
@@ -275,7 +266,7 @@ class DiscoAWSTests(TestCase):
                                       hostclass="mhcunittest", owner="unittestuser",
                                       min_size="", desired_size="", max_size="")
 
-        _ag0 = aws.autoscale.get_groups()[0]
+        _ag0 = aws.autoscale.get_existing_groups()[0]
 
         self.assertEqual(_ag0.min_size, 0)  # minimum of listed sizes
         self.assertEqual(_ag0.desired_capacity, 0)  # maximum of listed sizes
@@ -290,7 +281,7 @@ class DiscoAWSTests(TestCase):
                                       hostclass="mhcunittest", owner="unittestuser",
                                       min_size="3", desired_size="6", max_size="9")
 
-        _ag1 = aws.autoscale.get_groups()[0]
+        _ag1 = aws.autoscale.get_existing_groups()[0]
 
         self.assertEqual(_ag1.min_size, 3)  # minimum of listed sizes
         self.assertEqual(_ag1.desired_capacity, 6)  # maximum of listed sizes
@@ -305,7 +296,7 @@ class DiscoAWSTests(TestCase):
                                       hostclass="mhcunittest", owner="unittestuser",
                                       min_size="", desired_size="", max_size="")
 
-        _ag2 = aws.autoscale.get_groups()[0]
+        _ag2 = aws.autoscale.get_existing_groups()[0]
 
         self.assertEqual(_ag2.min_size, 3)  # minimum of listed sizes
         self.assertEqual(_ag2.desired_capacity, 6)  # maximum of listed sizes
@@ -314,8 +305,7 @@ class DiscoAWSTests(TestCase):
     @patch_disco_aws
     def test_update_elb_delete(self, mock_config, **kwargs):
         '''Update ELB deletes ELBs that are no longer configured'''
-        aws = DiscoAWS(config=mock_config, environment_name=TEST_ENV_NAME)
-        aws._elb = MagicMock()
+        aws = DiscoAWS(config=mock_config, environment_name=TEST_ENV_NAME, elb=MagicMock())
         aws.elb.get_elb = MagicMock(return_value=True)
         aws.elb.delete_elb = MagicMock()
         aws.update_elb("mhcfoo", update_autoscaling=False)
@@ -341,7 +331,7 @@ class DiscoAWSTests(TestCase):
     @patch_disco_aws
     def test_update_elb_create(self, mock_config, **kwargs):
         '''DiscoELB called to update or create ELB when one is configured'''
-        aws = DiscoAWS(config=self._get_elb_config(), environment_name=TEST_ENV_NAME)
+        aws = DiscoAWS(config=self._get_elb_config(), environment_name=TEST_ENV_NAME, elb=MagicMock())
         aws.elb.get_or_create_elb = MagicMock(return_value=MagicMock())
         aws.get_meta_network_by_name = _get_meta_network_mock()
         aws.elb.delete_elb = MagicMock()
@@ -355,7 +345,7 @@ class DiscoAWSTests(TestCase):
             elb_protocol='HTTP', instance_protocol='HTTP',
             security_groups=['sg-1234abcd'], elb_public=False,
             sticky_app_cookie=None, subnets=['s-1234abcd', 's-1234abcd', 's-1234abcd'],
-            connection_draining_timeout=300, idle_timeout=300)
+            connection_draining_timeout=300, idle_timeout=300, testing=False)
 
     @patch_disco_aws
     def test_create_userdata_with_eip(self, **kwargs):
@@ -367,7 +357,7 @@ class DiscoAWSTests(TestCase):
         config_dict["mhcunittest"]["eip"] = eip
         aws = DiscoAWS(config=get_mock_config(config_dict), environment_name=TEST_ENV_NAME)
 
-        user_data = aws.create_userdata(hostclass="mhcunittest", owner="unittestuser", testing=False)
+        user_data = aws.create_userdata(hostclass="mhcunittest", owner="unittestuser")
         self.assertEqual(user_data["eip"], eip)
 
     @patch_disco_aws
@@ -378,7 +368,7 @@ class DiscoAWSTests(TestCase):
         config_dict = get_default_config_dict()
         aws = DiscoAWS(config=get_mock_config(config_dict), environment_name=TEST_ENV_NAME)
 
-        user_data = aws.create_userdata(hostclass="mhcunittest", owner="unittestuser", testing=False)
+        user_data = aws.create_userdata(hostclass="mhcunittest", owner="unittestuser")
         self.assertEqual(user_data["zookeepers"], "[\\\"10.0.0.1:2181\\\"]")
 
     @patch_disco_aws

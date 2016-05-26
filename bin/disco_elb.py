@@ -43,8 +43,11 @@ def run():
         sys.exit(1)
 
     if args['list']:
-        for elb in sorted(DiscoELB(vpc).list()):
-            print("{0:<20} {1:25}".format(elb['LoadBalancerName'], ','.join(elb['AvailabilityZones'])))
+        format_string = "{0:<50} {1:33} {2}"
+        print(format_string.format("ELB Name", "Availability Zones", "ELB Id"), file=sys.stderr)
+        for elb_info in sorted(DiscoELB(vpc).list_for_display()):
+            print(format_string.format(elb_info['elb_name'], elb_info['availability_zones'],
+                                       elb_info["elb_id"]))
     elif args['update']:
         DiscoAWS(config, env).update_elb(args['--hostclass'])
 
