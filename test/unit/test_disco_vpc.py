@@ -100,7 +100,8 @@ class DiscoVPCTests(unittest.TestCase):
                 'intranet_cidr': 'auto',
                 'tunnel_cidr': 'auto',
                 'dmz_cidr': 'auto',
-                'maintenance_cidr': 'auto'
+                'maintenance_cidr': 'auto',
+                'ntp_server': '10.0.0.5'
             }
         })
 

@@ -133,6 +133,10 @@ class DiscoRDS(object):
         intranet = [sg for sg in security_groups if sg.tags and sg.tags.get("meta_network") == "intranet"][0]
         return intranet.id
 
+    def update_cluster_by_id(self, database_identifier):
+        """Update a RDS cluster by its database identifier"""
+        self.update_cluster(self._get_database_name(self.vpc_name, database_identifier))
+
     def update_cluster(self, database_name):
         """
         Run the RDS Cluster update
@@ -149,7 +153,7 @@ class DiscoRDS(object):
             group_family = self.get_db_parameter_group_family(
                 instance_params["Engine"], instance_params["EngineVersion"])
             logging.debug("creating parameter group %s with family %s", group_name, group_family)
-            self.recreate_db_parameter_group(database_name, group_name, group_family)
+            self.recreate_db_parameter_group(self.vpc_name, database_name, group_name, group_family)
             self.create_db_instance(instance_params)
 
         # Create/Update CloudWatch Alarms for this instance
@@ -409,12 +413,19 @@ class DiscoRDS(object):
                                                                'MinimumEngineVersion': 'someversion',
                                                                'ApplyMethod': 'pending-reboot'}])
 
-    def recreate_db_parameter_group(self, database_name, db_parameter_group_name,
+    def recreate_db_parameter_group(self, env_name, database_name, db_parameter_group_name,
                                     db_parameter_group_family):
         """
         Check if there are any custom parameters for this instance
         Custom Parameters are set in ./rds/engine_specific/{instance_identifier}.ini
         If this file doesn't exist, we'll use default RDS parameters
+        Args:
+            env_name (str): The environment name to use when reading the config file.
+                            This is only used in the section name of the config file.
+                            The parameter group is always created for the current environment
+            database_name (str): The database name such as 'txdb'
+            db_parameter_group_name (str): Usually the same as the database identifier such as 'ci-txdb'
+            db_parameter_group_family (str): Parameter group family such as 'oracle-se2-12.1'
         """
         try:
             self.client.delete_db_parameter_group(DBParameterGroupName=db_parameter_group_name)
@@ -432,7 +443,7 @@ class DiscoRDS(object):
         if os.path.isfile(custom_param_file):
             custom_config = ConfigParser()
             custom_config.read(custom_param_file)
-            custom_db_params = custom_config.items(self.vpc_name)
+            custom_db_params = custom_config.items(env_name)
             logging.info("Updating RDS db_parameter_group %s (family: %s, #params: %s)",
                          db_parameter_group_name, db_parameter_group_family, len(custom_db_params))
             self.modify_db_parameter_group(db_parameter_group_name, custom_db_params)
@@ -505,8 +516,17 @@ class DiscoRDS(object):
         # override some parameters to use the new instance id
         instance_params['DBInstanceIdentifier'] = clone_db_identifier
         instance_params['DBSubnetGroupName'] = clone_db_identifier
+        instance_params['DBParameterGroupName'] = clone_db_identifier
 
         self.recreate_db_subnet_group(instance_params["DBSubnetGroupName"])
+
+        group_name = instance_params["DBParameterGroupName"]
+        group_family = self.get_db_parameter_group_family(
+            instance_params["Engine"], instance_params["EngineVersion"])
+        logging.debug("creating parameter group %s with family %s", group_name, group_family)
+
+        # create a parameter group using the parameters of the source db
+        self.recreate_db_parameter_group(source_vpc, source_db, group_name, group_family)
 
         self.create_db_instance(instance_params,
                                 custom_snapshot=self.get_final_snapshot(source_db_identifier))

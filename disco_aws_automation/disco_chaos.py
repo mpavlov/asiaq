@@ -33,7 +33,7 @@ class DiscoChaos(object):
     def _get_autoscaling_groups(self):
         '''Returns list of autoscaling groups (with caching)'''
         if self._groups is None:
-            self._groups = self.disco_aws.autoscale.get_groups()  # pragma: no cover
+            self._groups = self.disco_aws.autoscale.get_existing_groups()  # pragma: no cover
         return self._groups
 
     @staticmethod

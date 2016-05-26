@@ -15,6 +15,7 @@ from .disco_route53 import DiscoRoute53
 from .resource_helper import throttled_call
 from .disco_aws_util import is_truthy
 from .disco_constants import DEFAULT_CONFIG_SECTION
+from .disco_vpc import CONFIG_FILE as VPC_CONFIG_FILE
 
 CONFIG_FILE = "disco_elasticsearch.ini"
 
@@ -25,8 +26,9 @@ class DiscoElasticsearch(object):
     """
 
     def __init__(self, environment_name, config_aws=None, config_es=None,
-                 route53=None):
+                 config_vpc=None, route53=None):
         self.config_aws = config_aws or read_config()
+        self.config_vpc = config_vpc or read_config(VPC_CONFIG_FILE)
         self.config_es = config_es or read_config(CONFIG_FILE)
         self.route53 = route53 or DiscoRoute53()
 
@@ -192,8 +194,10 @@ class DiscoElasticsearch(object):
         """
         proxy_hostclass = self.get_aws_option('http_proxy_hostclass')
         proxy_ip = self.get_hostclass_option('eip', proxy_hostclass)
-
         allowed_source_ips.append(proxy_ip)
+        nat_eips = self._get_nat_eips()
+        if nat_eips:
+            allowed_source_ips += nat_eips.split(',')
 
         resource = "arn:aws:es:{region}:{account}:domain/{domain_name}/*".format(region=self.region,
                                                                                  account=self.account_id,
@@ -416,3 +420,10 @@ class DiscoElasticsearch(object):
     def get_hostclass_option_default(self, option, hostclass, default=None):
         """Fetch a hostclass configuration option, if it does not exist get the default"""
         return self.get_aws_option_default(option, hostclass, default)
+
+    def _get_nat_eips(self):
+        env_option = 'envtype:{}'.format(self.environment_name)
+        if self.config_vpc.has_option(env_option, 'tunnel_nat_gateways'):
+            return self.config_vpc.get(env_option, 'tunnel_nat_gateways')
+        else:
+            return None

@@ -250,7 +250,12 @@ class DiscoVPC(object):
         internal_dns = self.get_config("internal_dns")
         external_dns = self.get_config("external_dns")
         domain_name = self.get_config("domain_name")
+
         ntp_server = self.get_config("ntp_server")
+        if not ntp_server:
+            ntp_server_metanetwork = self.get_config("ntp_server_metanetwork")
+            ntp_server_offset = self.get_config("ntp_server_offset")
+            ntp_server = self.networks[ntp_server_metanetwork].ip_by_offset(ntp_server_offset)
 
         # internal_dns server should be default, and for this reason it comes last.
         dhcp_configs = []
@@ -267,6 +272,7 @@ class DiscoVPC(object):
         )['DhcpOptions']
 
     def _create_environment(self):
+
         """Create a new disco style environment VPC"""
         vpc_cidr = self.get_config("vpc_cidr")
 
@@ -386,8 +392,8 @@ class DiscoVPC(object):
         self.disco_vpc_sg_rules.destroy()
         self.disco_vpc_gateways.destroy_all()
         DiscoVPCPeerings.delete_peerings(self.get_vpc_id())
-        self._destroy_routes()
         self._destroy_subnets()
+        self._destroy_routes()
         return self._destroy_vpc()
 
     def _destroy_instances(self):

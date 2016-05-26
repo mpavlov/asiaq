@@ -1,6 +1,7 @@
 """
 Tests of disco_autoscale
 """
+import random
 from unittest import TestCase
 
 from mock import MagicMock, patch, ANY, call
@@ -16,20 +17,35 @@ class DiscoAutoscaleTests(TestCase):
         """Pre-test setup"""
         self._mock_connection = MagicMock()
         self._mock_boto3_connection = MagicMock()
+        self.environment_name = "us-moon-1"
         self._autoscale = DiscoAutoscale("us-moon-1", self._mock_connection, self._mock_boto3_connection)
 
-    def mock_group(self, hostclass):
+    def mock_group(self, hostclass, name=None):
         '''Creates a mock autoscaling group for hostclass'''
         group_mock = MagicMock()
-        group_mock.name = self._autoscale.get_groupname(hostclass)
+        group_mock.name = name or self._autoscale.get_new_groupname(hostclass)
         group_mock.min_size = 1
         group_mock.max_size = 1
         group_mock.desired_capacity = 1
         return group_mock
 
+    def mock_inst(self, hostclass, group_name=None):
+        '''Creates a mock autoscaling inst for hostclass'''
+        inst_mock = MagicMock()
+        inst_mock.instance_id = 'i-' + ''.join(random.choice('1234567890') for x in range(8))
+        inst_mock.group_name = group_name or self._autoscale.get_new_groupname(hostclass)
+        return inst_mock
+
+    def mock_lg(self, hostclass, name=None):
+        '''Creates a mock autoscaling launch configuration for hostclass'''
+        lg_mock = MagicMock()
+        lg_mock.name = name or '{0}_{1}_{2}'.format(self.environment_name, hostclass,
+                                                    str(random.randrange(0, 9999999)))
+        return lg_mock
+
     def test_get_group_scale_down(self):
         """Test scaling down to 0 hosts"""
-        self._mock_connection.get_all_groups.return_value = [self.mock_group("mhcdummy")]
+        self._autoscale._get_group_generator = MagicMock(return_value=[self.mock_group("mhcdummy")])
         group = self._autoscale.get_group(
             hostclass="mhcdummy",
             launch_config="launch_config-X", vpc_zone_id="zone-X",
@@ -39,7 +55,7 @@ class DiscoAutoscaleTests(TestCase):
 
     def test_get_group_no_scale(self):
         """Test getting a group and not scaling it"""
-        self._mock_connection.get_all_groups.return_value = [self.mock_group("mhcdummy")]
+        self._autoscale._get_group_generator = MagicMock(return_value=[self.mock_group("mhcdummy")])
         group = self._autoscale.get_group(
             hostclass="mhcdummy",
             launch_config="launch_config-X", vpc_zone_id="zone-X",
@@ -50,7 +66,7 @@ class DiscoAutoscaleTests(TestCase):
 
     def test_get_group_scale_up(self):
         """Test getting a group and scaling it up"""
-        self._mock_connection.get_all_groups.return_value = [self.mock_group("mhcdummy")]
+        self._autoscale._get_group_generator = MagicMock(return_value=[self.mock_group("mhcdummy")])
         group = self._autoscale.get_group(
             hostclass="mhcdummy",
             launch_config="launch_config-X", vpc_zone_id="zone-X",
@@ -61,21 +77,21 @@ class DiscoAutoscaleTests(TestCase):
 
     def test_get_group_attach_elb(self):
         """Test getting a group and attaching an elb"""
-        self._mock_connection.get_all_groups.return_value = [self.mock_group("mhcdummy")]
+        self._autoscale._get_group_generator = MagicMock(return_value=[self.mock_group("mhcdummy")])
 
-        self._autoscale.get_group(
+        group = self._autoscale.get_group(
             hostclass="mhcdummy",
             launch_config="launch_config-X", vpc_zone_id="zone-X",
             load_balancers=['fake_elb'])
 
         self._mock_boto3_connection.attach_load_balancers.assert_called_with(
-            AutoScalingGroupName='us-moon-1_mhcdummy',
+            AutoScalingGroupName=group.name,
             LoadBalancerNames=['fake_elb'])
 
     @patch("boto.ec2.autoscale.group.AutoScalingGroup")
     def test_get_fresh_group_with_none_min(self, mock_group_init):
         '''Test getting a fresh group with None as min_size'''
-        self._mock_connection.get_all_groups = MagicMock(return_value=[])
+        self._autoscale._get_group_generator = MagicMock(return_value=[])
         self._autoscale.get_group(
             hostclass="mhcdummy",
             launch_config="launch_config-X", vpc_zone_id="zone-X",
@@ -92,7 +108,7 @@ class DiscoAutoscaleTests(TestCase):
     @patch("boto.ec2.autoscale.group.AutoScalingGroup")
     def test_get_fresh_group_with_none_max(self, mock_group_init):
         '''Test getting a fresh group with None as max_size'''
-        self._mock_connection.get_all_groups = MagicMock(return_value=[])
+        self._autoscale._get_group_generator = MagicMock(return_value=[])
         self._autoscale.get_group(
             hostclass="mhcdummy",
             launch_config="launch_config-X", vpc_zone_id="zone-X",
@@ -109,7 +125,7 @@ class DiscoAutoscaleTests(TestCase):
     @patch("boto.ec2.autoscale.group.AutoScalingGroup")
     def test_get_fresh_group_with_none_desired(self, mock_group_init):
         '''Test getting a fresh group with None as max_size'''
-        self._mock_connection.get_all_groups = MagicMock(return_value=[])
+        self._autoscale._get_group_generator = MagicMock(return_value=[])
         self._autoscale.get_group(
             hostclass="mhcdummy",
             launch_config="launch_config-X", vpc_zone_id="zone-X",
@@ -145,19 +161,19 @@ class DiscoAutoscaleTests(TestCase):
 
     def test_update_snapshot_using_latest(self):
         """Calling update_snapshot when already running latest snapshot does nothing"""
-        self._autoscale.get_launch_config_for_hostclass = MagicMock(
+        self._autoscale.get_launch_config = MagicMock(
             return_value=self.mock_launchconfig(self._autoscale.environment_name, "mhcfoo"))
         self._autoscale.update_group = MagicMock()
-        self._autoscale.update_snapshot("mhcfoo", "snap-12345678", 99)
+        self._autoscale.update_snapshot("snap-12345678", 99, hostclass="mhcfoo")
         self.assertEqual(self._autoscale.update_group.call_count, 0)
 
     def test_update_snapshot_with_update(self):
         """Calling update_snapshot when not running latest snapshot calls update_group with new config"""
         mock_lc = self.mock_launchconfig(self._autoscale.environment_name, "mhcfoo", 1)
-        self._autoscale.get_launch_config_for_hostclass = MagicMock(return_value=mock_lc)
+        self._autoscale.get_launch_config = MagicMock(return_value=mock_lc)
         self._autoscale.update_group = MagicMock()
         self._autoscale.get_existing_group = MagicMock(return_value="group")
-        self._autoscale.update_snapshot("mhcfoo", "snap-NEW", 99)
+        self._autoscale.update_snapshot("snap-NEW", 99, hostclass="mhcfoo")
         self.assertNotEqual(self._autoscale.update_group.mock_calls, [call("group", mock_lc.name)])
         self.assertEqual(mock_lc.block_device_mappings["/dev/snap"].snapshot_id, "snap-NEW")
         self.assertEqual(self._autoscale.update_group.call_count, 1)
@@ -167,7 +183,7 @@ class DiscoAutoscaleTests(TestCase):
         grp = self.mock_group("mhcfoo")
         grp.load_balancers = ["old_lb1", "old_lb2"]
         self._autoscale.get_existing_group = MagicMock(return_value=grp)
-        ret = self._autoscale.update_elb("mhcfoo", ["new_lb"])
+        ret = self._autoscale.update_elb(["new_lb"], hostclass="mhcfoo")
         self.assertEqual(ret, (set(["new_lb"]), set(["old_lb1", "old_lb2"])))
 
     def test_update_elb_with_new_lb_and_old_lb(self):
@@ -175,7 +191,7 @@ class DiscoAutoscaleTests(TestCase):
         grp = self.mock_group("mhcfoo")
         grp.load_balancers = ["old_lb", "both_lb"]
         self._autoscale.get_existing_group = MagicMock(return_value=grp)
-        ret = self._autoscale.update_elb("mhcfoo", ["new_lb", "both_lb"])
+        ret = self._autoscale.update_elb(["new_lb", "both_lb"], hostclass="mhcfoo")
         self.assertEqual(ret, (set(["new_lb"]), set(["old_lb"])))
 
     def test_update_elb_without_new_lb(self):
@@ -183,5 +199,72 @@ class DiscoAutoscaleTests(TestCase):
         grp = self.mock_group("mhcfoo")
         grp.load_balancers = ["old_lb1", "old_lb2"]
         self._autoscale.get_existing_group = MagicMock(return_value=grp)
-        ret = self._autoscale.update_elb("mhcfoo", [])
+        ret = self._autoscale.update_elb([], hostclass="mhcfoo")
         self.assertEqual(ret, (set([]), set(["old_lb1", "old_lb2"])))
+
+    def test_gg_filters_env_correctly(self):
+        '''group_generator correctly filters based on the environment'''
+        good_groups = [self.mock_group("mhcfoo"), self.mock_group("mhcbar"), self.mock_group("mhcfoobar")]
+        bad_groups = [self.mock_group("mhcnoncomformist", name="foo-mhcnoncomformist-123141231123")]
+        groups = MagicMock()
+        groups.next_token = None
+        groups.__iter__.return_value = good_groups + bad_groups
+        self._mock_connection.get_all_groups.return_value = groups
+
+        self.assertEqual(set(self._autoscale.get_existing_groups()), set(good_groups))
+
+    def test_gg_filters_hostclass_correctly(self):
+        '''get_existing_groups correctly filters based on the hostclass'''
+        good_groups = [self.mock_group("mhcneedle")]
+        bad_groups = [self.mock_group("mhcfoo"), self.mock_group("mhcbar"), self.mock_group("mhcfoobar")]
+        groups = MagicMock()
+        groups.next_token = None
+        groups.__iter__.return_value = good_groups + bad_groups
+        self._mock_connection.get_all_groups.return_value = groups
+
+        self.assertEqual(set(self._autoscale.get_existing_groups(hostclass="mhcneedle")), set(good_groups))
+
+    def test_ig_filters_env_correctly(self):
+        '''inst_generator correctly filters based on the environment'''
+        good_insts = [self.mock_inst("mhcfoo"), self.mock_inst("mhcbar"), self.mock_inst("mhcfoobar")]
+        bad_insts = [self.mock_inst("mhcnoncomformist", group_name="foo_mhcnoncomformist_123141231123")]
+        groups = MagicMock()
+        groups.next_token = None
+        groups.__iter__.return_value = good_insts + bad_insts
+        self._mock_connection.get_all_autoscaling_instances.return_value = groups
+
+        self.assertEqual(self._autoscale.get_instances(), good_insts)
+
+    def test_ig_filters_hostclass_correctly(self):
+        '''inst_generator correctly filters based on the hostclass'''
+        good_insts = [self.mock_inst("mhcneedle")]
+        bad_insts = [self.mock_inst("mhcfoo"), self.mock_inst("mhcbar"), self.mock_inst("mhcfoobar")]
+        groups = MagicMock()
+        groups.next_token = None
+        groups.__iter__.return_value = good_insts + bad_insts
+        self._mock_connection.get_all_autoscaling_instances.return_value = groups
+
+        self.assertEqual(self._autoscale.get_instances(hostclass="mhcneedle"), good_insts)
+
+    def test_ig_filters_groupname_correctly(self):
+        '''inst_generator correctly filters based on the group name'''
+        good_insts = [self.mock_inst("mhcneedle")]
+        bad_insts = [self.mock_inst("mhcfoo"), self.mock_inst("mhcbar"), self.mock_inst("mhcfoobar")]
+        groups = MagicMock()
+        groups.next_token = None
+        groups.__iter__.return_value = good_insts + bad_insts
+        self._mock_connection.get_all_autoscaling_instances.return_value = groups
+
+        self.assertEqual(self._autoscale.get_instances(group_name=good_insts[0].group_name),
+                         good_insts)
+
+    def test_cg_filters_env_correctly(self):
+        '''config_generator correctly filters based on the environment'''
+        good_lgs = [self.mock_lg("mhcfoo"), self.mock_lg("mhcbar"), self.mock_lg("mhcfoobar")]
+        bad_lgs = [self.mock_lg("mhcnoncomformist", name="foo_mhcnoncomformist_123141231123")]
+        groups = MagicMock()
+        groups.next_token = None
+        groups.__iter__.return_value = good_lgs + bad_lgs
+        self._mock_connection.get_all_launch_configurations.return_value = groups
+
+        self.assertEqual(self._autoscale.get_configs(), good_lgs)
