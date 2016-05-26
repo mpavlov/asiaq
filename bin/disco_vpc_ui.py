@@ -8,7 +8,11 @@ import logging
 import argparse
 import sys
 
-from disco_aws_automation import DiscoVPC
+from disco_aws_automation import (
+    DiscoVPC,
+    DiscoVPCPeerings
+)
+from disco_aws_automation.disco_vpc_peerings import LIVE_PEERING_STATES
 from disco_aws_automation.disco_aws_util import run_gracefully
 from disco_aws_automation.disco_logging import configure_logging
 
@@ -133,25 +137,27 @@ def proxy_peerings_command(args):
     if args.list_peerings:
         vpc_map = {vpc['id']: vpc for vpc in DiscoVPC.list_vpcs()}
         peerings = sorted(
-            DiscoVPC.list_peerings(vpc_id, include_failed=True),
+            DiscoVPCPeerings.list_peerings(vpc_id, include_failed=True),
             key=lambda p: vpc_map.get(p['AccepterVpcInfo']['VpcId'])['tags'].get("Name"))
 
         for peering in peerings:
+
             vpc1 = vpc_map.get(peering['AccepterVpcInfo']['VpcId'])
             vpc2 = vpc_map.get(peering['RequesterVpcInfo']['VpcId'])
 
             line = u"{0:<14} {1:<8} {2:<20} {3:<21}".format(
                 peering['VpcPeeringConnectionId'], peering['Status']['Code'], "{}<->{}".format(
-                    vpc1['tags'].get("Name"), vpc2['tags'].get("Name")),
+                    vpc1['tags'].get("Name") if vpc1 is not None else "",
+                    vpc2['tags'].get("Name") if vpc2 is not None else ""),
                 "{}<->{}".format(
-                    peering['AccepterVpcInfo']['CidrBlock'],
-                    peering['RequesterVpcInfo']['CidrBlock']))
+                    peering['AccepterVpcInfo'].get('CidrBlock'),
+                    peering['RequesterVpcInfo'].get('CidrBlock')))
             print(line)
     elif args.delete_peerings:
-        DiscoVPC.delete_peerings(vpc_id)
+        DiscoVPCPeerings.delete_peerings(vpc_id)
     elif args.create_peerings:
-        peering_configs = DiscoVPC.parse_peerings_config(vpc_id)
-        DiscoVPC.create_peering_connections(peering_configs)
+        peering_configs = DiscoVPCPeerings.parse_peerings_config(vpc_id)
+        DiscoVPCPeerings.create_peering_connections(peering_configs)
 
 
 def run():
