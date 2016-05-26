@@ -5,7 +5,8 @@ Manages ElastiCache
 Usage:
     disco_elasticache.py [--debug] [--env ENV] list
     disco_elasticache.py [--debug] [--env ENV] listsnapshots [--cluster CLUSTER]
-    disco_elasticache.py [--debug] [--env ENV] update [--cluster CLUSTER [--snapshot SNAPSHOT | --latestsnapshot]]
+    disco_elasticache.py [--debug] [--env ENV] update [--cluster CLUSTER [--snapshot SNAPSHOT]]
+    disco_elasticache.py [--debug] [--env ENV] update [--cluster CLUSTER [--latestsnapshot]]
     disco_elasticache.py [--debug] [--env ENV] delete --cluster CLUSTER [--wait]
     disco_elasticache.py (-h | --help)
 
@@ -57,18 +58,7 @@ def run():
             print("{:<25} {:12} {:>5}".format(cluster['Description'], cluster['Status'], size))
 
     elif args['listsnapshots']:
-        rows = []
-        for snapshot_data in disco_elasticache.list_snapshots(args['--cluster']):
-            cluster_id = snapshot_data['CacheClusterId']
-            name = snapshot_data['SnapshotName']
-            status = snapshot_data['SnapshotStatus']
-            source = snapshot_data['SnapshotSource']
-            for snapshot in snapshot_data['NodeSnapshots']:
-                cache_size = snapshot['CacheSize']
-                create_time = snapshot['SnapshotCreateTime']
-                rows.append((cluster_id, name, cache_size, create_time, status, source))
-        for row in sorted(rows, key=lambda x: x[3], reverse=True):
-            print("{} {:25} {:>6} {} {:10} {}".format(*row))
+        print_snapshots(disco_elasticache, args['--cluster'])
 
     elif args['update']:
         if args['--cluster']:
@@ -86,6 +76,21 @@ def run():
     elif args['delete']:
         disco_elasticache.delete(args['--cluster'], wait=args['--wait'])
 
+
+def print_snapshots(disco_elasticache, cluster_name):
+    """print all snapshots or for a specific cluster"""
+    rows = []
+    for snapshot_data in disco_elasticache.list_snapshots(cluster_name):
+        cluster_id = snapshot_data['CacheClusterId']
+        name = snapshot_data['SnapshotName']
+        status = snapshot_data['SnapshotStatus']
+        source = snapshot_data['SnapshotSource']
+        for snapshot in snapshot_data['NodeSnapshots']:
+            cache_size = snapshot['CacheSize']
+            create_time = snapshot['SnapshotCreateTime']
+            rows.append((cluster_id, name, cache_size, create_time, status, source))
+    for row in sorted(rows, key=lambda x: x[3], reverse=True):
+        print("{} {:25} {:>6} {} {:10} {}".format(*row))
 
 if __name__ == "__main__":
     run_gracefully(run)

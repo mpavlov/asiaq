@@ -56,6 +56,7 @@ class DiscoElastiCache(object):
         return sorted(groups, key=lambda group: (group['Description']))
 
     def list_snapshots(self, cluster_name=None):
+        """List all snapshots or snapshots of particular cluster"""
         if not cluster_name:
             cluster_name = ''
         snapshot_descriptions = self.conn.describe_snapshots()
@@ -155,7 +156,8 @@ class DiscoElastiCache(object):
                 ReplicationGroupId=cluster['ReplicationGroupId'],
                 FinalSnapshotIdentifier=snapshot_name)
         else:
-            throttled_call(self.conn.delete_replication_group, ReplicationGroupId=cluster['ReplicationGroupId'])
+            throttled_call(
+                self.conn.delete_replication_group, ReplicationGroupId=cluster['ReplicationGroupId'])
 
         self.route53.delete_records_by_value('CNAME', cluster['NodeGroups'][0]['PrimaryEndpoint']['Address'])
 
@@ -195,11 +197,14 @@ class DiscoElastiCache(object):
                            CacheSubnetGroupName=group['CacheSubnetGroupName'])
 
     def get_latest_snapshot(self, cluster_name):
+        """Get the latest snapshot for cluster"""
         def latest_node_snapshot_date(node_snapshots):
+            """Finds the latest node snapshot by data"""
             from operator import itemgetter
             return max(node_snapshots, key=itemgetter('SnapshotCreateTime'))
 
         def latest_cluster_snapshot_date(snapshot_data):
+            """Finds the latest cluster snapshot by latest node snapshot"""
             return latest_node_snapshot_date(snapshot_data['NodeSnapshots'])
 
         try:
