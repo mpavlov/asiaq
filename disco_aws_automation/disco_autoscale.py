@@ -138,6 +138,7 @@ class DiscoAutoscale(object):
 
     def clean_configs(self):
         '''Delete unused Launch Configurations in current environment'''
+        logging.info("Cleaning up unused launch configurations in %s", self.environment_name)
         for config in self._get_config_generator():
             try:
                 self.delete_config(config.name)
