@@ -19,6 +19,11 @@ INSTANCE_SSHABLE_POLL_INTERVAL = 15  # seconds
 MAX_POLL_INTERVAL = 60  # seconds
 
 
+def tag2dict(tags):
+    ''' Converts a list of dict to dict '''
+    return {tag.get('Key'): tag.get('Value') for tag in tags or {}}
+
+
 def get_name_tag_value(tags):
     for tag in tags:
         if tag['Key'] == 'Name':

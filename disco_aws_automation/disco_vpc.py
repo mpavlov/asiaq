@@ -7,7 +7,6 @@ environments, and between an environment and the internet.  In particular non-VP
 import logging
 import random
 
-import time
 from ConfigParser import ConfigParser
 
 from boto.exception import EC2ResponseError
@@ -16,38 +15,28 @@ import boto3
 from netaddr import IPNetwork, IPSet
 
 from disco_aws_automation.network_helper import calc_subnet_offset
-from . import read_config, normalize_path
+from . import normalize_path
 
-from .resource_helper import (
-    keep_trying,
-    wait_for_state_boto3,
-    get_name_tag_value
-)
+from .resource_helper import tag2dict
 from .disco_log_metrics import DiscoLogMetrics
 from .disco_alarm import DiscoAlarm
 from .disco_alarm_config import DiscoAlarmsConfig
 from .disco_autoscale import DiscoAutoscale
 from .disco_constants import CREDENTIAL_BUCKET_TEMPLATE, NETWORKS
 from .disco_metanetwork import DiscoMetaNetwork
+from .disco_vpc_sg_rules import DiscoVPCSecurityGroupRules
+from .disco_vpc_gateways import DiscoVPCGateways
+from .disco_vpc_peerings import DiscoVPCPeerings
 from .disco_elasticache import DiscoElastiCache
 from .disco_sns import DiscoSNS
 from .disco_rds import DiscoRDS
-from .disco_eip import DiscoEIP
 from .disco_elb import DiscoELB
 from .exceptions import (
-    MultipleVPCsForVPCNameError, TimeoutError, VPCConfigError, VPCEnvironmentError, VPCPeeringSyntaxError,
-    VPCNameNotFound, EIPConfigError)
+    MultipleVPCsForVPCNameError, VPCConfigError, VPCEnvironmentError,
+    VPCNameNotFound)
 
 
 CONFIG_FILE = "disco_vpc.ini"
-VGW_STATE_POLL_INTERVAL = 2  # seconds
-VGW_ATTACH_TIME = 600  # seconds. From observation, it takes about 300s to attach vgw
-LIVE_PEERING_STATES = ["pending-acceptance", "provisioning", "active"]
-
-
-def tag2dict(tags):
-    ''' Converts a list of dict to dict '''
-    return {tag.get('Key'): tag.get('Value') for tag in tags or {}}
 
 
 # FIXME: pylint thinks too many lines are in the file and it has too many instance arguments
@@ -63,14 +52,20 @@ class DiscoVPC(object):
         self.environment_name = environment_name
         self.environment_type = environment_type
         self._config = None  # lazily initialized
-        self._peerings = None  # lazily initialized
         self._region = None  # lazily initialized
         self._networks = None  # lazily initialized
-        self._boto3_ec2 = boto3_ec2 # Lazily initialized if parameter is None
         self._alarms_config = None  # lazily initialized
+
+        if boto3_ec2:
+            self.boto3_ec2 = boto3_ec2
+        else:
+            self.boto3_ec2 = boto3.client('ec2')
+
         self.rds = DiscoRDS(vpc=self)
-        self.eip = DiscoEIP()
         self.elb = DiscoELB(vpc=self)
+        self.disco_vpc_sg_rules = DiscoVPCSecurityGroupRules(vpc=self, boto3_ec2=self.boto3_ec2)
+        self.disco_vpc_gateways = DiscoVPCGateways(vpc=self, boto3_ec2=self.boto3_ec2)
+        self.disco_vpc_peerings = DiscoVPCPeerings(vpc=self, boto3_ec2=self.boto3_ec2)
         self.elasticache = DiscoElastiCache(vpc=self)
         self.log_metrics = DiscoLogMetrics(environment=environment_name)
 
@@ -82,15 +77,6 @@ class DiscoVPC(object):
             self.vpc = vpc
         else:
             self._create_environment()
-
-    @property
-    def boto3_ec2(self):
-        """
-        Lazily creates boto3 EC2 connection
-        """
-        if not self._boto3_ec2:
-            self._boto3_ec2 = boto3.client('ec2')
-        return self._boto3_ec2
 
     @property
     def config(self):
@@ -280,423 +266,6 @@ class DiscoVPC(object):
             DhcpOptionsIds=[response['DhcpOptions']['DhcpOptionsId']]
         )['DhcpOptions']
 
-    @staticmethod
-    def _extract_port_range(port_def):
-        ports = port_def.split(":")
-        return [int(ports[0]), int(ports[1] if len(ports) > 1 else ports[0])]
-
-    def _update_nat_gateways(self, network, dry_run=False):
-        eips = self.get_config("{0}_nat_gateways".format(network.name))
-        if not eips:
-            # No NAT config, delete the gateways if any
-            logging.debug("Deleting NAT gateways if any in meta network {0}"
-                          .format(network.name))
-            if not dry_run:
-                network.delete_nat_gateways()
-        else:
-            eips = [eip.strip() for eip in eips.split(",")]
-            allocation_ids = []
-            for eip in eips:
-                address = self.eip.find_eip_address(eip)
-                if not address:
-                    raise EIPConfigError("Couldn't find Elastic IP: {0}".format(eip))
-
-                allocation_ids.append(address.allocation_id)
-
-            if allocation_ids:
-                logging.debug("Creating NAT in meta network {0} using these allocation IDs: {1}"
-                              .format(network.name, allocation_ids))
-                if not dry_run:
-                    network.add_nat_gateways(allocation_ids)
-
-    def _update_sg_rules(self):
-        for network in self.networks.values():
-            network.update_sg_rules(self._get_sg_rule_tuples(network))
-
-    def _add_sg_rules_to_meta_networks(self):
-        for network in self.networks.values():
-            sg_rule_tuples = self._get_sg_rule_tuples(network)
-            network.add_sg_rules(sg_rule_tuples)
-
-    def _get_sg_rule_tuples(self, network):
-        rules = self.get_config("{0}_sg_rules".format(network.name))
-        if not rules:
-            # No config, nothing to do
-            return
-
-        rules = rules.split(",")
-        sg_rule_tuples = []
-        for rule in rules:
-            rule = rule.strip().split()
-            if len(rule) < 3 or not all(rule):
-                raise VPCEnvironmentError(
-                    "Cannot make heads or tails of rule {0} for metanetwork {1}."
-                    .format(" ".join(rule), network.name)
-                )
-
-            protocol = rule[0]
-            source = rule[1]
-            ports = rule[2:]
-
-            for port_def in ports:
-                port_def = self._extract_port_range(port_def)
-                if source.lower() == "all":
-                    # Handle rule where source is all other networks
-                    for source_network in self.networks.values():
-                        sg_rule_tuples.append(network.create_sg_rule_tuple(
-                            protocol, port_def,
-                            sg_source_id=source_network.security_group.id
-                        ))
-                elif "/" in source:
-                    # Handle CIDR based sources
-                    sg_rule_tuples.append(network.create_sg_rule_tuple(
-                        protocol, port_def, cidr_source=source))
-                else:
-                    # Single network wide source
-                    sg_rule_tuples.append(network.create_sg_rule_tuple(
-                        protocol, port_def,
-                        sg_source_id=self.networks[source].security_group.id
-                    ))
-
-        # Add security rules for customer ports
-        sg_rule_tuples += self._get_dmz_customer_ports_sg_rules(network) +\
-            self._get_intranet_customer_ports_sg_rules(network)
-
-        # Add security rules to allow ICMP (ping, traceroute & etc) and DNS
-        # traffic for all subnets
-        sg_rule_tuples += self._get_icmp_sg_rules(network)
-
-        return sg_rule_tuples
-
-    def _get_icmp_sg_rules(self, network):
-        return [network.create_sg_rule_tuple("icmp", [-1, -1],
-                                             cidr_source=self.vpc['CidrBlock']),
-                network.create_sg_rule_tuple("udp", [53, 53],
-                                             cidr_source=self.vpc['CidrBlock'])]
-
-    def _get_dmz_customer_ports_sg_rules(self, network):
-        sg_rule_tuples = []
-        if network.name == "dmz":
-            customer_ports = self.get_config("customer_ports", "").split()
-            customer_cidrs = self.get_config("customer_cidr", "").split()
-
-            for port_def in customer_ports:
-                port_range = DiscoVPC._extract_port_range(port_def)
-                for customer_cidr in customer_cidrs:
-                    # Allow traffic from customer to dmz
-                    sg_rule_tuples.append(network.create_sg_rule_tuple(
-                        "tcp", port_range, cidr_source=customer_cidr))
-
-                # Allow within DMZ so that vpn host can talk to lbexternal
-                sg_rule_tuples.append(network.create_sg_rule_tuple(
-                    "tcp", port_range,
-                    sg_source_id=network.security_group.id
-                ))
-
-        return sg_rule_tuples
-
-    def _get_intranet_customer_ports_sg_rules(self, network):
-        sg_rule_tuples = []
-        if network.name == "intranet":
-            customer_ports = self.get_config("customer_ports", "").split()
-            for port_def in customer_ports:
-                port_range = DiscoVPC._extract_port_range(port_def)
-                # Allow traffic from dmz to intranet (for lbexternal)
-                sg_rule_tuples.append(network.create_sg_rule_tuple(
-                    "tcp", port_range,
-                    sg_source_id=self.networks["dmz"].security_group.id
-                ))
-
-        return sg_rule_tuples
-
-    def _set_up_gateways(self):
-        # Set up Internet and VPN gateways
-        internet_gateway = self._create_internet_gw()
-        vpn_gateway = self._find_and_attach_vpn_gw()
-
-        for network in self.networks.values():
-            route_tuples = self._get_gateway_route_tuples(network.name, internet_gateway, vpn_gateway)
-
-            logging.debug("Adding gateway routes to meta network {0}: {1}".format(
-                network.name, route_tuples))
-            network.add_gateway_routes(route_tuples)
-
-    def _update_gateway_routes(self):
-        internet_gateway = self._find_internet_gw()
-        vpn_gateway = self._find_vgw()
-
-        for network in self.networks.values():
-            logging.debug("Update routes for meta network {0}".format(network.name))
-            route_tuples = self._get_gateway_route_tuples(network.name, internet_gateway, vpn_gateway)
-            network.update_gateway_routes(route_tuples)
-
-    def _get_gateway_route_tuples(self, network_name, internet_gateway, vpn_gateway):
-        route_tuples = []
-
-        if internet_gateway:
-            igw_routes = self.get_config("{0}_igw_routes".format(network_name))
-            if igw_routes:
-                igw_routes = igw_routes.split(" ")
-                for igw_route in igw_routes:
-                    route_tuples.append((igw_route, internet_gateway['InternetGatewayId']))
-
-        if vpn_gateway:
-            vgw_routes = self.get_config("{0}_vgw_routes".format(network_name))
-            if vgw_routes:
-                vgw_routes = vgw_routes.split(" ")
-                for vgw_route in vgw_routes:
-                    route_tuples.append(vgw_route, vpn_gateway['VpnGatewayId'])
-
-        return route_tuples
-
-    def _create_internet_gw(self):
-        internet_gateway = self.boto3_ec2.create_internet_gateway()['InternetGateway']
-        self.boto3_ec2.attach_internet_gateway(
-            InternetGatewayId=internet_gateway['InternetGatewayId'],
-            VpcId=self.get_vpc_id())
-        logging.debug("internet_gateway: %s", internet_gateway)
-
-        return internet_gateway
-
-    def _find_and_attach_vpn_gw(self):
-        """If configured, attach VPN Gateway and create corresponding routes"""
-        vgw = self._find_vgw()
-        if vgw:
-            logging.debug("Attaching VGW: %s.", vgw)
-            if vgw['VpcAttachments'] and vgw['VpcAttachments'][0]['State'] != 'detached':
-                logging.info("VGW %s already attached to %s. Will detach and reattach to %s.",
-                             vgw['VpnGatewayId'], vgw['VpcAttachments'][0]['VpcId'], self.get_vpc_id())
-                self._detach_vgws()
-                logging.debug("Waiting 30s to avoid VGW 'non-existance' conditon post detach.")
-                time.sleep(30)
-            self.boto3_ec2.attach_vpn_gateway(VpnGatewayId=vgw['VpnGatewayId'], VpcId=self.get_vpc_id())
-            logging.debug("Waiting for VGW to become attached.")
-            self._wait_for_vgw_states(u'attached')
-            logging.debug("VGW have been attached.")
-        else:
-            logging.info("No VGW to attach.")
-
-        return vgw
-
-    def _set_up_nat_gateways(self):
-        for network in self.networks.values():
-            self._update_nat_gateways(network)
-
-        # Setup NAT gateway routes
-        nat_gateway_routes = self._parse_nat_gateway_routes_config()
-        if nat_gateway_routes:
-            logging.debug("Adding NAT gateway routes")
-            self._add_nat_gateway_routes(nat_gateway_routes)
-        else:
-            logging.debug("No NAT gateway routes to add")
-
-    def _update_nat_gateways_and_routes(self, dry_run=False):
-        desired_nat_routes = set(self._parse_nat_gateway_routes_config())
-
-        current_nat_routes = []
-        for network in self.networks.values():
-            nat_gateway_metanetwork = network.get_nat_gateway_metanetwork()
-            if nat_gateway_metanetwork:
-                current_nat_routes.append((network.name, nat_gateway_metanetwork))
-        current_nat_routes = set(current_nat_routes)
-
-        # Updating NAT gateways has to be done AFTER current NAT routes are calculated
-        # because we don't want to delete existing NAT gateways before that.
-        for network in self.networks.values():
-            self._update_nat_gateways(network)
-
-        routes_to_delete = list(current_nat_routes - desired_nat_routes)
-        logging.debug("NAT gateway routes to delete (source, dest): {0}".format(routes_to_delete))
-
-        routes_to_add = list(desired_nat_routes - current_nat_routes)
-        logging.debug("NAT gateway routes to add (source, dest): {0}".format(routes_to_add))
-
-        if not dry_run:
-            self._delete_nat_gateway_routes([route[0] for route in routes_to_delete])
-            self._add_nat_gateway_routes(routes_to_add)
-
-    def _add_nat_gateway_routes(self, nat_gateway_routes):
-        for route in nat_gateway_routes:
-            self.networks[route[0]].add_nat_gateway_route(self.networks[route[1]])
-
-    def _delete_nat_gateway_routes(self, meta_networks):
-        for route in meta_networks:
-            self.networks[route].delete_nat_gateway_route()
-
-    def _parse_nat_gateway_routes_config(self):
-        """ Returns a list of tuples whose first value is the source meta network and
-        whose second value is the destination meta network """
-        result = []
-        nat_gateway_routes = self.get_config("nat_gateway_routes")
-        if nat_gateway_routes:
-            nat_gateway_routes = nat_gateway_routes.split(" ")
-            for nat_gateway_route in nat_gateway_routes:
-                network_pair = nat_gateway_route.split("/")
-                result.append((network_pair[0].strip(), network_pair[1].strip()))
-
-        return result
-
-    def _find_internet_gw(self):
-        """Locate Internet Gateway that corresponds to this VPN"""
-        igw_filter = [{"Name": "attachment.vpc-id", "Values": [self.vpc['VpcId']]}]
-        igws = self.boto3_ec2.describe_internet_gateways(Filters=igw_filter)
-        try:
-            return igws['InternetGateways'][0]
-        except IndexError:
-            logging.warning("Cannot find the required Internet Gateway named for VPC {0}."
-                            .format(self.vpc['VpcId']))
-            return None
-
-    def _find_vgw(self):
-        """Locate VPN Gateway that corresponds to this VPN"""
-        vgw_filter = [{"Name": "tag-value", "Values": [self.environment_name]}]
-        vgws = self.boto3_ec2.describe_vpn_gateways(Filters=vgw_filter)
-        if not len(vgws['VpnGateways']):
-            logging.debug("Cannot find the required VPN Gateway named %s.", self.environment_name)
-            return None
-        return vgws['VpnGateways'][0]
-
-    def _check_vgw_states(self, state):
-        """Checks if all VPN Gateways are in the desired state"""
-        filters = {"Name": "tag:Name", "Values": [self.environment_name]}
-        states = []
-        vgws = self.boto3_ec2.describe_vpn_gateways(Filters=[filters])
-        for vgw in vgws['VpnGateways']:
-            for attachment in vgw['VpcAttachments']:
-                if state == u'detached':
-                    states.append(attachment['State'] == state)
-                elif attachment['VpcId'] == self.get_vpc_id():
-                    states.append(attachment['State'] == state)
-        logging.debug("%s of %s VGW attachments are now in state '%s'",
-                      states.count(True), len(states), state)
-        return states and all(states)
-
-    def _wait_for_vgw_states(self, state, timeout=VGW_ATTACH_TIME):
-        """Wait for all VPN Gateways to reach a specified state"""
-        time_passed = 0
-        while True:
-            try:
-                if self._check_vgw_states(state):
-                    return True
-            except EC2ResponseError:
-                pass  # These are most likely transient, we will timeout if they are not
-
-            if time_passed >= timeout:
-                raise TimeoutError(
-                    "Timed out waiting for VPN Gateways to change state to {0} after {1}s."
-                    .format(state, time_passed))
-
-            time.sleep(VGW_STATE_POLL_INTERVAL)
-            time_passed += VGW_STATE_POLL_INTERVAL
-
-    def _detach_vgws(self):
-        """Detach VPN Gateways, but don't delete them so they can be re-used"""
-        vgw_filter = [
-            {"Name": "attachment.state", "Values": ['attached']},
-            {"Name": "tag:Name", "Values": [self.environment_name]}
-        ]
-        detached = False
-        for vgw in self.boto3_ec2.describe_vpn_gateways(Filters=vgw_filter)['VpnGateways']:
-            logging.debug("Detaching VGW: %s.", vgw)
-            if not self.boto3_ec2.detach_vpn_gateway(VpnGatewayId=vgw['VpnGatewayId'],
-                                                     VpcId=vgw['VpcAttachments'][0]['VpcId']):
-                logging.error("Failed to detach %s from %s", vgw['VpnGatewayId'],
-                              vgw['VpcAttachments'][0]['VpcId'])
-            else:
-                detached = True
-
-        if not detached:
-            return
-
-        try:
-            logging.debug("Waiting for VGWs to become detached.")
-            self._wait_for_vgw_states(u'detached')
-        except TimeoutError:
-            logging.exception("Failed to detach VPN Gateways (Timeout).")
-
-    def _update_peering_connections(self):
-        desired_peerings = DiscoVPC.parse_peering_strs_config(self.environment_name)
-        existing_peerings = self._get_existing_peerings()
-
-        if existing_peerings > desired_peerings:
-            raise RuntimeError("Some existing VPC peering connections are not "
-                               "defined in the configuration: {0}. Deletion of VPC peerings is"
-                               "not implemented yet."
-                               .format(existing_peerings - desired_peerings))
-
-        DiscoVPC.create_peering_connections(DiscoVPC.parse_peerings_config(self.get_vpc_id()))
-
-    def _get_existing_peerings(self):
-        current_peerings = set()
-
-        for peering in DiscoVPC.list_peerings(self.get_vpc_id()):
-
-            peer_vpc = self._find_peer_vpc(self._get_peer_vpc_id(peering))
-
-            vpc_peering_route_tables = self.boto3_ec2.describe_route_tables(
-                Filters=[{'Name': 'route.vpc-peering-connection-id',
-                          'Values': [peering['VpcPeeringConnectionId']]}])['RouteTables']
-
-            for route_table in vpc_peering_route_tables:
-                subnet_name_parts = get_name_tag_value(route_table['Tags']).split('_')
-                if subnet_name_parts[0] == self.environment_name:
-                    source_network = subnet_name_parts[0] + ':' + \
-                        self.environment_type + '/' + \
-                        subnet_name_parts[1]
-
-                    for route in route_table['Routes']:
-                        if route.get('VpcPeeringConnectionId') == peering['VpcPeeringConnectionId']:
-                            dest_network = peer_vpc.environment_name + ':' + \
-                                           peer_vpc.environment_type + '/' + \
-                                           [network.name for network in peer_vpc.networks.values()
-                                            if str(network.network_cidr) == route['DestinationCidrBlock']][0]
-
-                            current_peerings.add(source_network + ' ' + dest_network)
-
-        return current_peerings
-
-    def _get_peer_vpc_id(self, peering):
-        if peering['AccepterVpcInfo']['VpcId'] != self.get_vpc_id():
-            return peering['AccepterVpcInfo']['VpcId']
-        else:
-            return peering['RequesterVpcInfo']['VpcId']
-
-    def _find_peer_vpc(self, peer_vpc_id):
-        try:
-            peer_vpc = self.boto3_ec2.describe_vpcs(VpcIds=[peer_vpc_id])['Vpcs'][0]
-        except IndexError:
-            raise RuntimeError("Failed to retrieve VPC with vpc_id: {0}".format(peer_vpc_id))
-
-        try:
-            for tag in peer_vpc['Tags']:
-                if tag['Key'] == 'Name':
-                    vpc_name = tag['Value']
-                elif tag['Key'] == 'type':
-                    vpc_type = tag['Value']
-
-            return DiscoVPC(vpc_name, vpc_type, peer_vpc)
-        except UnboundLocalError:
-            raise RuntimeError("VPC {0} is missing tags: 'Name', 'type'.".format(peer_vpc_id))
-
-    def get_peering_tuple(self, peering_line):
-        peering_line.split('/')
-
-    def _update_environment(self):
-        """Update the disco style environment VPC"""
-        # TODO: We should probably ignore changes in cidr
-        """
-        vpc_cidr = self.get_config("vpc_cidr")
-        if vpc_cidr != self.vpc['CidrBlock']:
-            logging.error("VPC cannot be updated, Cidr values are different, %s instead of"
-                          "%s", vpc_cidr, self.vpc['CidrBlock'])
-        """
-
-        self._update_sg_rules()
-        self._update_gateway_routes()
-        self._update_nat_gateways_and_routes()
-        self._update_peering_connections()
-        self.configure_notifications()
-
     def _create_environment(self):
         """Create a new disco style environment VPC"""
         vpc_cidr = self.get_config("vpc_cidr")
@@ -734,10 +303,10 @@ class DiscoVPC(object):
                                            VpcId=self.vpc['VpcId'])
 
         # Enable DNS
-        self.boto3_ec2.modify_vpc_attribute(VpcId=self.vpc['VpcId'],
-                                         EnableDnsSupport={'Value': True})
-        self.boto3_ec2.modify_vpc_attribute(VpcId=self.vpc['VpcId'],
-                                         EnableDnsHostnames={'Value': True})
+        self.boto3_ec2.modify_vpc_attribute(
+            VpcId=self.vpc['VpcId'], EnableDnsSupport={'Value': True})
+        self.boto3_ec2.modify_vpc_attribute(
+            VpcId=self.vpc['VpcId'], EnableDnsHostnames={'Value': True})
 
         # Create metanetworks (subnets, route_tables and security groups)
         self._networks = self._create_new_meta_networks()
@@ -745,16 +314,19 @@ class DiscoVPC(object):
             network.create()
 
         # Configure security group rules for all meta networks
-        self._add_sg_rules_to_meta_networks()
+        self.disco_vpc_sg_rules.add_meta_network_sg_rules()
 
         # Setup internet gateway and VPN gateway
-        self._set_up_gateways()
+        self.disco_vpc_gateways.set_up_gateways()
 
         # Setup NAT gateways
-        self._set_up_nat_gateways()
+        self.disco_vpc_gateways.set_up_nat_gateways()
 
         self.configure_notifications()
-        DiscoVPC.create_peering_connections(DiscoVPC.parse_peerings_config(self.get_vpc_id()))
+
+        DiscoVPCPeerings.create_peering_connections(
+            self.disco_vpc_peerings.parse_peerings_config(self.get_vpc_id()))
+
         self.rds.update_all_clusters_in_vpc()
 
     def configure_notifications(self):
@@ -779,27 +351,25 @@ class DiscoVPC(object):
         except EC2ResponseError:
             logging.exception("Skipping failed EIP association. Perhaps reassociation of EIP is not allowed?")
 
-    @staticmethod
-    def _find_sg_by_id(groups, group_id):
-        """
-        Given a list of security groups, returns one with the matching ID
-
-        raises KeyError if it is not found.
-        """
-        for group in groups:
-            if group['GroupId'] == group_id:
-                print "group:"
-                print group
-                return group
-        raise KeyError("Security Group not found {0}".format(group_id))
-
     def vpc_filter(self):
         """Filter used to get only the current VPC when filtering an AWS reply by 'vpc-id'"""
         return {"Name": "vpc-id", "Values": [self.vpc['VpcId']]}
 
     def update(self):
-        ''' Update an existing VPC '''
-        self._update_environment()
+        """ Update the existing VPC """
+        # TODO: We should probably ignore changes in cidr
+        """
+        vpc_cidr = self.get_config("vpc_cidr")
+        if vpc_cidr != self.vpc['CidrBlock']:
+            logging.error("VPC cannot be updated, Cidr values are different, %s instead of"
+                          "%s", vpc_cidr, self.vpc['CidrBlock'])
+        """
+
+        self.disco_vpc_sg_rules.update_meta_network_sg_rules()
+        self.disco_vpc_gateways.update_gateway_routes()
+        self.disco_vpc_gateways.update_nat_gateways_and_routes()
+        self.disco_vpc_peerings.update_peering_connections()
+        self.configure_notifications()
 
     def destroy(self):
         """ Delete all VPC resources in the right order and then delete the vpc itself """
@@ -812,14 +382,12 @@ class DiscoVPC(object):
         self.elasticache.delete_all_cache_clusters(wait=True)
         self.elasticache.delete_all_subnet_groups()
         self._destroy_interfaces()
-        self._destroy_nat_gateways()
-        self._destroy_subnets()
-        self._delete_security_group_rules()
-        keep_trying(60, self._destroy_security_groups)
-        self._destroy_igws()
+
+        self.disco_vpc_sg_rules.destroy()
+        self.disco_vpc_gateways.destroy_all()
+        DiscoVPCPeerings.delete_peerings(self.get_vpc_id())
         self._destroy_routes()
-        self._detach_vgws()
-        DiscoVPC.delete_peerings(self.get_vpc_id())
+        self._destroy_subnets()
         return self._destroy_vpc()
 
     def _destroy_instances(self):
@@ -862,60 +430,10 @@ class DiscoVPC(object):
                 # Occasionally we get InvalidNetworkInterfaceID.NotFound, not sure why.
                 logging.exception("Skipping error deleting network.")
 
-    def _destroy_nat_gateways(self):
-        """ Find all NAT gateways belonging to a vpc and destroy them"""
-        filter_params = {'Filters': [{'Name': 'vpc-id', 'Values': [self.vpc['VpcId']]}]}
-
-        nat_gateways = self.boto3_ec2.describe_nat_gateways(**filter_params)['NatGateways']
-        for nat_gateway in nat_gateways:
-            self.boto3_ec2.delete_nat_gateway(NatGatewayId=nat_gateway['NatGatewayId'])
-
-        # Need to wait for all the NAT gateways to be deleted
-        wait_for_state_boto3(self.boto3_ec2.describe_nat_gateways, filter_params,
-                             'NatGateways', 'deleted', 'State')
-
     def _destroy_subnets(self):
         """ Find all subnets belonging to a vpc and destroy them"""
         for subnet in self.boto3_ec2.describe_subnets(Filters=[self.vpc_filter()])['Subnets']:
             self.boto3_ec2.delete_subnet(SubnetId=subnet['SubnetId'])
-
-    def _delete_security_group_rules(self):
-        """ Delete all security group rules."""
-        security_groups = self.get_all_security_groups_for_vpc()
-        for security_group in security_groups:
-            for permission in security_group['IpPermissions']:
-                try:
-                    logging.debug(
-                        "revoking %s %s %s %s", security_group, permission.get('IpProtocol'),
-                        permission.get('FromPort', '-'), permission.get('ToPort', '-'))
-                    self.boto3_ec2.revoke_security_group_ingress(
-                        GroupId=security_group['GroupId'],
-                        IpPermissions=[permission]
-                    )
-                except EC2ResponseError:
-                    logging.exception("Skipping error deleting sg rule.")
-
-    def _destroy_security_groups(self):
-        """ Find all security groups belonging to vpc and destroy them."""
-        for security_group in self.get_all_security_groups_for_vpc():
-            if security_group['GroupName'] != u'default':
-                logging.debug("deleting sg: %s", security_group)
-                self.boto3_ec2.delete_security_group(GroupId=security_group['GroupId'])
-
-    def get_all_security_groups_for_vpc(self):
-        """ Find all security groups belonging to vpc and return them """
-        return self.boto3_ec2.describe_security_groups(Filters=[self.vpc_filter()])['SecurityGroups']
-
-    def _destroy_igws(self):
-        """ Find all gateways belonging to vpc and destroy them"""
-        vpc_attachment_filter = {"Name": "attachment.vpc-id", "Values": [self.get_vpc_id()]}
-        # delete gateways
-        for igw in self.boto3_ec2.describe_internet_gateways(
-                Filters=[vpc_attachment_filter])['InternetGateways']:
-            self.boto3_ec2.detach_internet_gateway(
-                InternetGatewayId=igw['InternetGatewayId'],
-                VpcId=self.get_vpc_id())
-            self.boto3_ec2.delete_internet_gateway(InternetGatewayId=igw['InternetGatewayId'])
 
     def _destroy_routes(self):
         """ Find all route_tables belonging to vpc and destroy them"""
@@ -961,201 +479,6 @@ class DiscoVPC(object):
             raise MultipleVPCsForVPCNameError("More than 1 VPC is named as {}".format(vpc_name))
 
     @staticmethod
-    def parse_peering_connection_line(line, vpc_conn):
-        """
-        Parses vpc connections of the form `vpc_name[:vpc_type]/metanetwork vpc_name[:vpc_type]/metanetwork`
-        and returns the data in two dictionaries: vpc_name -> DiscoVPC instance and vpc_name -> metanetwork.
-        vpc_type defaults to vpc_name if unspecified.
-        """
-        logging.debug('checking existence for peering %s', line)
-        endpoints = line.split(' ')
-
-        def get_vpc_name(endpoint):
-            """return name from `name[:type]/metanetwork`"""
-            return endpoint.split('/')[0].split(':')[0].strip()
-
-        def get_vpc_type(endpoint):
-            """return type from `name[:type]/metanetwork`, defaulting to name if type is omitted"""
-            return endpoint.split('/')[0].split(':')[-1].strip()
-
-        def get_metanetwork(endpoint):
-            """return metanetwork from `name[:type]/metanetwork`"""
-            return endpoint.split('/')[1].strip()
-
-        def safe_get_from_list(_list, i):
-            """returns the i-th element in a list, or None if it doesn't exist"""
-            return _list[i] if _list and len(_list) > i else None
-
-        vpc_type_map = {
-            get_vpc_name(endpoint): get_vpc_type(endpoint)
-            for endpoint in endpoints
-        }
-
-        vpc_objects = {
-            vpc_name: safe_get_from_list(
-                vpc_conn.describe_vpcs(Filters=[{'Name': 'tag-value', 'Values': [vpc_name]}])['Vpcs'], 0)
-            for vpc_name in vpc_type_map.keys()
-        }
-
-        missing_vpcs = [vpc_name for vpc_name, vpc_object in vpc_objects.items() if not vpc_object]
-        if missing_vpcs:
-            logging.debug(
-                "Skipping peering %s because the following VPC(s) are not up: %s",
-                line, ", ".join(map(str, missing_vpcs)))
-            return {}
-
-        vpc_map = {
-            k: DiscoVPC(k, v, vpc_objects[k])
-            for k, v in vpc_type_map.iteritems()
-        }
-
-        for vpc in vpc_map.values():
-            if not vpc.networks:
-                raise RuntimeError("No metanetworks found for vpc {}. Are you sure it's of type {}?".format(
-                    vpc.environment_name, vpc.environment_type))
-
-        vpc_metanetwork_map = {
-            get_vpc_name(endpoint): get_metanetwork(endpoint)
-            for endpoint in endpoints
-        }
-
-        return {
-            'vpc_metanetwork_map': vpc_metanetwork_map,
-            'vpc_map': vpc_map
-        }
-
-    @staticmethod
-    def parse_peering_strs_config(source_vpc_name):
-        """
-        """
-        def parse_endponit(endpoint):
-            endpoint_parts = endpoint.split('/')
-            vpc_parts = endpoint_parts[0].strip().split(':')
-            vpc_name = vpc_parts[0].strip()
-            vpc_type = vpc_parts[-1].strip()
-            network_name = endpoint_parts[1].strip()
-
-            return vpc_name, vpc_name + ':' + vpc_type + '/' + network_name
-
-        peering_strs = set()
-        peering_lines = DiscoVPC._get_peering_lines()
-        for line in peering_lines:
-            endpoints_map = {}
-            for endpoint in line.split(' '):
-                endpoint = parse_endponit(endpoint)
-                endpoints_map[endpoint[0]] = endpoint[1]
-
-            if source_vpc_name in endpoints_map.keys():
-                peer_vpc_name = [vpc_name for vpc_name in endpoints_map.keys()
-                                 if vpc_name != source_vpc_name][0]
-
-                peering_strs.add(endpoints_map[source_vpc_name] +
-                                 ' ' + endpoints_map[peer_vpc_name])
-
-        return peering_strs
-
-    @staticmethod
-    def parse_peerings_config(vpc_id=None):
-        """
-        Parses configuration from disco_vpc.ini's peerings sections.
-        If vpc_id is specified, only configuration relevant to vpc_id is included.
-        """
-        peerings = DiscoVPC._get_peering_lines()
-
-        client = boto3.client('ec2')
-        peering_configs = {}
-        for peering in peerings:
-            peering_config = DiscoVPC.parse_peering_connection_line(peering, client)
-            vpc_ids_in_peering = [vpc.vpc['VpcId'] for vpc in peering_config.get("vpc_map", {}).values()]
-
-            if len(vpc_ids_in_peering) < 2:
-                pass  # not all vpcs were up, nothing to do
-            elif vpc_id and vpc_id not in vpc_ids_in_peering:
-                logging.debug("Skipping peering %s because it doesn't include %s", peering, vpc_id)
-            else:
-                peering_configs[peering] = peering_config
-
-        return peering_configs
-
-    @staticmethod
-    def _get_peering_lines():
-        logging.debug("Parsing peerings configuration specified in %s", CONFIG_FILE)
-        config = read_config(CONFIG_FILE)
-
-        if 'peerings' not in config.sections():
-            logging.info("No VPC peering configuration defined.")
-            return {}
-
-        peerings = [
-            peering[1]
-            for peering in config.items('peerings')
-            if peering[0].startswith('connection_')
-        ]
-
-        for peering in peerings:
-            endpoints = [_.strip() for _ in peering.split(' ')]
-            if len(endpoints) != 2:
-                raise VPCPeeringSyntaxError(
-                    "Syntax error in vpc peering connection. "
-                    "Expected 2 space-delimited endpoints but found: '{}'".format(peering))
-
-        return peerings
-
-    @staticmethod
-    def create_peering_connections(peering_configs):
-        """ create vpc peering configuration from the peering config dictionary"""
-        client = boto3.client('ec2')
-        for peering in peering_configs.keys():
-            vpc_map = peering_configs[peering]['vpc_map']
-            vpc_metanetwork_map = peering_configs[peering]['vpc_metanetwork_map']
-            vpc_ids = [vpc.vpc['VpcId'] for vpc in vpc_map.values()]
-            existing_peerings = client.describe_vpc_peering_connections(
-                Filters=[
-                    {'Name': 'status-code', 'Values': ['active']},
-                    {'Name': 'accepter-vpc-info.vpc-id', 'Values': [vpc_ids[0]]},
-                    {'Name': 'requester-vpc-info.vpc-id', 'Values': [vpc_ids[1]]}
-                ]
-            )['VpcPeeringConnections'] + client.describe_vpc_peering_connections(
-                Filters=[
-                    {'Name': 'status-code', 'Values': ['active']},
-                    {'Name': 'accepter-vpc-info.vpc-id', 'Values': [vpc_ids[1]]},
-                    {'Name': 'requester-vpc-info.vpc-id', 'Values': [vpc_ids[0]]}
-                ]
-            )['VpcPeeringConnections']
-
-            # create peering when peering doesn't exist
-            if not existing_peerings:
-                peering_conn = client.create_vpc_peering_connection(
-                    VpcId=vpc_ids[0], PeerVpcId=vpc_ids[1])['VpcPeeringConnection']
-                client.accept_vpc_peering_connection(
-                    VpcPeeringConnectionId=peering_conn['VpcPeeringConnectionId'])
-                logging.info("created new peering connection %s for %s",
-                             peering_conn['VpcPeeringConnectionId'], peering)
-            else:
-                peering_conn = existing_peerings[0]
-                logging.info("peering connection %s exists for %s",
-                             existing_peerings[0]['VpcPeeringConnectionId'], peering)
-            DiscoVPC.create_peering_routes(vpc_map, vpc_metanetwork_map, peering_conn)
-
-    @staticmethod
-    def create_peering_routes(vpc_map, vpc_metanetwork_map, peering_conn):
-        """ create/update routes via peering connections between VPCs """
-        cidr_map = {
-            _: vpc_map[_].networks[vpc_metanetwork_map[_]].network_cidr
-            for _ in vpc_map.keys()
-        }
-        network_map = {
-            _: vpc_map[_].networks[vpc_metanetwork_map[_]]
-            for _ in vpc_map.keys()
-        }
-        for vpc_name, network in network_map.iteritems():
-            remote_vpc_names = vpc_map.keys()
-            remote_vpc_names.remove(vpc_name)
-
-            network.create_peering_route(peering_conn['VpcPeeringConnectionId'],
-                                         str(cidr_map[remote_vpc_names[0]]))
-
-    @staticmethod
     def list_vpcs():
         """Returns list of boto.vpc.vpc.VPC classes, one for each existing VPC"""
         client = boto3.client('ec2')
@@ -1164,42 +487,6 @@ class DiscoVPC(object):
                  'tags': tag2dict(vpc['Tags'] if 'Tags' in vpc else None),
                  'cidr_block': vpc['CidrBlock']}
                 for vpc in vpcs['Vpcs']]
-
-    @staticmethod
-    def list_peerings(vpc_id=None, include_failed=False):
-        """
-        Return list of live vpc peering connection id.
-        If vpc_id is given, return only that vpcs peerings
-        Peerings that cannot be manipulated are ignored.
-        """
-        client = boto3.client('ec2')
-        if vpc_id:
-            peerings = client.describe_vpc_peering_connections(
-                Filters=[{'Name': 'requester-vpc-info.vpc-id', 'Values': [vpc_id]}]
-            )['VpcPeeringConnections'] + client.describe_vpc_peering_connections(
-                Filters=[{'Name': 'accepter-vpc-info.vpc-id', 'Values': [vpc_id]}]
-            )['VpcPeeringConnections']
-        else:
-            peerings = client.describe_vpc_peering_connections()['VpcPeeringConnections']
-
-        peering_states = LIVE_PEERING_STATES + (["failed"] if include_failed else [])
-        return [
-            peering
-            for peering in peerings
-            if peering['Status']['Code'] in peering_states
-        ]
-
-    @staticmethod
-    def delete_peerings(vpc_id=None):
-        """Delete peerings. If vpc_id is specified, delete all peerings of the VPCs only"""
-        client = boto3.client('ec2')
-        for peering in DiscoVPC.list_peerings(vpc_id):
-            try:
-                logging.info('deleting peering connection %s', peering['VpcPeeringConnectionId'])
-                client.delete_vpc_peering_connection(VpcPeeringConnectionId=peering['VpcPeeringConnectionId'])
-            except EC2ResponseError:
-                raise RuntimeError('Failed to delete VPC Peering connection \
-                                    {}'.format(peering['VpcPeeringConnectionId']))
 
     @staticmethod
     def get_random_free_subnet(network_cidr, network_size, occupied_network_cidrs):

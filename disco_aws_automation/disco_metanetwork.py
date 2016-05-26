@@ -47,7 +47,6 @@ class DiscoMetaNetwork(object):
         self._disco_subnets = None  # lazily initialized
         self._boto3_connection = boto3_connection  # Lazily initialized if parameter is None
 
-
     @property
     def network_cidr(self):
         """Get the network_cidr for the meta network"""
