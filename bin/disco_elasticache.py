@@ -54,8 +54,7 @@ def run():
             size = 'N/A'
             if cluster['Status'] == 'available':
                 size = len(cluster['NodeGroups'][0]['NodeGroupMembers'])
-            print("{:<25} {} {} {:>5}".format(
-                cluster['Description'], cluster['ReplicationGroupId'], cluster['Status'], size))
+            print("{:<25} {:12} {:>5}".format(cluster['Description'], cluster['Status'], size))
 
     elif args['listsnapshots']:
         rows = []

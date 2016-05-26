@@ -88,6 +88,7 @@ class DiscoElastiCache(object):
         port = int(self._get_option(cluster_name, 'port'))
         auto_failover = self._has_auto_failover(engine_version, instance_type, num_nodes)
         domain_name = self._get_option(cluster_name, 'domain_name') or self.aws.get_default_domain_name()
+        use_snapshot = self._get_option(cluster_name, 'snapshot')
         tags = [{
             'Key': 'product_line',
             'Value': self._get_option(cluster_name, 'product_line') or self.aws.get_default_product_line('')
@@ -103,9 +104,14 @@ class DiscoElastiCache(object):
         }]
         cache_cluster = self._get_redis_cluster(cluster_name)
         if not cache_cluster:
-            self._create_redis_cluster(cluster_name, engine_version, num_nodes, instance_type,
-                                       parameter_group, port, meta_network, auto_failover, domain_name, tags,
-                                       maintenance_window, snapshot_name)
+            if not snapshot_name and use_snapshot:
+                try:
+                    snapshot_name = self.get_latest_snapshot(cluster_name)['SnapshotName']
+                except TypeError:
+                    logging.warning('Unable to find latest snapshot for cluster "%s"', cluster_name)
+            self._create_redis_cluster(
+                cluster_name, engine_version, num_nodes, instance_type, parameter_group, port, meta_network,
+                auto_failover, domain_name, tags, maintenance_window, snapshot_name)
         else:
             if cache_cluster['Status'] == 'available':
                 self._modify_redis_cluster(cluster_name, engine_version,
@@ -137,7 +143,19 @@ class DiscoElastiCache(object):
             return
 
         logging.info('Deleting cache cluster %s', cluster['Description'])
-        throttled_call(self.conn.delete_replication_group, ReplicationGroupId=cluster['ReplicationGroupId'])
+
+        take_snapshot = bool(self._get_option(cluster_name, 'snapshot'))
+        snapshot_name = None
+        if take_snapshot:
+            from datetime import datetime
+            snapshot_name = cluster['Description'] + "-" + datetime.now().strftime('%Y%m%d-%H%M')
+            logging.info('Taking cluster snapshot "%s"', snapshot_name)
+            throttled_call(
+                self.conn.delete_replication_group,
+                ReplicationGroupId=cluster['ReplicationGroupId'],
+                FinalSnapshotIdentifier=snapshot_name)
+        else:
+            throttled_call(self.conn.delete_replication_group, ReplicationGroupId=cluster['ReplicationGroupId'])
 
         self.route53.delete_records_by_value('CNAME', cluster['NodeGroups'][0]['PrimaryEndpoint']['Address'])
 
@@ -258,9 +276,7 @@ class DiscoElastiCache(object):
         logging.info('Creating "%s" Redis cache', description)
         throttled_call(self.conn.create_replication_group, **replication_group_properties)
 
-        self.conn.get_waiter('replication_group_available').wait(
-            ReplicationGroupId=replication_group_id
-        )
+        self.conn.get_waiter('replication_group_available').wait(ReplicationGroupId=replication_group_id)
 
         cluster = self._get_redis_cluster(cluster_name)
 
