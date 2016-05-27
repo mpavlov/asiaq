@@ -299,7 +299,7 @@ class DiscoMetaNetwork(object):
         of the current meta network added """
         return self.security_group.id, protocol, ports[0], ports[1], sg_source_id, cidr_source
 
-    def update_sg_rules(self, desire_sg_rules):
+    def update_sg_rules(self, desire_sg_rules, dry_run=False):
         """
         Update the security rules of the meta network so that they conform to
         the new rules being passed in. Each rule is a tuple that contains 6 values:
@@ -310,7 +310,7 @@ class DiscoMetaNetwork(object):
         desire_sg_rules[4]: source security group ID
         desire_sg_rules[5]: source CIDR
         """
-        logging.debug("Update security rules for meta network {0}".format(self.name))
+        logging.info("Updating security rules for meta network {0}".format(self.name))
         current_sg_rules = [
             self.create_sg_rule_tuple(
                 rule.ip_protocol, [int(rule.from_port), int(rule.to_port)],
@@ -319,15 +319,16 @@ class DiscoMetaNetwork(object):
             for grant in rule.grants]
 
         current_sg_rules = set(current_sg_rules)
-        desired_sg_rules = set(desire_sg_rules)
+        desired_sg_rules = set(desire_sg_rules) if desire_sg_rules else set()
 
-        logging.debug("Adding new security group rules {0}"
+        logging.info("Adding new security group rules {0}"
                       .format(list(desired_sg_rules - current_sg_rules)))
-        self.add_sg_rules(list(desired_sg_rules - current_sg_rules))
-
-        logging.debug("Revoking security group rules {0}"
+        logging.info("Revoking security group rules {0}"
                       .format(list(current_sg_rules - desired_sg_rules)))
-        self.revoke_sg_rules(list(current_sg_rules - desired_sg_rules))
+
+        if not dry_run:
+            self.add_sg_rules(list(desired_sg_rules - current_sg_rules))
+            self.revoke_sg_rules(list(current_sg_rules - desired_sg_rules))
 
     def revoke_sg_rules(self, rule_tuples):
         """ Revoke the list of security group rules from the current meta network """
@@ -400,10 +401,7 @@ class DiscoMetaNetwork(object):
         desired_route_tuples[0]: destination CIDR block
         desired_route_tuples[1]: gateway ID
         """
-        logging.debug("Updating gateway routes for meta network {0} using {1}".format(
-            self.name, desired_route_tuples))
-
-        desired_route_tuples = set(desired_route_tuples)
+        desired_route_tuples = set(desired_route_tuples) if desired_route_tuples else set()
 
         # Getting the routes currently in the route table(s)
         current_route_tuples = []
@@ -422,8 +420,8 @@ class DiscoMetaNetwork(object):
         routes_to_delete = list(current_route_tuples - desired_route_tuples)
         routes_to_add = list(desired_route_tuples - current_route_tuples)
 
-        logging.debug("Routes to delete: {0}".format(routes_to_delete))
-        logging.debug("Routes to add: {0}".format(routes_to_add))
+        logging.info("Routes to delete: {0}".format(routes_to_delete))
+        logging.info("Routes to add: {0}".format(routes_to_add))
 
         if not dry_run:
             # TODO: Use client.replace_route to avoid downtime

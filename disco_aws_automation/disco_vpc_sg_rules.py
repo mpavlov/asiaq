@@ -27,13 +27,13 @@ class DiscoVPCSecurityGroupRules(object):
         for network in self.disco_vpc.networks.values():
             network.add_sg_rules(self._get_sg_rule_tuples(network))
 
-    def update_meta_network_sg_rules(self):
+    def update_meta_network_sg_rules(self, dry_run=False):
         """
         Update the security group rules in each meta network based on what is defined
         the config file
         """
         for network in self.disco_vpc.networks.values():
-            network.update_sg_rules(self._get_sg_rule_tuples(network))
+            network.update_sg_rules(self._get_sg_rule_tuples(network), dry_run)
 
     def destroy(self):
         self._delete_security_group_rules()

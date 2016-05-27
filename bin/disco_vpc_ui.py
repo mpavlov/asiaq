@@ -70,6 +70,10 @@ def parse_arguments():
                                      help="The name of the environment that ought to be updated.")
     parser_update_group.add_argument('--vpc-id', dest='vpc_id', default=None,
                                      help="The VPC ID of the environment that ought to be updated.")
+    parser_update.add_argument('--dry-run', dest='dry_run', action='store_const',
+                               const=True, default=False,
+                               help="Whether to test run the update before the actual run. No "
+                               "changes would be made to the VPC if this is set to True.")
 
     return parser.parse_args()
 
@@ -106,7 +110,7 @@ def update_vpc_command(args):
         vpc = DiscoVPC.fetch_environment(vpc_id=args.vpc_id)
 
     if vpc:
-        vpc.update()
+        vpc.update(args.dry_run)
     else:
         logging.error("No matching VPC found")
         sys.exit(2)

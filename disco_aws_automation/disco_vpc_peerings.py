@@ -19,24 +19,28 @@ class DiscoVPCPeerings(object):
     """
     This class takes care of processing of a VPC's peering connections
     """
-    # TODO: implement logging
     def __init__(self, vpc, boto3_ec2):
         self.disco_vpc = vpc
         self.boto3_ec2 = boto3_ec2
 
-    def update_peering_connections(self):
+    def update_peering_connections(self, dry_run=False):
         """ Update peering connections for a VPC """
         desired_peerings = self.parse_peering_strs_config(self.disco_vpc.environment_name)
         existing_peerings = self._get_existing_peerings()
 
+        logging.debug("Desired VPC peering connections: {0}".format(desired_peerings))
+        logging.debug("Existing VPC peering connections: {0}".format(existing_peerings))
+
         if existing_peerings > desired_peerings:
             raise RuntimeError("Some existing VPC peering connections are not "
-                               "defined in the configuration: {0}. Deletion of VPC peerings is"
+                               "defined in the configuration: {0}. Deletion of VPC peerings is "
                                "not implemented yet."
                                .format(existing_peerings - desired_peerings))
 
-        DiscoVPCPeerings.create_peering_connections(
-            self.parse_peerings_config(self.disco_vpc.get_vpc_id()))
+        peerings_config = self.parse_peerings_config(self.disco_vpc.get_vpc_id())
+        logging.info("Desired VPC peering config: {0}".format(peerings_config))
+        if not dry_run:
+            DiscoVPCPeerings.create_peering_connections(peerings_config)
 
     def _get_existing_peerings(self):
         current_peerings = set()
@@ -116,7 +120,7 @@ class DiscoVPCPeerings(object):
                     VpcId=vpc_ids[0], PeerVpcId=vpc_ids[1])['VpcPeeringConnection']
                 client.accept_vpc_peering_connection(
                     VpcPeeringConnectionId=peering_conn['VpcPeeringConnectionId'])
-                logging.info("created new peering connection %s for %s",
+                logging.info("Created new peering connection %s for %s",
                              peering_conn['VpcPeeringConnectionId'], peering)
             else:
                 peering_conn = existing_peerings[0]
@@ -139,6 +143,9 @@ class DiscoVPCPeerings(object):
             remote_vpc_names = vpc_map.keys()
             remote_vpc_names.remove(vpc_name)
 
+            logging.info("Creating peering route for meta network {0}: {1}->{1}"
+                         .format(network.name, str(cidr_map[remote_vpc_names[0]]),
+                                 peering_conn['VpcPeeringConnectionId']))
             network.create_peering_route(peering_conn['VpcPeeringConnectionId'],
                                          str(cidr_map[remote_vpc_names[0]]))
 

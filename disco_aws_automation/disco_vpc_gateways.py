@@ -38,15 +38,15 @@ class DiscoVPCGateways(object):
                 network.name, route_tuples))
             network.add_gateway_routes(route_tuples)
 
-    def update_gateway_routes(self):
+    def update_gateway_routes(self, dry_run=False):
         # Update routes to Internet and VPN gateways
         internet_gateway = self._find_internet_gw()
         vpn_gateway = self._find_vgw()
 
         for network in self.disco_vpc.networks.values():
-            logging.debug("Update routes for meta network {0}".format(network.name))
+            logging.info("Updating gateway routes for meta network: {0}".format(network.name))
             route_tuples = self._get_gateway_route_tuples(network.name, internet_gateway, vpn_gateway)
-            network.update_gateway_routes(route_tuples)
+            network.update_gateway_routes(route_tuples, dry_run)
 
     def destroy_all(self):
         self._destroy_igws()
@@ -224,10 +224,10 @@ class DiscoVPCGateways(object):
             self._update_nat_gateways(network)
 
         routes_to_delete = list(current_nat_routes - desired_nat_routes)
-        logging.debug("NAT gateway routes to delete (source, dest): {0}".format(routes_to_delete))
+        logging.info("NAT gateway routes to delete (source, dest): {0}".format(routes_to_delete))
 
         routes_to_add = list(desired_nat_routes - current_nat_routes)
-        logging.debug("NAT gateway routes to add (source, dest): {0}".format(routes_to_add))
+        logging.info("NAT gateway routes to add (source, dest): {0}".format(routes_to_add))
 
         if not dry_run:
             self._delete_nat_gateway_routes([route[0] for route in routes_to_delete])

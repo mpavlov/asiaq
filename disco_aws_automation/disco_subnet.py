@@ -310,7 +310,7 @@ class DiscoSubnet(object):
                 'SubnetId': self.subnet_dict['SubnetId'],
                 'AllocationId': self.nat_eip_allocation_id
             }
-            logging.debug("Creating NAT gateway: %s", self.nat_eip_allocation_id)
+            logging.info("Creating NAT gateway with EIP allocation ID: %s", self.nat_eip_allocation_id)
             nat_gateway = handle_date_format(self.boto3_ec2.create_nat_gateway(**params))['NatGateway']
 
             # TODO: refactor the waiter logic out

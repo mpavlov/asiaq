@@ -335,13 +335,15 @@ class DiscoVPC(object):
 
         self.rds.update_all_clusters_in_vpc()
 
-    def configure_notifications(self):
+    def configure_notifications(self, dry_run=False):
         """
         Configure SNS topics for CloudWatch alarms.
         Note that topics are not deleted with the VPC, since that would require re-subscribing the members.
         """
         notifications = self.alarms_config.get_notifications()
-        DiscoSNS().update_sns_with_notifications(notifications, self.environment_name)
+        logging.info("Desired alarms config: {0}".format(notifications))
+        if not dry_run:
+            DiscoSNS().update_sns_with_notifications(notifications, self.environment_name)
 
     def assign_eip(self, instance, eip_address, allow_reassociation=False):
         """
@@ -361,7 +363,7 @@ class DiscoVPC(object):
         """Filter used to get only the current VPC when filtering an AWS reply by 'vpc-id'"""
         return {"Name": "vpc-id", "Values": [self.vpc['VpcId']]}
 
-    def update(self):
+    def update(self, dry_run=False):
         """ Update the existing VPC """
         # TODO: We should probably ignore changes in cidr
         """
@@ -371,11 +373,16 @@ class DiscoVPC(object):
                           "%s", vpc_cidr, self.vpc['CidrBlock'])
         """
 
-        self.disco_vpc_sg_rules.update_meta_network_sg_rules()
-        self.disco_vpc_gateways.update_gateway_routes()
-        self.disco_vpc_gateways.update_nat_gateways_and_routes()
-        self.disco_vpc_peerings.update_peering_connections()
-        self.configure_notifications()
+        logging.info("Updating security group rules...")
+        self.disco_vpc_sg_rules.update_meta_network_sg_rules(dry_run)
+        logging.info("Updating gateway routes...")
+        self.disco_vpc_gateways.update_gateway_routes(dry_run)
+        logging.info("Updating NAT gateways and routes...")
+        self.disco_vpc_gateways.update_nat_gateways_and_routes(dry_run)
+        logging.info("Updating VPC peering connections...")
+        self.disco_vpc_peerings.update_peering_connections(dry_run)
+        logging.info("Updating alarms...")
+        self.configure_notifications(dry_run)
 
     def destroy(self):
         """ Delete all VPC resources in the right order and then delete the vpc itself """
