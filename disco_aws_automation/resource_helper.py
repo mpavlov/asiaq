@@ -24,14 +24,6 @@ def tag2dict(tags):
     return {tag.get('Key'): tag.get('Value') for tag in tags or {}}
 
 
-def get_name_tag_value(tags):
-    for tag in tags:
-        if tag['Key'] == 'Name':
-            return tag['Value']
-
-    return None
-
-
 def handle_date_format(obj):
     """
     Helper function that properly handles date object returned from AWS.

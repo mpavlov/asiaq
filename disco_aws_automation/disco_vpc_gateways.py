@@ -20,35 +20,35 @@ class DiscoVPCGateways(object):
     """
     This class takes care of processing of a VPC's Internet, VPN, and NAT gateways and the routes to them
     """
-    # TODO: implement logging
     def __init__(self, vpc, boto3_ec2):
         self.disco_vpc = vpc
         self.boto3_ec2 = boto3_ec2
         self.eip = DiscoEIP()
 
     def set_up_gateways(self):
-        # Set up Internet and VPN gateways
+        """ Set up Internet and VPN gateways """
         internet_gateway = self._create_internet_gw()
         vpn_gateway = self._find_and_attach_vpn_gw()
 
         for network in self.disco_vpc.networks.values():
             route_tuples = self._get_gateway_route_tuples(network.name, internet_gateway, vpn_gateway)
 
-            logging.debug("Adding gateway routes to meta network {0}: {1}".format(
-                network.name, route_tuples))
+            logging.debug("Adding gateway routes to meta network %s: %s",
+                          network.name, route_tuples)
             network.add_gateway_routes(route_tuples)
 
     def update_gateway_routes(self, dry_run=False):
-        # Update routes to Internet and VPN gateways
+        """ Update routes to Internet and VPN gateways """
         internet_gateway = self._find_internet_gw()
         vpn_gateway = self._find_vgw()
 
         for network in self.disco_vpc.networks.values():
-            logging.info("Updating gateway routes for meta network: {0}".format(network.name))
+            logging.info("Updating gateway routes for meta network: %s", network.name)
             route_tuples = self._get_gateway_route_tuples(network.name, internet_gateway, vpn_gateway)
             network.update_gateway_routes(route_tuples, dry_run)
 
     def destroy_all(self):
+        """ Destroy all Internet, VPN, and NAT gateways in a VPC """
         self._destroy_igws()
         self._detach_vgws()
         self._destroy_nat_gateways()
@@ -110,8 +110,8 @@ class DiscoVPCGateways(object):
         try:
             return igws['InternetGateways'][0]
         except IndexError:
-            logging.warning("Cannot find the required Internet Gateway named for VPC {0}."
-                            .format(self.disco_vpc.vpc['VpcId']))
+            logging.warning("Cannot find the required Internet Gateway named for VPC %s.",
+                            self.disco_vpc.vpc['VpcId'])
             return None
 
     def _find_vgw(self):
@@ -211,12 +211,11 @@ class DiscoVPCGateways(object):
 
         desired_nat_routes = set(self._parse_nat_gateway_routes_config())
 
-        current_nat_routes = []
+        current_nat_routes = set()
         for network in self.disco_vpc.networks.values():
             nat_gateway_metanetwork = network.get_nat_gateway_metanetwork()
             if nat_gateway_metanetwork:
-                current_nat_routes.append((network.name, nat_gateway_metanetwork))
-        current_nat_routes = set(current_nat_routes)
+                current_nat_routes.add((network.name, nat_gateway_metanetwork))
 
         # Updating NAT gateways has to be done AFTER current NAT routes are calculated
         # because we don't want to delete existing NAT gateways before that.
@@ -224,10 +223,10 @@ class DiscoVPCGateways(object):
             self._update_nat_gateways(network)
 
         routes_to_delete = list(current_nat_routes - desired_nat_routes)
-        logging.info("NAT gateway routes to delete (source, dest): {0}".format(routes_to_delete))
+        logging.info("NAT gateway routes to delete (source, dest): %s", routes_to_delete)
 
         routes_to_add = list(desired_nat_routes - current_nat_routes)
-        logging.info("NAT gateway routes to add (source, dest): {0}".format(routes_to_add))
+        logging.info("NAT gateway routes to add (source, dest): %s", routes_to_add)
 
         if not dry_run:
             self._delete_nat_gateway_routes([route[0] for route in routes_to_delete])
@@ -237,8 +236,8 @@ class DiscoVPCGateways(object):
         eips = self.disco_vpc.get_config("{0}_nat_gateways".format(network.name))
         if not eips:
             # No NAT config, delete the gateways if any
-            logging.debug("Deleting NAT gateways if any in meta network {0}"
-                          .format(network.name))
+            logging.debug("Deleting NAT gateways if any in meta network %s",
+                          network.name)
             if not dry_run:
                 network.delete_nat_gateways()
         else:
@@ -252,8 +251,8 @@ class DiscoVPCGateways(object):
                 allocation_ids.append(address.allocation_id)
 
             if allocation_ids:
-                logging.debug("Creating NAT in meta network {0} using these allocation IDs: {1}"
-                              .format(network.name, allocation_ids))
+                logging.debug("Creating NAT in meta network %s using these allocation IDs: %s",
+                              network.name, allocation_ids)
                 if not dry_run:
                     network.add_nat_gateways(allocation_ids)
 

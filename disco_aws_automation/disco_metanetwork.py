@@ -310,7 +310,7 @@ class DiscoMetaNetwork(object):
         desire_sg_rules[4]: source security group ID
         desire_sg_rules[5]: source CIDR
         """
-        logging.info("Updating security rules for meta network {0}".format(self.name))
+        logging.info("Updating security rules for meta network %s", self.name)
         current_sg_rules = [
             self.create_sg_rule_tuple(
                 rule.ip_protocol, [int(rule.from_port), int(rule.to_port)],
@@ -321,10 +321,10 @@ class DiscoMetaNetwork(object):
         current_sg_rules = set(current_sg_rules)
         desired_sg_rules = set(desire_sg_rules) if desire_sg_rules else set()
 
-        logging.info("Adding new security group rules {0}"
-                      .format(list(desired_sg_rules - current_sg_rules)))
-        logging.info("Revoking security group rules {0}"
-                      .format(list(current_sg_rules - desired_sg_rules)))
+        logging.info("Adding new security group rules %s",
+                     list(desired_sg_rules - current_sg_rules))
+        logging.info("Revoking security group rules %s",
+                     list(current_sg_rules - desired_sg_rules))
 
         if not dry_run:
             self.add_sg_rules(list(desired_sg_rules - current_sg_rules))
@@ -335,14 +335,14 @@ class DiscoMetaNetwork(object):
         for rule in rule_tuples:
             rule = DiscoMetaNetwork._convert_sg_rule_tuple_to_dict(rule)
             if not self._connection.revoke_security_group(**rule):
-                logging.warning("Failed to revoke security group {0}".format(rule))
+                logging.warning("Failed to revoke security group %s", rule)
 
     def add_sg_rules(self, rule_tuples):
         """ Add a list of security rules to the current meta network """
         for rule in rule_tuples:
             rule = DiscoMetaNetwork._convert_sg_rule_tuple_to_dict(rule)
             if not self._connection.authorize_security_group(**rule):
-                logging.warning("Failed to authorize security group {0}".format(rule))
+                logging.warning("Failed to authorize security group %s", rule)
 
     def ip_by_offset(self, offset):
         """
@@ -357,8 +357,8 @@ class DiscoMetaNetwork(object):
             offset = int(offset)
         except ValueError:
             raise IPRangeError(
-                "Cannot find IP in metanetwork {0} by offset {1}."
-                .format(self.name, offset)
+                "Cannot find IP in metanetwork %s by offset %s.",
+                self.name, offset
             )
 
         subnets = sorted(self.subnet_ip_networks)
@@ -404,24 +404,23 @@ class DiscoMetaNetwork(object):
         desired_route_tuples = set(desired_route_tuples) if desired_route_tuples else set()
 
         # Getting the routes currently in the route table(s)
-        current_route_tuples = []
+        current_route_tuples = set()
         if self.centralized_route_table:
             for route in self.centralized_route_table.routes:
                 if route.gateway_id and route.gateway_id != 'local':
-                    current_route_tuples.append((route.destination_cidr_block, route.gateway_id))
+                    current_route_tuples.add((route.destination_cidr_block, route.gateway_id))
         else:
             # Only need to get from one subnet since they are the same
             for route in self.disco_subnets.values()[0].route_table['Routes']:
                 if route.get('GatewayId') and route.get('GatewayId') != 'local':
-                    current_route_tuples.append(
+                    current_route_tuples.add(
                         (route['DestinationCidrBlock'], route['GatewayId']))
-        current_route_tuples = set(current_route_tuples)
 
         routes_to_delete = list(current_route_tuples - desired_route_tuples)
         routes_to_add = list(desired_route_tuples - current_route_tuples)
 
-        logging.info("Routes to delete: {0}".format(routes_to_delete))
-        logging.info("Routes to add: {0}".format(routes_to_add))
+        logging.info("Routes to delete: %s", routes_to_delete)
+        logging.info("Routes to add: %s", routes_to_add)
 
         if not dry_run:
             # TODO: Use client.replace_route to avoid downtime
@@ -482,8 +481,8 @@ class DiscoMetaNetwork(object):
                     nat_gateway = self.boto3_ec2.describe_nat_gateways(
                         NatGatewayIds=[route['NatGatewayId']])['NatGateways'][0]
                 except IndexError:
-                    raise RuntimeError("Phantom NatGatewayId {0} found in meta network {1}."
-                                       .format(self.name))
+                    raise RuntimeError("Phantom NatGatewayId %s found in meta network %s.",
+                                       route['NatGatewayId'], self.name)
 
                 subnet = self.boto3_ec2.describe_subnets(
                     SubnetIds=[nat_gateway['SubnetId']])['Subnets'][0]
@@ -492,8 +491,8 @@ class DiscoMetaNetwork(object):
                     if tag['Key'] == 'meta_network':
                         return tag['Value']
 
-                raise RuntimeError("The meta_network tag is missing in subnet {0}."
-                                   .format(subnet['SubnetId']))
+                raise RuntimeError("The meta_network tag is missing in subnet %s.",
+                                   subnet['SubnetId'])
         return None
 
     def create_peering_route(self, peering_conn_id, cidr):

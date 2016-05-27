@@ -10,7 +10,7 @@ import boto3
 from . import read_config
 from .resource_helper import tag2dict
 from .exceptions import VPCPeeringSyntaxError
-import disco_vpc
+from . import disco_vpc
 
 LIVE_PEERING_STATES = ["pending-acceptance", "provisioning", "active"]
 
@@ -28,8 +28,8 @@ class DiscoVPCPeerings(object):
         desired_peerings = self.parse_peering_strs_config(self.disco_vpc.environment_name)
         existing_peerings = self._get_existing_peerings()
 
-        logging.debug("Desired VPC peering connections: {0}".format(desired_peerings))
-        logging.debug("Existing VPC peering connections: {0}".format(existing_peerings))
+        logging.debug("Desired VPC peering connections: %s", desired_peerings)
+        logging.debug("Existing VPC peering connections: %s", existing_peerings)
 
         if existing_peerings > desired_peerings:
             raise RuntimeError("Some existing VPC peering connections are not "
@@ -38,7 +38,7 @@ class DiscoVPCPeerings(object):
                                .format(existing_peerings - desired_peerings))
 
         peerings_config = self.parse_peerings_config(self.disco_vpc.get_vpc_id())
-        logging.info("Desired VPC peering config: {0}".format(peerings_config))
+        logging.info("Desired VPC peering config: %s", peerings_config)
         if not dry_run:
             DiscoVPCPeerings.create_peering_connections(peerings_config)
 
@@ -143,9 +143,9 @@ class DiscoVPCPeerings(object):
             remote_vpc_names = vpc_map.keys()
             remote_vpc_names.remove(vpc_name)
 
-            logging.info("Creating peering route for meta network {0}: {1}->{1}"
-                         .format(network.name, str(cidr_map[remote_vpc_names[0]]),
-                                 peering_conn['VpcPeeringConnectionId']))
+            logging.info("Creating peering route for meta network %s: %s->%s",
+                         network.name, str(cidr_map[remote_vpc_names[0]]),
+                         peering_conn['VpcPeeringConnectionId'])
             network.create_peering_route(peering_conn['VpcPeeringConnectionId'],
                                          str(cidr_map[remote_vpc_names[0]]))
 
@@ -201,7 +201,7 @@ class DiscoVPCPeerings(object):
         """
         Return a set of peering string from the VPC's config file
         """
-        def parse_endponit(endpoint):
+        def _parse_endponit(endpoint):
             endpoint_parts = endpoint.split('/')
             vpc_parts = endpoint_parts[0].strip().split(':')
             vpc_name = vpc_parts[0].strip()
@@ -215,7 +215,7 @@ class DiscoVPCPeerings(object):
         for line in peering_lines:
             endpoints_map = {}
             for endpoint in line.split(' '):
-                endpoint = parse_endponit(endpoint)
+                endpoint = _parse_endponit(endpoint)
                 endpoints_map[endpoint[0]] = endpoint[1]
 
             if source_vpc_name in endpoints_map.keys():

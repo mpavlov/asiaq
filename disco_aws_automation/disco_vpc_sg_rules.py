@@ -14,7 +14,6 @@ class DiscoVPCSecurityGroupRules(object):
     """
     This class takes care of processing of security group rules for a VPC
     """
-    # TODO: implement logging
     def __init__(self, vpc, boto3_ec2):
         self.disco_vpc = vpc
         self.boto3_ec2 = boto3_ec2
@@ -36,6 +35,7 @@ class DiscoVPCSecurityGroupRules(object):
             network.update_sg_rules(self._get_sg_rule_tuples(network), dry_run)
 
     def destroy(self):
+        """ Deletes all the security group rules in a VPC """
         self._delete_security_group_rules()
         keep_trying(60, self._destroy_security_groups)
 
@@ -174,4 +174,5 @@ class DiscoVPCSecurityGroupRules(object):
 
     def get_all_security_groups_for_vpc(self):
         """ Find all security groups belonging to vpc and return them """
-        return self.boto3_ec2.describe_security_groups(Filters=[self.disco_vpc.vpc_filter()])['SecurityGroups']
+        return self.boto3_ec2.describe_security_groups(
+            Filters=[self.disco_vpc.vpc_filter()])['SecurityGroups']

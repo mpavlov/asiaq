@@ -306,7 +306,7 @@ class DiscoVPC(object):
 
         dhcp_options = self._configure_dhcp()[0]
         self.boto3_ec2.associate_dhcp_options(DhcpOptionsId=dhcp_options['DhcpOptionsId'],
-                                           VpcId=self.vpc['VpcId'])
+                                              VpcId=self.vpc['VpcId'])
 
         # Enable DNS
         self.boto3_ec2.modify_vpc_attribute(
@@ -341,7 +341,7 @@ class DiscoVPC(object):
         Note that topics are not deleted with the VPC, since that would require re-subscribing the members.
         """
         notifications = self.alarms_config.get_notifications()
-        logging.info("Desired alarms config: {0}".format(notifications))
+        logging.info("Desired alarms config: %s", notifications)
         if not dry_run:
             DiscoSNS().update_sns_with_notifications(notifications, self.environment_name)
 
@@ -365,13 +365,7 @@ class DiscoVPC(object):
 
     def update(self, dry_run=False):
         """ Update the existing VPC """
-        # TODO: We should probably ignore changes in cidr
-        """
-        vpc_cidr = self.get_config("vpc_cidr")
-        if vpc_cidr != self.vpc['CidrBlock']:
-            logging.error("VPC cannot be updated, Cidr values are different, %s instead of"
-                          "%s", vpc_cidr, self.vpc['CidrBlock'])
-        """
+        # Ignoring changes in CIDR for now at least
 
         logging.info("Updating security group rules...")
         self.disco_vpc_sg_rules.update_meta_network_sg_rules(dry_run)

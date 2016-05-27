@@ -12,7 +12,6 @@ from disco_aws_automation import (
     DiscoVPC,
     DiscoVPCPeerings
 )
-from disco_aws_automation.disco_vpc_peerings import LIVE_PEERING_STATES
 from disco_aws_automation.disco_aws_util import run_gracefully
 from disco_aws_automation.disco_logging import configure_logging
 
