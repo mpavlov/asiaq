@@ -89,7 +89,7 @@ class DiscoElastiCache(object):
         port = int(self._get_option(cluster_name, 'port'))
         auto_failover = self._has_auto_failover(engine_version, instance_type, num_nodes)
         domain_name = self._get_option(cluster_name, 'domain_name') or self.aws.get_default_domain_name()
-        use_snapshot = self._get_option(cluster_name, 'snapshot')
+        use_snapshot = bool(self._get_option(cluster_name, 'snapshot'))
         tags = [{
             'Key': 'product_line',
             'Value': self._get_option(cluster_name, 'product_line') or self.aws.get_default_product_line('')
@@ -198,14 +198,10 @@ class DiscoElastiCache(object):
 
     def get_latest_snapshot(self, cluster_name):
         """Get the latest snapshot for cluster"""
-        def latest_node_snapshot_date(node_snapshots):
+        def latest_cluster_snapshot_date(snapshot_data):
             """Finds the latest node snapshot by data"""
             from operator import itemgetter
-            return max(node_snapshots, key=itemgetter('SnapshotCreateTime'))
-
-        def latest_cluster_snapshot_date(snapshot_data):
-            """Finds the latest cluster snapshot by latest node snapshot"""
-            return latest_node_snapshot_date(snapshot_data['NodeSnapshots'])
+            return max(snapshot_data['NodeSnapshots'], key=itemgetter('SnapshotCreateTime'))
 
         try:
             return max(self.list_snapshots(cluster_name), key=latest_cluster_snapshot_date)
