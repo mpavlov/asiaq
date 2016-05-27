@@ -10,7 +10,10 @@ import boto3
 from . import read_config
 from .resource_helper import tag2dict
 from .exceptions import VPCPeeringSyntaxError
-from . import disco_vpc
+# FIXME: Disabling complaint about relative-import. This seems to be the only
+# way that works for unit tests.
+# pylint: disable=W0403
+import disco_vpc
 
 LIVE_PEERING_STATES = ["pending-acceptance", "provisioning", "active"]
 

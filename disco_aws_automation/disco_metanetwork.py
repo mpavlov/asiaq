@@ -357,9 +357,8 @@ class DiscoMetaNetwork(object):
             offset = int(offset)
         except ValueError:
             raise IPRangeError(
-                "Cannot find IP in metanetwork %s by offset %s.",
-                self.name, offset
-            )
+                "Cannot find IP in metanetwork {0} by offset {1}."
+                .format(self.name, offset))
 
         subnets = sorted(self.subnet_ip_networks)
         base_address = subnets[0].first if offset >= 0 else subnets[-1].last
@@ -481,8 +480,8 @@ class DiscoMetaNetwork(object):
                     nat_gateway = self.boto3_ec2.describe_nat_gateways(
                         NatGatewayIds=[route['NatGatewayId']])['NatGateways'][0]
                 except IndexError:
-                    raise RuntimeError("Phantom NatGatewayId %s found in meta network %s.",
-                                       route['NatGatewayId'], self.name)
+                    raise RuntimeError("Phantom NatGatewayId {0} found in meta network {1}."
+                                       .format(route['NatGatewayId'], self.name))
 
                 subnet = self.boto3_ec2.describe_subnets(
                     SubnetIds=[nat_gateway['SubnetId']])['Subnets'][0]
@@ -491,8 +490,8 @@ class DiscoMetaNetwork(object):
                     if tag['Key'] == 'meta_network':
                         return tag['Value']
 
-                raise RuntimeError("The meta_network tag is missing in subnet %s.",
-                                   subnet['SubnetId'])
+                raise RuntimeError("The meta_network tag is missing in subnet {0}."
+                                   .format(subnet['SubnetId']))
         return None
 
     def create_peering_route(self, peering_conn_id, cidr):

@@ -39,8 +39,8 @@ from .exceptions import (
 CONFIG_FILE = "disco_vpc.ini"
 
 
-# FIXME: pylint thinks too many lines are in the file and it has too many instance arguments
-# pylint: disable=C0302, R0902
+# FIXME: pylint thinks the file has too many instance arguments
+# pylint: disable=R0902
 class DiscoVPC(object):
     """
     This class contains all our VPC orchestration code
@@ -140,7 +140,6 @@ class DiscoVPC(object):
     def region(self):
         """Region we're operating in"""
         if not self._region:
-            # region = self.vpc.region.name <-- This doesn't work, so we use the HACK below
             self._region = self.boto3_ec2.describe_availability_zones()['AvailabilityZones'][0]['RegionName']
         return self._region
 
