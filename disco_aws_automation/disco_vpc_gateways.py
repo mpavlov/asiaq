@@ -7,7 +7,7 @@ import time
 
 from boto.exception import EC2ResponseError
 
-from .resource_helper import wait_for_state_boto3
+from .resource_helper import wait_for_state_boto3, find_or_create
 from .disco_eip import DiscoEIP
 from .exceptions import (TimeoutError, EIPConfigError)
 
@@ -25,22 +25,10 @@ class DiscoVPCGateways(object):
         self.boto3_ec2 = boto3_ec2
         self.eip = DiscoEIP()
 
-    def set_up_gateways(self):
-        """ Set up Internet and VPN gateways """
-        internet_gateway = self._create_internet_gw()
+    def update_gateways_and_routes(self, dry_run=False):
+        """ Find or create Internet and VPN gateways and update the routes to them """
+        internet_gateway = find_or_create(self._find_internet_gw, self._create_internet_gw)
         vpn_gateway = self._find_and_attach_vpn_gw()
-
-        for network in self.disco_vpc.networks.values():
-            route_tuples = self._get_gateway_route_tuples(network.name, internet_gateway, vpn_gateway)
-
-            logging.debug("Adding gateway routes to meta network %s: %s",
-                          network.name, route_tuples)
-            network.add_gateway_routes(route_tuples)
-
-    def update_gateway_routes(self, dry_run=False):
-        """ Update routes to Internet and VPN gateways """
-        internet_gateway = self._find_internet_gw()
-        vpn_gateway = self._find_vgw()
 
         for network in self.disco_vpc.networks.values():
             logging.info("Updating gateway routes for meta network: %s", network.name)
@@ -86,7 +74,9 @@ class DiscoVPCGateways(object):
         vgw = self._find_vgw()
         if vgw:
             logging.debug("Attaching VGW: %s.", vgw)
-            if vgw['VpcAttachments'] and vgw['VpcAttachments'][0]['State'] != 'detached':
+            if vgw['VpcAttachments'] and vgw['VpcAttachments'][0]['State'] != 'detached' and \
+                    vgw['VpcAttachments'][0]['VpcId'] != self.disco_vpc.get_vpc_id():
+
                 logging.info("VGW %s already attached to %s. Will detach and reattach to %s.",
                              vgw['VpnGatewayId'], vgw['VpcAttachments'][0]['VpcId'],
                              self.disco_vpc.get_vpc_id())
@@ -191,19 +181,6 @@ class DiscoVPCGateways(object):
                 InternetGatewayId=igw['InternetGatewayId'],
                 VpcId=self.disco_vpc.get_vpc_id())
             self.boto3_ec2.delete_internet_gateway(InternetGatewayId=igw['InternetGatewayId'])
-
-    def set_up_nat_gateways(self):
-        """ Set up NAT gateways and the routes to them for the VPC """
-        for network in self.disco_vpc.networks.values():
-            self._update_nat_gateways(network)
-
-        # Setup NAT gateway routes
-        nat_gateway_routes = self._parse_nat_gateway_routes_config()
-        if nat_gateway_routes:
-            logging.debug("Adding NAT gateway routes")
-            self._add_nat_gateway_routes(nat_gateway_routes)
-        else:
-            logging.debug("No NAT gateway routes to add")
 
     def update_nat_gateways_and_routes(self, dry_run=False):
         """ Update the NAT gateways and the routes to them for the VPC based on

@@ -20,7 +20,7 @@ MAX_POLL_INTERVAL = 60  # seconds
 
 
 def tag2dict(tags):
-    ''' Converts a list of dict to dict '''
+    """ Converts a list of AWS tag dicts to a single dict with corresponding keys and values """
     return {tag.get('Key'): tag.get('Value') for tag in tags or {}}
 
 

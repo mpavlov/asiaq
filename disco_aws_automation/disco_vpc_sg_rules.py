@@ -18,14 +18,6 @@ class DiscoVPCSecurityGroupRules(object):
         self.disco_vpc = vpc
         self.boto3_ec2 = boto3_ec2
 
-    def add_meta_network_sg_rules(self):
-        """
-        Process and add the security group rules defined in the config file to
-        each meta network
-        """
-        for network in self.disco_vpc.networks.values():
-            network.add_sg_rules(self._get_sg_rule_tuples(network))
-
     def update_meta_network_sg_rules(self, dry_run=False):
         """
         Update the security group rules in each meta network based on what is defined

@@ -261,10 +261,10 @@ class DiscoMetaNetwork(object):
         Allocate a 'floating' network inteface with static ip --
         if it does not already exist.
         """
-        instance_filter = self.vpc_filter()
-        instance_filter["private-ip-address"] = private_ip
+        interface_filter = self.vpc_filter()
+        interface_filter["private-ip-address"] = private_ip
         interfaces = self._connection.get_all_network_interfaces(
-            filters=instance_filter
+            filters=interface_filter
         )
         if interfaces:
             return interfaces[0]
@@ -299,7 +299,7 @@ class DiscoMetaNetwork(object):
         of the current meta network added """
         return self.security_group.id, protocol, ports[0], ports[1], sg_source_id, cidr_source
 
-    def update_sg_rules(self, desire_sg_rules, dry_run=False):
+    def update_sg_rules(self, desired_sg_rules, dry_run=False):
         """
         Update the security rules of the meta network so that they conform to
         the new rules being passed in. Each rule is a tuple that contains 6 values:
@@ -319,7 +319,7 @@ class DiscoMetaNetwork(object):
             for grant in rule.grants]
 
         current_sg_rules = set(current_sg_rules)
-        desired_sg_rules = set(desire_sg_rules) if desire_sg_rules else set()
+        desired_sg_rules = set(desired_sg_rules) if desired_sg_rules else set()
 
         logging.info("Adding new security group rules %s",
                      list(desired_sg_rules - current_sg_rules))
@@ -327,17 +327,17 @@ class DiscoMetaNetwork(object):
                      list(current_sg_rules - desired_sg_rules))
 
         if not dry_run:
-            self.add_sg_rules(list(desired_sg_rules - current_sg_rules))
-            self.revoke_sg_rules(list(current_sg_rules - desired_sg_rules))
+            self._add_sg_rules(list(desired_sg_rules - current_sg_rules))
+            self._revoke_sg_rules(list(current_sg_rules - desired_sg_rules))
 
-    def revoke_sg_rules(self, rule_tuples):
+    def _revoke_sg_rules(self, rule_tuples):
         """ Revoke the list of security group rules from the current meta network """
         for rule in rule_tuples:
             rule = DiscoMetaNetwork._convert_sg_rule_tuple_to_dict(rule)
             if not self._connection.revoke_security_group(**rule):
                 logging.warning("Failed to revoke security group %s", rule)
 
-    def add_sg_rules(self, rule_tuples):
+    def _add_sg_rules(self, rule_tuples):
         """ Add a list of security rules to the current meta network """
         for rule in rule_tuples:
             rule = DiscoMetaNetwork._convert_sg_rule_tuple_to_dict(rule)
@@ -378,7 +378,7 @@ class DiscoMetaNetwork(object):
         for route_tuple in route_tuples:
             self._add_gateway_route(route_tuple[0], route_tuple[1])
 
-    def delete_gateway_routes(self, dest_cidr_blocks):
+    def _delete_gateway_routes(self, dest_cidr_blocks):
         """"
         Delete the routes to destination CIDR blocks from all the subnets' route tables.
         """
@@ -393,9 +393,9 @@ class DiscoMetaNetwork(object):
                 for disco_subnet in self.disco_subnets.values():
                     disco_subnet.delete_route(dest_cidr_block)
 
-    def update_gateway_routes(self, desired_route_tuples, dry_run=False):
+    def update_gateways_and_routes(self, desired_route_tuples, dry_run=False):
         """
-        Update gateway routes in the meta network so that they conform to
+        Update gateways and routes to them in the meta network so that they conform to
         the new routes being passed in. Each new route is a tuple that contains 2 values:
         desired_route_tuples[0]: destination CIDR block
         desired_route_tuples[1]: gateway ID
@@ -423,7 +423,7 @@ class DiscoMetaNetwork(object):
 
         if not dry_run:
             # TODO: Use client.replace_route to avoid downtime
-            self.delete_gateway_routes([route[0] for route in routes_to_delete])
+            self._delete_gateway_routes([route[0] for route in routes_to_delete])
             self.add_gateway_routes(routes_to_add)
 
     def _add_gateway_route(self, destination_cidr_block, gateway_id):

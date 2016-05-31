@@ -7,6 +7,7 @@ environments, and between an environment and the internet.  In particular non-VP
 import logging
 import random
 
+import time
 from ConfigParser import ConfigParser
 
 from boto.exception import EC2ResponseError
@@ -161,20 +162,20 @@ class DiscoVPC(object):
         Returns an instance of this class for the specified VPC, or None if it does not exist
         """
         client = boto3.client('ec2')
-        try:
-            if vpc_id:
-                vpc = client.describe_vpcs(
-                    Filters=[{'Name': 'vpc-id', 'Values': [vpc_id]}])['Vpcs'][0]
-            elif environment_name:
-                vpc = client.describe_vpcs(
-                    Filters=[{'Name': 'tag:Name', 'Values': [environment_name]}])['Vpcs'][0]
-            else:
-                raise VPCEnvironmentError("Expect vpc_id or environment_name")
-        except IndexError:
+        if vpc_id:
+            vpcs = client.describe_vpcs(
+                Filters=[{'Name': 'vpc-id', 'Values': [vpc_id]}])['Vpcs']
+        elif environment_name:
+            vpcs = client.describe_vpcs(
+                Filters=[{'Name': 'tag:Name', 'Values': [environment_name]}])['Vpcs']
+        else:
+            raise VPCEnvironmentError("Expect vpc_id or environment_name")
+
+        if len(vpcs) == 0:
             return None
 
-        tags = tag2dict(vpc['Tags'] if 'Tags' in vpc else None)
-        return cls(tags.get("Name", '-'), tags.get("type", '-'), vpc)
+        tags = tag2dict(vpcs[0]['Tags'] if 'Tags' in vpcs[0] else None)
+        return cls(tags.get("Name", '-'), tags.get("type", '-'), vpcs[0])
 
     @property
     def networks(self):
@@ -224,6 +225,7 @@ class DiscoVPC(object):
                     raise VPCConfigError("Can't create metanetwork %s. No subnets available", network_name)
 
             metanetworks[network_name] = DiscoMetaNetwork(network_name, self, cidr)
+            metanetworks[network_name].create()
             used_cidrs.append(cidr)
 
         return metanetworks
@@ -262,13 +264,18 @@ class DiscoVPC(object):
         dhcp_configs.append({"Key": "domain-name-servers", "Values": [internal_dns, external_dns]})
         dhcp_configs.append({"Key": "ntp-servers", "Values": [ntp_server]})
 
-        response = self.boto3_ec2.create_dhcp_options(DhcpConfigurations=dhcp_configs)
-        ec2 = boto3.resource('ec2')
-        dhcp_options = ec2.DhcpOptions(response['DhcpOptions']['DhcpOptionsId'])
-        dhcp_options.create_tags(Tags=[{'Key': 'Name', 'Value': self.environment_name}])
-        return self.boto3_ec2.describe_dhcp_options(
-            DhcpOptionsIds=[response['DhcpOptions']['DhcpOptionsId']]
+        dhcp_options = self.boto3_ec2.create_dhcp_options(DhcpConfigurations=dhcp_configs)['DhcpOptions']
+        self.boto3_ec2.create_tags(Resources=[dhcp_options['DhcpOptionsId']],
+                                   Tags=[{'Key': 'Name', 'Value': self.environment_name}])
+
+        dhcp_options = self.boto3_ec2.describe_dhcp_options(
+            DhcpOptionsIds=[dhcp_options['DhcpOptionsId']]
         )['DhcpOptions']
+
+        if len(dhcp_options) == 0:
+            raise RuntimeError("Failed to find DHCP options after creation.")
+
+        return dhcp_options[0]
 
     def _create_environment(self):
 
@@ -303,7 +310,7 @@ class DiscoVPC(object):
         logging.debug("vpc: %s", self.vpc)
         logging.debug("vpc tags: %s", tags)
 
-        dhcp_options = self._configure_dhcp()[0]
+        dhcp_options = self._configure_dhcp()
         self.boto3_ec2.associate_dhcp_options(DhcpOptionsId=dhcp_options['DhcpOptionsId'],
                                               VpcId=self.vpc['VpcId'])
 
@@ -315,22 +322,20 @@ class DiscoVPC(object):
 
         # Create metanetworks (subnets, route_tables and security groups)
         self._networks = self._create_new_meta_networks()
-        for network in self.networks.values():
-            network.create()
 
         # Configure security group rules for all meta networks
-        self.disco_vpc_sg_rules.add_meta_network_sg_rules()
+        self.disco_vpc_sg_rules.update_meta_network_sg_rules()
 
         # Setup internet gateway and VPN gateway
-        self.disco_vpc_gateways.set_up_gateways()
+        self.disco_vpc_gateways.update_gateways_and_routes()
 
         # Setup NAT gateways
-        self.disco_vpc_gateways.set_up_nat_gateways()
+        self.disco_vpc_gateways.update_nat_gateways_and_routes()
 
         self.configure_notifications()
 
-        DiscoVPCPeerings.create_peering_connections(
-            self.disco_vpc_peerings.parse_peerings_config(self.get_vpc_id()))
+        # Setup VPC peering connections
+        self.disco_vpc_peerings.update_peering_connections()
 
         self.rds.update_all_clusters_in_vpc()
 
@@ -369,7 +374,7 @@ class DiscoVPC(object):
         logging.info("Updating security group rules...")
         self.disco_vpc_sg_rules.update_meta_network_sg_rules(dry_run)
         logging.info("Updating gateway routes...")
-        self.disco_vpc_gateways.update_gateway_routes(dry_run)
+        self.disco_vpc_gateways.update_gateways_and_routes(dry_run)
         logging.info("Updating NAT gateways and routes...")
         self.disco_vpc_gateways.update_nat_gateways_and_routes(dry_run)
         logging.info("Updating VPC peering connections...")
@@ -394,7 +399,7 @@ class DiscoVPC(object):
         DiscoVPCPeerings.delete_peerings(self.get_vpc_id())
         self._destroy_subnets()
         self._destroy_routes()
-        return self._destroy_vpc()
+        self._destroy_vpc()
 
     def _destroy_instances(self):
         """ Find all instances in vpc and terminate them """
@@ -409,18 +414,15 @@ class DiscoVPC(object):
             return
         logging.debug("terminating %s instance(s) %s", len(instances), instances)
 
-        # for instance in instances:
-        #    instance.terminate()
-        # for instance in instances:
-        #    wait_for_state(instance, u'terminated')
-
         self.boto3_ec2.terminate_instances(InstanceIds=instances)
+
         waiter = self.boto3_ec2.get_waiter('instance_terminated')
         waiter.wait(InstanceIds=instances,
                     Filters=[{'Name': 'instance-state-name', 'Values': ['terminated']}])
         autoscale.clean_configs()
 
         logging.debug("waiting for instance shutdown scripts")
+        time.sleep(60)  # see http://copperegg.com/hooking-into-the-aws-shutdown-flow/
 
     def _destroy_rds(self, wait=True):
         """ Delete all RDS instances/clusters. Final snapshots are automatically taken. """
@@ -444,8 +446,8 @@ class DiscoVPC(object):
     def _destroy_routes(self):
         """ Find all route_tables belonging to vpc and destroy them"""
         for route_table in self.boto3_ec2.describe_route_tables(Filters=[self.vpc_filter()])['RouteTables']:
-            if len(route_table['Tags']) < 1:
-                logging.info("Skipping untagged (default) route table %s", route_table['RouteTableId'])
+            if route_table["Associations"][0]["Main"]:
+                logging.info("Skipping default main route table %s", route_table['RouteTableId'])
                 continue
             try:
                 self.boto3_ec2.delete_route_table(RouteTableId=route_table['RouteTableId'])
@@ -456,21 +458,13 @@ class DiscoVPC(object):
     def _destroy_vpc(self):
         """Delete VPC and then delete the dhcp_options that were associated with it. """
 
-        # save function and parameters so we can delete dhcp_options after vpc. We do this becase botos
-        # get_all_dhcp_options does not support filter. Because we cannot easily find the default dhcp
-        # options, re-assigning default dhcp option is not trivial.
-        # delete_dhcp_options = self.vpc.connection.delete_dhcp_options
+        # save function and parameters so we can delete dhcp_options after vpc.
         dhcp_options_id = self.vpc['DhcpOptionsId']
 
         self.boto3_ec2.delete_vpc(VpcId=self.get_vpc_id())
-        # delete_status = keep_trying(30, self.vpc.delete)
         self.vpc = None
 
         self.boto3_ec2.delete_dhcp_options(DhcpOptionsId=dhcp_options_id)
-        # if not delete_dhcp_options(dhcp_options_id):
-        #    logging.warning("failed to delete dhcp options (%s)", dhcp_options_id)
-
-        # return delete_status
 
     @staticmethod
     def find_vpc_id_by_name(vpc_name):
