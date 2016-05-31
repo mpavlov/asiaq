@@ -20,6 +20,10 @@ MAX_POLL_INTERVAL = 60  # seconds
 
 
 def create_filters(filter_dict):
+    """
+    Converts a dict to a list of boto3 filters. The keys and value of the dict represent
+    the Name and Values of a filter, respectively.
+    """
     filters = []
     for key in filter_dict.keys():
         filters.append({'Name': key, 'Values': filter_dict[key]})

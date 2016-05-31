@@ -215,7 +215,7 @@ class DiscoVPCGateways(object):
         if not eips:
             # No NAT config, delete the gateways if any
             logging.info("No NAT gateways defined for meta network %s. Deleting them if there's any.",
-                          network.name)
+                         network.name)
             if not dry_run:
                 network.delete_nat_gateways()
         else:
@@ -230,7 +230,7 @@ class DiscoVPCGateways(object):
 
             if allocation_ids:
                 logging.info("Setting up NAT gateways in meta network %s using these allocation IDs: %s",
-                              network.name, allocation_ids)
+                             network.name, allocation_ids)
                 if not dry_run:
                     network.add_nat_gateways(allocation_ids)
 

@@ -53,7 +53,8 @@ class DiscoVPCPeerings(object):
             peer_vpc = self._find_peer_vpc(self._get_peer_vpc_id(peering))
 
             vpc_peering_route_tables = self.boto3_ec2.describe_route_tables(
-                Filters=create_filters({'route.vpc-peering-connection-id': [peering['VpcPeeringConnectionId']]})
+                Filters=create_filters(
+                    {'route.vpc-peering-connection-id': [peering['VpcPeeringConnectionId']]})
             )['RouteTables']
 
             for route_table in vpc_peering_route_tables:
