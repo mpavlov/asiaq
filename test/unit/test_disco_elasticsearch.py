@@ -10,7 +10,7 @@ from disco_aws_automation import DiscoElasticsearch
 from disco_aws_automation.disco_aws_util import is_truthy
 from test.helpers.patch_disco_aws import get_mock_config
 
-MOCK_AWS_CONFIG_DEFINITON = {
+MOCK_AWS_CONFIG_DEFINITION = {
     "disco_aws": {
         "default_domain_name": "aws.example.com",
         "http_proxy_hostclass": "mhcproxy"
@@ -20,7 +20,13 @@ MOCK_AWS_CONFIG_DEFINITON = {
     }
 }
 
-MOCK_ES_CONFIG_DEFINITON = {
+MOCK_VPC_CONFIG_DEFINITION = {
+    "envtype:foo": {
+        "tunnel_nat_gateways": "1.1.1.1,2.2.2.2,3.3.3.3"
+    }
+}
+
+MOCK_ES_CONFIG_DEFINITION = {
     "foo:logs": {
         "instance_type": "m3.medium.elasticsearch",
         "instance_count": "3",
@@ -65,14 +71,16 @@ class DiscoElastiSearchTests(TestCase):
     def setUp(self):
         self.mock_route_53 = _get_mock_route53()
 
-        config_aws = get_mock_config(MOCK_AWS_CONFIG_DEFINITON)
-        config_es = get_mock_config(MOCK_ES_CONFIG_DEFINITON)
+        config_aws = get_mock_config(MOCK_AWS_CONFIG_DEFINITION)
+        config_vpc = get_mock_config(MOCK_VPC_CONFIG_DEFINITION)
+        config_es = get_mock_config(MOCK_ES_CONFIG_DEFINITION)
         self.account_id = ''.join(random.choice("0123456789") for _ in range(12))
         self.region = "us-west-2"
         self.environment_name = "foo"
 
         self._es = DiscoElasticsearch(environment_name=self.environment_name,
-                                      config_aws=config_aws, config_es=config_es, route53=self.mock_route_53)
+                                      config_aws=config_aws, config_es=config_es,
+                                      config_vpc=config_vpc, route53=self.mock_route_53)
 
         self._es._account_id = self.account_id
         self._es._region = self.region
@@ -195,29 +203,31 @@ class DiscoElastiSearchTests(TestCase):
         self.assertIn(domain_name, self._es._list())
         domain_config = self._es._describe_es_domain(domain_name)["DomainStatus"]
         self.assertEquals(domain_config["ElasticsearchClusterConfig"]["InstanceType"],
-                          MOCK_ES_CONFIG_DEFINITON[config_section]["instance_type"])
+                          MOCK_ES_CONFIG_DEFINITION[config_section]["instance_type"])
         self.assertEquals(domain_config["ElasticsearchClusterConfig"]["InstanceCount"],
-                          int(MOCK_ES_CONFIG_DEFINITON[config_section]["instance_count"]))
+                          int(MOCK_ES_CONFIG_DEFINITION[config_section]["instance_count"]))
         self.assertEquals(domain_config["ElasticsearchClusterConfig"]["DedicatedMasterEnabled"],
-                          is_truthy(MOCK_ES_CONFIG_DEFINITON[config_section]["dedicated_master"]))
+                          is_truthy(MOCK_ES_CONFIG_DEFINITION[config_section]["dedicated_master"]))
         self.assertEquals(domain_config["ElasticsearchClusterConfig"]["ZoneAwarenessEnabled"],
-                          is_truthy(MOCK_ES_CONFIG_DEFINITON[config_section]["zone_awareness"]))
+                          is_truthy(MOCK_ES_CONFIG_DEFINITION[config_section]["zone_awareness"]))
         self.assertEquals(domain_config["ElasticsearchClusterConfig"]["DedicatedMasterType"],
-                          MOCK_ES_CONFIG_DEFINITON[config_section]["dedicated_master_type"])
+                          MOCK_ES_CONFIG_DEFINITION[config_section]["dedicated_master_type"])
         self.assertEquals(domain_config["ElasticsearchClusterConfig"]["DedicatedMasterCount"],
-                          int(MOCK_ES_CONFIG_DEFINITON[config_section]["dedicated_master_count"]))
+                          int(MOCK_ES_CONFIG_DEFINITION[config_section]["dedicated_master_count"]))
         self.assertEquals(domain_config["EBSOptions"]["EBSEnabled"],
-                          is_truthy(MOCK_ES_CONFIG_DEFINITON[config_section]["ebs_enabled"]))
+                          is_truthy(MOCK_ES_CONFIG_DEFINITION[config_section]["ebs_enabled"]))
         self.assertEquals(domain_config["EBSOptions"]["Iops"],
-                          int(MOCK_ES_CONFIG_DEFINITON[config_section]["iops"]))
+                          int(MOCK_ES_CONFIG_DEFINITION[config_section]["iops"]))
         self.assertEquals(domain_config["EBSOptions"]["VolumeSize"],
-                          int(MOCK_ES_CONFIG_DEFINITON[config_section]["volume_size"]))
+                          int(MOCK_ES_CONFIG_DEFINITION[config_section]["volume_size"]))
         self.assertEquals(domain_config["EBSOptions"]["VolumeType"],
-                          MOCK_ES_CONFIG_DEFINITON[config_section]["volume_type"])
+                          MOCK_ES_CONFIG_DEFINITION[config_section]["volume_type"])
         self.assertEquals(domain_config["SnapshotOptions"]["AutomatedSnapshotStartHour"],
-                          int(MOCK_ES_CONFIG_DEFINITON[config_section]["snapshot_start_hour"]))
-        expected_source_ips = MOCK_ES_CONFIG_DEFINITON[config_section]["allowed_source_ips"].split()
-        expected_source_ips.append(MOCK_AWS_CONFIG_DEFINITON["mhcproxy"]["eip"])
+                          int(MOCK_ES_CONFIG_DEFINITION[config_section]["snapshot_start_hour"]))
+        expected_source_ips = MOCK_ES_CONFIG_DEFINITION[config_section]["allowed_source_ips"].split()
+        expected_source_ips.append(MOCK_AWS_CONFIG_DEFINITION["mhcproxy"]["eip"])
+        expected_nat_gateways = MOCK_VPC_CONFIG_DEFINITION['envtype:foo']["tunnel_nat_gateways"].split(',')
+        expected_source_ips += expected_nat_gateways
         access_policy = json.loads(domain_config["AccessPolicies"])
         actual_source_ips = access_policy["Statement"][0]["Condition"]["IpAddress"]["aws:SourceIp"]
         self.assertEquals(set(actual_source_ips), set(expected_source_ips))
