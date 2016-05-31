@@ -167,4 +167,4 @@ class DiscoVPCSecurityGroupRules(object):
     def get_all_security_groups_for_vpc(self):
         """ Find all security groups belonging to vpc and return them """
         return self.boto3_ec2.describe_security_groups(
-            Filters=[self.disco_vpc.vpc_filter()])['SecurityGroups']
+            Filters=self.disco_vpc.vpc_filters())['SecurityGroups']

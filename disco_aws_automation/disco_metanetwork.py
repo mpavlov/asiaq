@@ -91,7 +91,7 @@ class DiscoMetaNetwork(object):
 
     def vpc_filter(self):
         """ Returns VPC filter """
-        vpc_filter = self.vpc.vpc_filter()
+        vpc_filter = self.vpc.vpc_filters()[0]
         return {vpc_filter.get('Name'): vpc_filter.get('Values')[0]}
 
     @property
@@ -510,14 +510,14 @@ class DiscoMetaNetwork(object):
                 ]
                 if not peering_routes_for_cidr:
                     logging.info(
-                        'create routes for (route_table: %s, dest_cidr: %s, connection: %s)',
+                        'Create routes for (route_table: %s, dest_cidr: %s, connection: %s)',
                         self.centralized_route_table.id, cidr, peering_conn_id)
                     self._connection.create_route(route_table_id=self.centralized_route_table.id,
                                                   destination_cidr_block=cidr,
                                                   vpc_peering_connection_id=peering_conn_id)
                 else:
                     logging.info(
-                        'update routes for (route_table: %s, dest_cidr: %s, connection: %s)',
+                        'Update routes for (route_table: %s, dest_cidr: %s, connection: %s)',
                         self.centralized_route_table.id, cidr, peering_conn_id)
                     self._connection.replace_route(route_table_id=self.centralized_route_table.id,
                                                    destination_cidr_block=cidr,

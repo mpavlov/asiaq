@@ -9,7 +9,8 @@ import boto3
 from .resource_helper import (
     handle_date_format,
     keep_trying,
-    find_or_create
+    find_or_create,
+    create_filters
 )
 
 
@@ -79,10 +80,8 @@ class DiscoSubnet(object):
     @property
     def _resource_filter(self):
         return {
-            'Filters': [{'Name': 'vpc-id',
-                         'Values': [str(self.metanetwork.vpc.vpc['VpcId'])]},
-                        {'Name': 'tag:meta_network',
-                         'Values': [self.metanetwork.name]}]
+            'Filters': create_filters({'vpc-id': [str(self.metanetwork.vpc.vpc['VpcId'])],
+                                       'tag:meta_network': [self.metanetwork.name]})
         }
 
     def recreate_route_table(self):
@@ -142,13 +141,13 @@ class DiscoSubnet(object):
 
             if not peering_routes_for_cidr:
                 logging.info(
-                    'create routes for (route_table: %s, dest_cidr: %s, connection: %s)',
+                    'Create route for (route_table: %s, dest_cidr: %s, connection: %s)',
                     params['RouteTableId'], params['DestinationCidrBlock'],
                     params['VpcPeeringConnectionId'])
                 self.boto3_ec2.create_route(**params)
             else:
                 logging.info(
-                    'update routes for (route_table: %s, dest_cidr: %s, connection: %s)',
+                    'Update route for (route_table: %s, dest_cidr: %s, connection: %s)',
                     params['RouteTableId'], params['DestinationCidrBlock'],
                     params['VpcPeeringConnectionId'])
                 self.boto3_ec2.replace_route(**params)
@@ -214,7 +213,7 @@ class DiscoSubnet(object):
 
     def _find_subnet(self):
         filters = self._resource_filter
-        filters['Filters'].append({'Name': 'availabilityZone', 'Values': [self.name]})
+        filters['Filters'].extend(create_filters({'availabilityZone': [self.name]}))
         try:
             return handle_date_format(
                 self.boto3_ec2.describe_subnets(**filters)
@@ -249,7 +248,7 @@ class DiscoSubnet(object):
 
     def _find_route_table(self):
         filters = self._resource_filter
-        filters['Filters'].append({'Name': 'tag:subnet', 'Values': [self.name]})
+        filters['Filters'].extend(create_filters({'tag:subnet': [self.name]}))
         try:
             return handle_date_format(
                 self.boto3_ec2.describe_route_tables(**filters)
@@ -280,10 +279,9 @@ class DiscoSubnet(object):
 
     def _find_nat_gateway(self):
         params = {
-            'Filters': [{'Name': 'subnet-id',
-                         'Values': [self.subnet_dict['SubnetId']]},
-                        {'Name': 'vpc-id',
-                         'Values': [self.metanetwork.vpc.vpc['VpcId']]}]
+            'Filters': create_filters({'subnet-id': [self.subnet_dict['SubnetId']],
+                                       'vpc-id': [self.metanetwork.vpc.vpc['VpcId']],
+                                       'state': ['available', 'pending']})
         }
         try:
             result = handle_date_format(

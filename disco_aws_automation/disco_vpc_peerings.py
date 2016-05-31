@@ -8,7 +8,7 @@ from boto.exception import EC2ResponseError
 import boto3
 
 from . import read_config
-from .resource_helper import tag2dict
+from .resource_helper import tag2dict, create_filters
 from .exceptions import VPCPeeringSyntaxError
 # FIXME: Disabling complaint about relative-import. This seems to be the only
 # way that works for unit tests.
@@ -41,7 +41,7 @@ class DiscoVPCPeerings(object):
                                .format(existing_peerings - desired_peerings))
 
         peerings_config = self.parse_peerings_config(self.disco_vpc.get_vpc_id())
-        logging.info("Desired VPC peering config: %s", peerings_config)
+        logging.debug("Desired VPC peering config: %s", peerings_config)
         if not dry_run:
             DiscoVPCPeerings.create_peering_connections(peerings_config)
 
@@ -53,8 +53,8 @@ class DiscoVPCPeerings(object):
             peer_vpc = self._find_peer_vpc(self._get_peer_vpc_id(peering))
 
             vpc_peering_route_tables = self.boto3_ec2.describe_route_tables(
-                Filters=[{'Name': 'route.vpc-peering-connection-id',
-                          'Values': [peering['VpcPeeringConnectionId']]}])['RouteTables']
+                Filters=create_filters({'route.vpc-peering-connection-id': [peering['VpcPeeringConnectionId']]})
+            )['RouteTables']
 
             for route_table in vpc_peering_route_tables:
                 tags_dict = tag2dict(route_table['Tags'])
@@ -104,17 +104,13 @@ class DiscoVPCPeerings(object):
             vpc_metanetwork_map = peering_configs[peering]['vpc_metanetwork_map']
             vpc_ids = [vpc.vpc['VpcId'] for vpc in vpc_map.values()]
             existing_peerings = client.describe_vpc_peering_connections(
-                Filters=[
-                    {'Name': 'status-code', 'Values': ['active']},
-                    {'Name': 'accepter-vpc-info.vpc-id', 'Values': [vpc_ids[0]]},
-                    {'Name': 'requester-vpc-info.vpc-id', 'Values': [vpc_ids[1]]}
-                ]
+                Filters=create_filters({'status-code': ['active'],
+                                        'accepter-vpc-info.vpc-id': [vpc_ids[0]],
+                                        'requester-vpc-info.vpc-id': [vpc_ids[1]]})
             )['VpcPeeringConnections'] + client.describe_vpc_peering_connections(
-                Filters=[
-                    {'Name': 'status-code', 'Values': ['active']},
-                    {'Name': 'accepter-vpc-info.vpc-id', 'Values': [vpc_ids[1]]},
-                    {'Name': 'requester-vpc-info.vpc-id', 'Values': [vpc_ids[0]]}
-                ]
+                Filters=create_filters({'status-code': ['active'],
+                                        'accepter-vpc-info.vpc-id': [vpc_ids[1]],
+                                        'requester-vpc-info.vpc-id': [vpc_ids[0]]})
             )['VpcPeeringConnections']
 
             # create peering when peering doesn't exist
@@ -127,7 +123,7 @@ class DiscoVPCPeerings(object):
                              peering_conn['VpcPeeringConnectionId'], peering)
             else:
                 peering_conn = existing_peerings[0]
-                logging.info("peering connection %s exists for %s",
+                logging.info("Peering connection %s exists for %s",
                              existing_peerings[0]['VpcPeeringConnectionId'], peering)
             DiscoVPCPeerings.create_peering_routes(vpc_map, vpc_metanetwork_map, peering_conn)
 
@@ -146,9 +142,6 @@ class DiscoVPCPeerings(object):
             remote_vpc_names = vpc_map.keys()
             remote_vpc_names.remove(vpc_name)
 
-            logging.info("Creating peering route for meta network %s: %s->%s",
-                         network.name, str(cidr_map[remote_vpc_names[0]]),
-                         peering_conn['VpcPeeringConnectionId'])
             network.create_peering_route(peering_conn['VpcPeeringConnectionId'],
                                          str(cidr_map[remote_vpc_names[0]]))
 
@@ -263,7 +256,7 @@ class DiscoVPCPeerings(object):
 
         vpc_objects = {
             vpc_name: safe_get_from_list(
-                vpc_conn.describe_vpcs(Filters=[{'Name': 'tag-value', 'Values': [vpc_name]}])['Vpcs'], 0)
+                vpc_conn.describe_vpcs(Filters=create_filters({'tag-value': [vpc_name]}))['Vpcs'], 0)
             for vpc_name in vpc_type_map.keys()
         }
 
@@ -316,9 +309,9 @@ class DiscoVPCPeerings(object):
         client = boto3.client('ec2')
         if vpc_id:
             peerings = client.describe_vpc_peering_connections(
-                Filters=[{'Name': 'requester-vpc-info.vpc-id', 'Values': [vpc_id]}]
+                Filters=create_filters({'requester-vpc-info.vpc-id': [vpc_id]})
             )['VpcPeeringConnections'] + client.describe_vpc_peering_connections(
-                Filters=[{'Name': 'accepter-vpc-info.vpc-id', 'Values': [vpc_id]}]
+                Filters=create_filters({'accepter-vpc-info.vpc-id': [vpc_id]})
             )['VpcPeeringConnections']
         else:
             peerings = client.describe_vpc_peering_connections()['VpcPeeringConnections']

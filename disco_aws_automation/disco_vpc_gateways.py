@@ -7,7 +7,8 @@ import time
 
 from boto.exception import EC2ResponseError
 
-from .resource_helper import wait_for_state_boto3, find_or_create
+from .resource_helper import (
+    wait_for_state_boto3, find_or_create, create_filters)
 from .disco_eip import DiscoEIP
 from .exceptions import (TimeoutError, EIPConfigError)
 
@@ -33,7 +34,7 @@ class DiscoVPCGateways(object):
         for network in self.disco_vpc.networks.values():
             logging.info("Updating gateway routes for meta network: %s", network.name)
             route_tuples = self._get_gateway_route_tuples(network.name, internet_gateway, vpn_gateway)
-            network.update_gateway_routes(route_tuples, dry_run)
+            network.update_gateways_and_routes(route_tuples, dry_run)
 
     def destroy_all(self):
         """ Destroy all Internet, VPN, and NAT gateways in a VPC """
@@ -95,18 +96,18 @@ class DiscoVPCGateways(object):
 
     def _find_internet_gw(self):
         """Locate Internet Gateway that corresponds to this VPN"""
-        igw_filter = [{"Name": "attachment.vpc-id", "Values": [self.disco_vpc.vpc['VpcId']]}]
-        igws = self.boto3_ec2.describe_internet_gateways(Filters=igw_filter)
-        try:
-            return igws['InternetGateways'][0]
-        except IndexError:
-            logging.warning("Cannot find the required Internet Gateway named for VPC %s.",
-                            self.disco_vpc.vpc['VpcId'])
+        igw_filter = create_filters({'attachment.vpc-id': [self.disco_vpc.vpc['VpcId']]})
+        igws = self.boto3_ec2.describe_internet_gateways(Filters=igw_filter)['InternetGateways']
+        if len(igws) == 0:
+            logging.debug("Cannot find the required Internet Gateway named for VPC %s.",
+                          self.disco_vpc.vpc['VpcId'])
             return None
+
+        return igws[0]
 
     def _find_vgw(self):
         """Locate VPN Gateway that corresponds to this VPN"""
-        vgw_filter = [{"Name": "tag-value", "Values": [self.disco_vpc.environment_name]}]
+        vgw_filter = create_filters({'tag-value': [self.disco_vpc.environment_name]})
         vgws = self.boto3_ec2.describe_vpn_gateways(Filters=vgw_filter)
         if not len(vgws['VpnGateways']):
             logging.debug("Cannot find the required VPN Gateway named %s.", self.disco_vpc.environment_name)
@@ -115,9 +116,9 @@ class DiscoVPCGateways(object):
 
     def _check_vgw_states(self, state):
         """Checks if all VPN Gateways are in the desired state"""
-        filters = {"Name": "tag:Name", "Values": [self.disco_vpc.environment_name]}
+        filters = create_filters({'tag:Name': [self.disco_vpc.environment_name]})
         states = []
-        vgws = self.boto3_ec2.describe_vpn_gateways(Filters=[filters])
+        vgws = self.boto3_ec2.describe_vpn_gateways(Filters=filters)
         for vgw in vgws['VpnGateways']:
             for attachment in vgw['VpcAttachments']:
                 if state == u'detached':
@@ -148,10 +149,8 @@ class DiscoVPCGateways(object):
 
     def _detach_vgws(self):
         """Detach VPN Gateways, but don't delete them so they can be re-used"""
-        vgw_filter = [
-            {"Name": "attachment.state", "Values": ['attached']},
-            {"Name": "tag:Name", "Values": [self.disco_vpc.environment_name]}
-        ]
+        vgw_filter = create_filters({'attachment.state': ['attached'],
+                                     'tag:Name': [self.disco_vpc.environment_name]})
         detached = False
         for vgw in self.boto3_ec2.describe_vpn_gateways(Filters=vgw_filter)['VpnGateways']:
             logging.debug("Detaching VGW: %s.", vgw)
@@ -173,10 +172,12 @@ class DiscoVPCGateways(object):
 
     def _destroy_igws(self):
         """ Find all gateways belonging to vpc and destroy them"""
-        vpc_attachment_filter = {"Name": "attachment.vpc-id", "Values": [self.disco_vpc.get_vpc_id()]}
+        vpc_attachment_filters = create_filters(
+            {'attachment.vpc-id': [self.disco_vpc.get_vpc_id()]})
+
         # delete gateways
         for igw in self.boto3_ec2.describe_internet_gateways(
-                Filters=[vpc_attachment_filter])['InternetGateways']:
+                Filters=vpc_attachment_filters)['InternetGateways']:
             self.boto3_ec2.detach_internet_gateway(
                 InternetGatewayId=igw['InternetGatewayId'],
                 VpcId=self.disco_vpc.get_vpc_id())
@@ -197,7 +198,7 @@ class DiscoVPCGateways(object):
         # Updating NAT gateways has to be done AFTER current NAT routes are calculated
         # because we don't want to delete existing NAT gateways before that.
         for network in self.disco_vpc.networks.values():
-            self._update_nat_gateways(network)
+            self._update_nat_gateways(network, dry_run)
 
         routes_to_delete = list(current_nat_routes - desired_nat_routes)
         logging.info("NAT gateway routes to delete (source, dest): %s", routes_to_delete)
@@ -213,7 +214,7 @@ class DiscoVPCGateways(object):
         eips = self.disco_vpc.get_config("{0}_nat_gateways".format(network.name))
         if not eips:
             # No NAT config, delete the gateways if any
-            logging.debug("Deleting NAT gateways if any in meta network %s",
+            logging.info("No NAT gateways defined for meta network %s. Deleting them if there's any.",
                           network.name)
             if not dry_run:
                 network.delete_nat_gateways()
@@ -228,7 +229,7 @@ class DiscoVPCGateways(object):
                 allocation_ids.append(address.allocation_id)
 
             if allocation_ids:
-                logging.debug("Creating NAT in meta network %s using these allocation IDs: %s",
+                logging.info("Setting up NAT gateways in meta network %s using these allocation IDs: %s",
                               network.name, allocation_ids)
                 if not dry_run:
                     network.add_nat_gateways(allocation_ids)
@@ -256,7 +257,7 @@ class DiscoVPCGateways(object):
 
     def _destroy_nat_gateways(self):
         """ Find all NAT gateways belonging to a vpc and destroy them"""
-        filter_params = {'Filters': [{'Name': 'vpc-id', 'Values': [self.disco_vpc.vpc['VpcId']]}]}
+        filter_params = {'Filters': create_filters({'vpc-id': [self.disco_vpc.vpc['VpcId']]})}
 
         nat_gateways = self.boto3_ec2.describe_nat_gateways(**filter_params)['NatGateways']
         for nat_gateway in nat_gateways:

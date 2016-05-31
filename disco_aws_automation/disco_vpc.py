@@ -18,7 +18,7 @@ from netaddr import IPNetwork, IPSet
 from disco_aws_automation.network_helper import calc_subnet_offset
 from . import normalize_path
 
-from .resource_helper import tag2dict
+from .resource_helper import (tag2dict, create_filters)
 from .disco_log_metrics import DiscoLogMetrics
 from .disco_alarm import DiscoAlarm
 from .disco_alarm_config import DiscoAlarmsConfig
@@ -164,10 +164,10 @@ class DiscoVPC(object):
         client = boto3.client('ec2')
         if vpc_id:
             vpcs = client.describe_vpcs(
-                Filters=[{'Name': 'vpc-id', 'Values': [vpc_id]}])['Vpcs']
+                Filters=create_filters({'vpc-id': [vpc_id]}))['Vpcs']
         elif environment_name:
             vpcs = client.describe_vpcs(
-                Filters=[{'Name': 'tag:Name', 'Values': [environment_name]}])['Vpcs']
+                Filters=create_filters({'tag:Name': [environment_name]}))['Vpcs']
         else:
             raise VPCEnvironmentError("Expect vpc_id or environment_name")
 
@@ -232,10 +232,9 @@ class DiscoVPC(object):
 
     def find_instance_route_table(self, instance):
         """ Return route tables corresponding to instance """
-        rt_filter = []
-        rt_filter.append(self.vpc_filter())
-        rt_filter.append({"Name": "route.instance-id", "Values": [instance.id]})
-        return self.boto3_ec2.describe_route_tables(Filters=rt_filter)['RouteTables']
+        rt_filters = self.vpc_filters()
+        rt_filters.extend(create_filters({'route.instance-id': [instance.id]}))
+        return self.boto3_ec2.describe_route_tables(Filters=rt_filters)['RouteTables']
 
     def delete_instance_routes(self, instance):
         """ Delete all routes associated with instance """
@@ -363,9 +362,9 @@ class DiscoVPC(object):
         except EC2ResponseError:
             logging.exception("Skipping failed EIP association. Perhaps reassociation of EIP is not allowed?")
 
-    def vpc_filter(self):
-        """Filter used to get only the current VPC when filtering an AWS reply by 'vpc-id'"""
-        return {"Name": "vpc-id", "Values": [self.vpc['VpcId']]}
+    def vpc_filters(self):
+        """Filters used to get only the current VPC when filtering an AWS reply by 'vpc-id'"""
+        return create_filters({'vpc-id': [self.vpc['VpcId']]})
 
     def update(self, dry_run=False):
         """ Update the existing VPC """
@@ -406,7 +405,7 @@ class DiscoVPC(object):
         autoscale = DiscoAutoscale(environment_name=self.environment_name)
         autoscale.clean_groups(force=True)
         instances = [i['InstanceId']
-                     for r in self.boto3_ec2.describe_instances(Filters=[self.vpc_filter()])['Reservations']
+                     for r in self.boto3_ec2.describe_instances(Filters=self.vpc_filters())['Reservations']
                      for i in r['Instances']]
 
         if not instances:
@@ -418,7 +417,7 @@ class DiscoVPC(object):
 
         waiter = self.boto3_ec2.get_waiter('instance_terminated')
         waiter.wait(InstanceIds=instances,
-                    Filters=[{'Name': 'instance-state-name', 'Values': ['terminated']}])
+                    Filters=create_filters({'instance-state-name': ['terminated']}))
         autoscale.clean_configs()
 
         logging.debug("waiting for instance shutdown scripts")
@@ -431,7 +430,7 @@ class DiscoVPC(object):
     def _destroy_interfaces(self):
         """ Deleting interfaces explicitly lets go of subnets faster """
         for interface in self.boto3_ec2.describe_network_interfaces(
-                Filters=[self.vpc_filter()])["NetworkInterfaces"]:
+                Filters=self.vpc_filters())["NetworkInterfaces"]:
             try:
                 self.boto3_ec2.delete_network_interface(NetworkInterfaceId=interface['NetworkInterfaceId'])
             except EC2ResponseError:
@@ -440,14 +439,14 @@ class DiscoVPC(object):
 
     def _destroy_subnets(self):
         """ Find all subnets belonging to a vpc and destroy them"""
-        for subnet in self.boto3_ec2.describe_subnets(Filters=[self.vpc_filter()])['Subnets']:
+        for subnet in self.boto3_ec2.describe_subnets(Filters=self.vpc_filters())['Subnets']:
             self.boto3_ec2.delete_subnet(SubnetId=subnet['SubnetId'])
 
     def _destroy_routes(self):
         """ Find all route_tables belonging to vpc and destroy them"""
-        for route_table in self.boto3_ec2.describe_route_tables(Filters=[self.vpc_filter()])['RouteTables']:
-            if route_table["Associations"][0]["Main"]:
-                logging.info("Skipping default main route table %s", route_table['RouteTableId'])
+        for route_table in self.boto3_ec2.describe_route_tables(Filters=self.vpc_filters())['RouteTables']:
+            if len(route_table["Associations"]) > 0 and route_table["Associations"][0]["Main"]:
+                logging.info("Skipping the default main route table %s", route_table['RouteTableId'])
                 continue
             try:
                 self.boto3_ec2.delete_route_table(RouteTableId=route_table['RouteTableId'])
@@ -470,7 +469,7 @@ class DiscoVPC(object):
     def find_vpc_id_by_name(vpc_name):
         """Find VPC by name"""
         client = boto3.client('ec2')
-        vpcs = client.describe_vpcs(Filters=[{'Name': 'tag:Name', 'Values': [vpc_name]}])['Vpcs']
+        vpcs = client.describe_vpcs(Filters=create_filters({'tag:Name': [vpc_name]}))['Vpcs']
         if len(vpcs) == 1:
             return vpcs[0]['VpcId']
         elif len(vpcs) == 0:
