@@ -12,6 +12,7 @@ from disco_aws_automation.disco_acm import (
 )
 
 TEST_DOMAIN_NAME = 'test.example.com'
+TEST_DEEP_DOMAIN_NAME = 'a.deeper.test.example.com'
 TEST_WILDCARD_DOMAIN_NAME = '*.example.com'
 TEST_CERTIFICATE_ARN_ACM_EXACT = "arn:aws:acm::123:exact"
 TEST_CERTIFICATE_ARN_ACM_WILDCARD = "arn:aws:acm::123:wildcard"
@@ -37,10 +38,17 @@ class DiscoACMTests(TestCase):
 
     def test_get_certificate_arn_wildcard_match(self):
         """wildcard match between the host and cert work"""
-        self._acm.list_certificates.return_value = {CERT_SUMMARY_LIST_KEY: [TEST_CERT]}
-        self.assertEqual(TEST_CERTIFICATE_ARN_ACM_EXACT,
+        self._acm.list_certificates.return_value = {CERT_SUMMARY_LIST_KEY: [TEST_WILDCARD_CERT]}
+        self.assertEqual(TEST_CERTIFICATE_ARN_ACM_WILDCARD,
                          self.disco_acm.get_certificate_arn(TEST_DOMAIN_NAME),
                          'Exact matching of host domain name to cert domain needs to be fixed.')
+
+    def test_get_certificate_arn_deep_match(self):
+        """a host that matches a wildcard cert domain more than one level down should return a cert"""
+        self._acm.list_certificates.return_value = {CERT_SUMMARY_LIST_KEY: [TEST_WILDCARD_CERT]}
+        self.assertEqual(TEST_CERTIFICATE_ARN_ACM_WILDCARD,
+                         self.disco_acm.get_certificate_arn(TEST_DEEP_DOMAIN_NAME),
+                         'Matching of host domain name to a nested cert subdomain needs to be fixed.')
 
     def test_get_certificate_arn_no_match(self):
         """host that does not match cert domains should NOT return a cert"""
