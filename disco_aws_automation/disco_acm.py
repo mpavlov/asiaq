@@ -10,6 +10,7 @@ CERT_SUMMARY_LIST_KEY = 'CertificateSummaryList'
 CERT_ARN_KEY = 'CertificateArn'
 DOMAIN_NAME_KEY = 'DomainName'
 
+
 class DiscoACM(object):
     """
     A class to manage the Amazon Certificate Service
