@@ -43,12 +43,17 @@ class DiscoACMTests(TestCase):
                          self.disco_acm.get_certificate_arn(TEST_DOMAIN_NAME),
                          'Exact matching of host domain name to cert domain needs to be fixed.')
 
-    def test_get_certificate_arn_deep_match(self):
-        """a host that matches a wildcard cert domain more than one level down should return a cert"""
-        self._acm.list_certificates.return_value = {CERT_SUMMARY_LIST_KEY: [TEST_WILDCARD_CERT]}
-        self.assertEqual(TEST_CERTIFICATE_ARN_ACM_WILDCARD,
-                         self.disco_acm.get_certificate_arn(TEST_DEEP_DOMAIN_NAME),
-                         'Matching of host domain name to a nested cert subdomain needs to be fixed.')
+    def test_get_certificate_arn_empty(self):
+        """empty string should not should NOT return a cert"""
+        self._acm.list_certificates.return_value = {CERT_SUMMARY_LIST_KEY: [TEST_CERT, TEST_WILDCARD_CERT]}
+        self.assertFalse(self.disco_acm.get_certificate_arn(''),
+                         'An empty string should not match certs.')
+
+    def test_get_certificate_arn_no_hostname(self):
+        """dns names beginning with . should NOT return a cert"""
+        self._acm.list_certificates.return_value = {CERT_SUMMARY_LIST_KEY: [TEST_CERT, TEST_WILDCARD_CERT]}
+        self.assertFalse(self.disco_acm.get_certificate_arn('.example.com'),
+                         'A missing host name should not match cert domains.')
 
     def test_get_certificate_arn_no_match(self):
         """host that does not match cert domains should NOT return a cert"""

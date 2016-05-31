@@ -22,7 +22,15 @@ class DiscoACM(object):
         self._acm = connection
 
     def _in_domain(self, domain, dns_name):
-        """Returns whether the host is in the ACM certificate domain"""
+        """
+        Returns whether the host is in the ACM certificate domain
+        Only supports top level domain wildcard matching
+        e.g. *.blah.com will match, but not *.*.blah.com
+        It would be good to use a standard library here if becomes available.
+        """
+        if not (domain and dns_name):
+            return False
+
         if dns_name == domain:
             return True
 
@@ -31,9 +39,9 @@ class DiscoACM(object):
         if not name:
             return False
 
-        domain_suffix = (domain[len(self.WILDCARD_PREFIX):]
-                         if domain.startswith(self.WILDCARD_PREFIX) else domain)
-        return subdomain.endswith(domain_suffix)
+        if domain.startswith(self.WILDCARD_PREFIX):
+            domain = domain[len(self.WILDCARD_PREFIX):]
+        return subdomain == domain
 
     @property
     def acm(self):
