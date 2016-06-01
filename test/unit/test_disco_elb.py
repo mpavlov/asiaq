@@ -15,8 +15,7 @@ TEST_CERTIFICATE_ARN_IAM = "arn:aws:acm::123:blah"
 def _get_vpc_mock():
     vpc_mock = MagicMock()
     vpc_mock.environment_name = TEST_ENV_NAME
-    vpc_mock.vpc = MagicMock()
-    vpc_mock.vpc.id = TEST_VPC_ID
+    vpc_mock.get_vpc_id.return_value = TEST_VPC_ID
     return vpc_mock
 
 
