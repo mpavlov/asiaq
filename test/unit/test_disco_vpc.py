@@ -27,11 +27,13 @@ class DiscoVPCTests(unittest.TestCase):
         IPSet(subnet)
         self.assertIsNone(subnet)
 
+    # pylint: disable=unused-argument
     @patch('disco_aws_automation.disco_vpc.DiscoVPC.config', new_callable=PropertyMock)
-    def test_create_meta_networks(self, config_mock):
+    @patch('disco_aws_automation.disco_vpc.DiscoMetaNetwork')
+    def test_create_meta_networks(self, meta_network_mock, config_mock):
         """Test creating meta networks with dynamic ip ranges"""
-        vpc_mock = MagicMock()
-        vpc_mock.cidr_block = '10.0.0.0/28'
+        vpc_mock = {'CidrBlock': '10.0.0.0/28',
+                    'VpcId': 'mock_vpc_id'}
 
         config_mock.return_value = get_mock_config({
             'envtype:auto-vpc-type': {
@@ -42,6 +44,16 @@ class DiscoVPCTests(unittest.TestCase):
                 'maintenance_cidr': 'auto'
             }
         })
+
+        def _create_meta_network_mock(network_name, vpc, cidr):
+            ret = MagicMock()
+            ret.name = network_name
+            ret.vpc = vpc
+            ret.network_cidr = cidr
+
+            return ret
+
+        meta_network_mock.side_effect = _create_meta_network_mock
 
         auto_vpc = DiscoVPC('auto-vpc', 'auto-vpc-type', vpc_mock)
 
@@ -54,10 +66,11 @@ class DiscoVPCTests(unittest.TestCase):
         self.assertItemsEqual(actual_ip_ranges, expected_ip_ranges)
 
     @patch('disco_aws_automation.disco_vpc.DiscoVPC.config', new_callable=PropertyMock)
-    def test_create_meta_networks_static_dynamic(self, config_mock):
+    @patch('disco_aws_automation.disco_vpc.DiscoMetaNetwork')
+    def test_create_meta_networks_static_dynamic(self, meta_network_mock, config_mock):
         """Test creating meta networks with a mix of static and dynamic ip ranges"""
-        vpc_mock = MagicMock()
-        vpc_mock.cidr_block = '10.0.0.0/28'
+        vpc_mock = {'CidrBlock': '10.0.0.0/28',
+                    'VpcId': 'mock_vpc_id'}
 
         config_mock.return_value = get_mock_config({
             'envtype:auto-vpc-type': {
@@ -68,6 +81,16 @@ class DiscoVPCTests(unittest.TestCase):
                 'maintenance_cidr': 'auto'
             }
         })
+
+        def _create_meta_network_mock(network_name, vpc, cidr):
+            ret = MagicMock()
+            ret.name = network_name
+            ret.vpc = vpc
+            ret.network_cidr = cidr
+
+            return ret
+
+        meta_network_mock.side_effect = _create_meta_network_mock
 
         auto_vpc = DiscoVPC('auto-vpc', 'auto-vpc-type', vpc_mock)
 
@@ -81,15 +104,15 @@ class DiscoVPCTests(unittest.TestCase):
 
     # pylint: disable=unused-argument
     @patch('disco_aws_automation.disco_vpc.DiscoSNS')
+    @patch('disco_aws_automation.disco_vpc.DiscoVPCGateways')
     @patch('time.sleep')
-    @patch('disco_aws_automation.disco_vpc.DiscoVPC._wait_for_vgw_states')
     @patch('disco_aws_automation.disco_vpc.DiscoVPC.config', new_callable=PropertyMock)
     @patch('boto3.client')
     @patch('boto3.resource')
     @patch('disco_aws_automation.disco_vpc.DiscoMetaNetwork')
     def test_create_auto_vpc(self, meta_network_mock, boto3_resource_mock,
-                             boto3_client_mock, config_mock, _wait_vgw_states_mock,
-                             sleep_mock, sns_mock):
+                             boto3_client_mock, config_mock,
+                             sleep_mock, gateways_mock, sns_mock):
         """Test creating a VPC with a dynamic ip range"""
         # FIXME This needs to mock way too many things. DiscoVPC needs to be refactored
 
@@ -107,16 +130,16 @@ class DiscoVPCTests(unittest.TestCase):
 
         # pylint: disable=C0103
         def _create_vpc_mock(CidrBlock):
-            vpc = MagicMock()
-            vpc.cidr_block = CidrBlock
-            return vpc
+            return {'Vpc': {'CidrBlock': CidrBlock,
+                            'VpcId': 'mock_vpc_id'}}
 
         client_mock = MagicMock()
         client_mock.create_vpc.side_effect = _create_vpc_mock
         client_mock.get_all_zones.return_value = [MagicMock()]
+        client_mock.describe_dhcp_options.return_value = {'DhcpOptions': [MagicMock()]}
         boto3_client_mock.return_value = client_mock
 
         auto_vpc = DiscoVPC('auto-vpc', 'auto-vpc-type')
 
         possible_vpcs = ['10.0.0.0/26', '10.0.0.64/26', '10.0.0.128/26', '10.0.0.192/26']
-        self.assertIn(str(auto_vpc.vpc.cidr_block), possible_vpcs)
+        self.assertIn(str(auto_vpc.vpc['CidrBlock']), possible_vpcs)

@@ -95,7 +95,7 @@ class DiscoSubnet(object):
                 # If there is an association between this subnet and the old route table
                 # copy the routes to the new route table and disassociate the old one
                 for route in self.route_table['Routes']:
-                    if not route.get('GatewayId') or route.get['GatewayId'] != 'local':
+                    if not route.get('GatewayId') or route['GatewayId'] != 'local':
                         self._add_route(route_table_id=new_route_table['RouteTableId'],
                                         destination_cidr_block=route['DestinationCidrBlock'],
                                         gateway_id=route.get('GatewayId'),

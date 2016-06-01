@@ -50,8 +50,7 @@ def _get_metanetwork_mock():
     ret.name = MOCK_VPC_NAME
     ret.vpc = MagicMock()
     ret.vpc.environment_name = TEST_ENV_NAME
-    ret.vpc.vpc = MagicMock()
-    ret.vpc.vpc.id = MOCK_VPC_ID
+    ret.vpc.vpc = {'VpcId': MOCK_VPC_ID}
     return ret
 
 
@@ -73,6 +72,10 @@ def _get_ec2_conn_mock(test_disco_subnet):
     def _mock_create_nat_gateway(*_, **__):
         test_disco_subnet.nat_gateway = copy.deepcopy(MOCK_NAT_GATEWAY)
         return {'NatGateway': MOCK_NAT_GATEWAY}
+
+    def _mock_delete_nat_gateway(*_, **__):
+        test_disco_subnet.nat_gateway = None
+        return {'NatGatewayId': MOCK_NAT_GATEWAY['NatGatewayId']}
 
     def _mock_describe_subnets(*_, **__):
         if test_disco_subnet.existing_subnet:
@@ -117,6 +120,7 @@ def _get_ec2_conn_mock(test_disco_subnet):
     ret.describe_route_tables.side_effect = _mock_describe_route_tables
     ret.describe_nat_gateways.side_effect = _mock_describe_nat_gateways
     ret.create_nat_gateway.side_effect = _mock_create_nat_gateway
+    ret.delete_nat_gateway.side_effect = _mock_delete_nat_gateway
     ret.describe_subnets.side_effect = _mock_describe_subnets
     ret.create_subnet.side_effect = _mock_create_subnet
 
@@ -148,8 +152,8 @@ class DiscoSubnetTests(TestCase):
         self.mock_ec2_conn.describe_route_tables.assert_called_once_with(
             RouteTableIds=[MOCK_ROUTE_TABLE_ID])
         self.mock_ec2_conn.describe_subnets.assert_called_once_with(
-            Filters=[{'Values': [MOCK_VPC_ID], 'Name': 'vpc-id'},
-                     {'Values': [MOCK_VPC_NAME], 'Name': 'tag:meta_network'},
+            Filters=[{'Values': [MOCK_VPC_NAME], 'Name': 'tag:meta_network'},
+                     {'Values': [MOCK_VPC_ID], 'Name': 'vpc-id'},
                      {'Values': [MOCK_SUBNET_NAME], 'Name': 'availabilityZone'}])
 
         self.mock_ec2_conn.create_tags.assert_called_once_with(Resources=[MOCK_SUBNET_ID],
@@ -191,15 +195,15 @@ class DiscoSubnetTests(TestCase):
 
         self.assertEqual(self.subnet.subnet_dict, MOCK_SUBNET)
         self.mock_ec2_conn.describe_subnets.assert_called_once_with(
-            Filters=[{'Values': [MOCK_VPC_ID], 'Name': 'vpc-id'},
-                     {'Values': [MOCK_VPC_NAME], 'Name': 'tag:meta_network'},
+            Filters=[{'Values': [MOCK_VPC_NAME], 'Name': 'tag:meta_network'},
+                     {'Values': [MOCK_VPC_ID], 'Name': 'vpc-id'},
                      {'Values': [MOCK_SUBNET_NAME], 'Name': 'availabilityZone'}])
         self.mock_ec2_conn.create_subnet.assert_not_called()
 
         self.assertEqual(self.subnet.route_table, MOCK_ROUTE_TABLE)
         self.mock_ec2_conn.describe_route_tables.assert_called_once_with(
-            Filters=[{'Values': [MOCK_VPC_ID], 'Name': 'vpc-id'},
-                     {'Values': [MOCK_VPC_NAME], 'Name': 'tag:meta_network'},
+            Filters=[{'Values': [MOCK_VPC_NAME], 'Name': 'tag:meta_network'},
+                     {'Values': [MOCK_VPC_ID], 'Name': 'vpc-id'},
                      {'Values': [MOCK_SUBNET_NAME], 'Name': 'tag:subnet'}])
         self.mock_ec2_conn.create_route_table.assert_not_called()
 
@@ -213,7 +217,8 @@ class DiscoSubnetTests(TestCase):
         self.assertEqual(self.subnet.nat_eip_allocation_id, MOCK_ALLOCATION_ID)
         self.assertEqual(self.subnet.nat_gateway, MOCK_NAT_GATEWAY)
         self.mock_ec2_conn.describe_nat_gateways.assert_called_once_with(
-            Filters=[{'Values': [MOCK_SUBNET['SubnetId']], 'Name': 'subnet-id'},
+            Filters=[{'Values': ['available', 'pending'], 'Name': 'state'},
+                     {'Values': [MOCK_SUBNET['SubnetId']], 'Name': 'subnet-id'},
                      {'Values': [MOCK_VPC_ID], 'Name': 'vpc-id'}])
         self.mock_ec2_conn.create_nat_gateway.assert_not_called()
 

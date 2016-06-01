@@ -24,7 +24,7 @@ MOCK_ROUTE_TABLE.id = "route_table_id"
 
 def _get_vpc_mock():
     ret = MagicMock()
-    ret.vpc_filter.return_value = {"Name": "vpc-id", "Values": [MOCK_ROUCE_FILTER["vpc-id"]]}
+    ret.vpc_filters.return_value = [{"Name": "vpc-id", "Values": [MOCK_ROUCE_FILTER["vpc-id"]]}]
     ret.get_vpc_id.return_value = MOCK_ROUCE_FILTER["vpc-id"]
 
     return ret
@@ -113,7 +113,7 @@ class DiscoMetaNetworkTests(TestCase):
         mock_gateway_id = 'mock_gateway_id'
         mock_cidr = '10.101.0.0/16'
 
-        self.meta_network.add_route(mock_cidr, mock_gateway_id)
+        self.meta_network.add_gateway_routes([(mock_cidr, mock_gateway_id)])
 
         self.mock_vpc_conn.create_route.\
             assert_called_once_with(destination_cidr_block=mock_cidr,
@@ -131,7 +131,7 @@ class DiscoMetaNetworkTests(TestCase):
         mock_gateway_id = 'mock_gateway_id'
         mock_cidr = '10.101.0.0/16'
 
-        self.meta_network.add_route(mock_cidr, mock_gateway_id)
+        self.meta_network.add_gateway_routes([(mock_cidr, mock_gateway_id)])
 
         add_route_calls = []
         for _ in range(len(MOCK_ZONES)):
@@ -144,22 +144,20 @@ class DiscoMetaNetworkTests(TestCase):
         """ Verify peering is created when a centralized route table is used """
         self.meta_network.create()
 
-        mock_peering_conn = MagicMock()
-        mock_peering_conn.id = 'peering_conn_id'
+        mock_peering_conn_id = 'peering_conn_id'
         mock_cidr = '10.101.0.0/16'
 
-        self.meta_network.create_peering_route(mock_peering_conn, mock_cidr)
+        self.meta_network.create_peering_route(mock_peering_conn_id, mock_cidr)
 
         self.mock_vpc_conn.create_route.\
             assert_called_once_with(destination_cidr_block=mock_cidr,
                                     route_table_id=MOCK_ROUTE_TABLE.id,
-                                    vpc_peering_connection_id=mock_peering_conn.id)
+                                    vpc_peering_connection_id=mock_peering_conn_id)
 
     @patch('disco_aws_automation.disco_subnet.DiscoSubnet.__init__', return_value=None)
     def test_create_peering__with_existing_route(self, mock_subnet_init):
         """ Verify peering replacement is properly done """
-        mock_peering_conn = MagicMock()
-        mock_peering_conn.id = 'peering_conn_id'
+        mock_peering_conn_id = 'peering_conn_id'
         mock_cidr = '10.101.0.0/16'
 
         mock_route = MagicMock()
@@ -171,12 +169,12 @@ class DiscoMetaNetworkTests(TestCase):
         self.mock_vpc_conn.get_all_route_tables.return_value = [mock_route_table]
         self.meta_network.create()
 
-        self.meta_network.create_peering_route(mock_peering_conn, mock_cidr)
+        self.meta_network.create_peering_route(mock_peering_conn_id, mock_cidr)
 
         self.mock_vpc_conn.replace_route.\
             assert_called_once_with(destination_cidr_block=mock_cidr,
                                     route_table_id=MOCK_ROUTE_TABLE.id,
-                                    vpc_peering_connection_id=mock_peering_conn.id)
+                                    vpc_peering_connection_id=mock_peering_conn_id)
 
     @patch('disco_aws_automation.disco_subnet.DiscoSubnet.__init__', return_value=None)
     @patch('disco_aws_automation.disco_subnet.DiscoSubnet.create_peering_routes', return_value=None)
@@ -186,14 +184,13 @@ class DiscoMetaNetworkTests(TestCase):
         self.mock_vpc_conn.get_all_route_tables.return_value = []
         self.meta_network.create()
 
-        mock_peering_conn = MagicMock()
-        mock_peering_conn.id = 'peering_conn_id'
+        mock_peering_conn_id = 'peering_conn_id'
         mock_cidr = '10.101.0.0/16'
 
-        self.meta_network.create_peering_route(mock_peering_conn, mock_cidr)
+        self.meta_network.create_peering_route(mock_peering_conn_id, mock_cidr)
 
         create_peering_routes_calls = []
         for _ in range(len(MOCK_ZONES)):
-            create_peering_routes_calls.append(call(mock_peering_conn.id, mock_cidr))
+            create_peering_routes_calls.append(call(mock_peering_conn_id, mock_cidr))
 
         mock_create_peering_routes.assert_has_calls(create_peering_routes_calls)
