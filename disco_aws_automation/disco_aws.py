@@ -314,7 +314,7 @@ class DiscoAWS(object):
             )
 
         if update_autoscaling:
-            self.autoscale.update_elb(hostclass, [elb['LoadBalancerName']] if elb else [])
+            self.autoscale.update_elb([elb['LoadBalancerName']] if elb else [], hostclass=hostclass)
 
         return elb
 
