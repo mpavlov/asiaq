@@ -34,7 +34,7 @@ class DiscoACM(object):
         # sanity check left-most label
         name, subdomain = dns_name.split('.', 1)
         if not name or name == '*':
-            logging.error('Left-most label "{}" of "{}" is invalid'.format(name, dns_name))
+            logging.error('Left-most label "%s" of "%s" is invalid', name, dns_name)
             return False
 
         # exact match
