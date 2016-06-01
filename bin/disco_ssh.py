@@ -13,6 +13,7 @@ Options:
      -h --help              Show this screen
      --debug                Log in debug level
      --env ENV              Environment to operate in
+     --first                In case of multiple matching instances, connect to the first instead of failing
 """
 
 import logging
@@ -39,6 +40,7 @@ class DiscoSSH(object):
         self.args = args
         self.config = read_config()
         self.env = self.args["--env"] or self.config.get("disco_aws", "default_environment")
+        self.pick_instance = self.args['--first']
         configure_logging(args["--debug"])
 
     def is_ip(self, string):
@@ -75,6 +77,9 @@ class DiscoSSH(object):
             return matched_instances[0]
         else:
             names = [i.tags.get("hostname") or i.id for i in matched_instances]
+            if self.pick_instance:
+                logging.info("Matched instances %s: connecting to %s", ", ".join(names), names[0])
+                return matched_instances[0]
             raise EasyExit("Too many instances matched: %s" % ", ".join(names))
 
     def is_reachable(self, ip_address):
