@@ -31,14 +31,17 @@ class DiscoACM(object):
         if not (domain and dns_name):
             return False
 
+        # sanity check left-most label
+        name, subdomain = dns_name.split('.', 1)
+        if not name or name == '*':
+            logging.error('Left-most label "{}" of "{}" is invalid'.format(name, dns_name))
+            return False
+
+        # exact match
         if dns_name == domain:
             return True
 
         # handle wildcard cert domains
-        name, subdomain = dns_name.split('.', 1)
-        if not name:
-            return False
-
         if domain.startswith(self.WILDCARD_PREFIX):
             domain = domain[len(self.WILDCARD_PREFIX):]
         return subdomain == domain

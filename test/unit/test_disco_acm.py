@@ -49,6 +49,15 @@ class DiscoACMTests(TestCase):
                          self.disco_acm.get_certificate_arn(TEST_DOMAIN_NAME),
                          'Exact matching of host domain name to cert domain needs to be fixed.')
 
+    def test_get_certificate_arn_bad_left_label(self):
+        """
+        host name starting with *. is invalid and should not return a cert match
+        e.g. *.b.c does not match a.b.c or *.b.c
+        """
+        self._acm.list_certificates.return_value = {CERT_SUMMARY_LIST_KEY: [TEST_CERT, TEST_WILDCARD_CERT]}
+        self.assertFalse(self.disco_acm.get_certificate_arn(TEST_WILDCARD_DOMAIN_NAME),
+                         'An FQDN with an invalid left-most label should not match.')
+
     def test_get_certificate_arn_empty(self):
         """
         empty string should not should NOT return a cert
