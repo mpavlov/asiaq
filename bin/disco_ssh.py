@@ -67,19 +67,25 @@ class DiscoSSH(object):
         Matches on hostname or hostclass substring.
         Raises ValueError if more than one match.
         """
-        matched_instances = [
-            i for i in self.instances()
-            if (host_string in i.tags.get("hostclass", "") or
-                host_string in i.tags.get("hostname", ""))]
+        matched_instances = []
+        names = []
+        hostclasses = set()
+        for i in self.instances():
+            if (host_string in i.tags.get("hostclass", "") or host_string in i.tags.get("hostname", "")):
+                matched_instances.append(i)
+                names.append(i.tags.get("hostname") or i.id)
+                hostclasses.add(i.tags.get("hostclass", "MISSING_HOSTCLASS"))
+
         if not matched_instances:
             return None
         elif len(matched_instances) == 1:
             return matched_instances[0]
+        elif self.pick_instance:
+            if len(hostclasses) != 1:
+                raise EasyExit("Matched instances from multiple hostclasses: %s" % ", ".join(hostclasses))
+            logging.info("Matched instances %s: connecting to %s", ", ".join(names), names[0])
+            return matched_instances[0]
         else:
-            names = [i.tags.get("hostname") or i.id for i in matched_instances]
-            if self.pick_instance:
-                logging.info("Matched instances %s: connecting to %s", ", ".join(names), names[0])
-                return matched_instances[0]
             raise EasyExit("Too many instances matched: %s" % ", ".join(names))
 
     def is_reachable(self, ip_address):
