@@ -255,7 +255,8 @@ class DiscoVPC(object):
         if not ntp_server:
             ntp_server_metanetwork = self.get_config("ntp_server_metanetwork")
             ntp_server_offset = self.get_config("ntp_server_offset")
-            ntp_server = self.networks[ntp_server_metanetwork].ip_by_offset(ntp_server_offset)
+            ntp_server = str(
+                self.networks[ntp_server_metanetwork].ip_by_offset(ntp_server_offset))
 
         # internal_dns server should be default, and for this reason it comes last.
         dhcp_configs = []
@@ -309,10 +310,6 @@ class DiscoVPC(object):
         logging.debug("vpc: %s", self.vpc)
         logging.debug("vpc tags: %s", tags)
 
-        dhcp_options = self._configure_dhcp()
-        self.boto3_ec2.associate_dhcp_options(DhcpOptionsId=dhcp_options['DhcpOptionsId'],
-                                              VpcId=self.vpc['VpcId'])
-
         # Enable DNS
         self.boto3_ec2.modify_vpc_attribute(
             VpcId=self.vpc['VpcId'], EnableDnsSupport={'Value': True})
@@ -321,6 +318,10 @@ class DiscoVPC(object):
 
         # Create metanetworks (subnets, route_tables and security groups)
         self._networks = self._create_new_meta_networks()
+
+        dhcp_options = self._configure_dhcp()
+        self.boto3_ec2.associate_dhcp_options(DhcpOptionsId=dhcp_options['DhcpOptionsId'],
+                                              VpcId=self.vpc['VpcId'])
 
         # Configure security group rules for all meta networks
         self.disco_vpc_sg_rules.update_meta_network_sg_rules()
