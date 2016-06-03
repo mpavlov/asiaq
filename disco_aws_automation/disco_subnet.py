@@ -152,7 +152,7 @@ class DiscoSubnet(object):
                     params['VpcPeeringConnectionId'])
                 self.boto3_ec2.replace_route(**params)
 
-            self._route_table = self._find_route_table()
+            self._refresh_route_table()
 
     def delete_route(self, destination_cidr_block):
         """ Delete the route to the destination CIDR block from the route table """
@@ -161,7 +161,7 @@ class DiscoSubnet(object):
             'DestinationCidrBlock': destination_cidr_block
         }
         self.boto3_ec2.delete_route(**delete_params)
-        self._route_table = self._find_route_table()
+        self._refresh_route_table()
 
     def add_route_to_gateway(self, destination_cidr_block, gateway_id):
         """ Try adding a route to a gateway, if fails delete matching CIDR route and try again """
@@ -196,7 +196,7 @@ class DiscoSubnet(object):
         result = self.boto3_ec2.create_route(**params)['Return']
 
         if result:
-            self._route_table = self._find_route_table()
+            self._refresh_route_table()
             return result
 
         logging.info("Failed to create route due to conflict. Deleting old route and re-trying.")
@@ -208,7 +208,7 @@ class DiscoSubnet(object):
 
         logging.error("Re-creating route.")
         result = self.boto3_ec2.create_route(**params)['Return']
-        self._route_table = self._find_route_table()
+        self._refresh_route_table()
         return result
 
     def replace_route_to_gateway(self, destination_cidr_block, gateway_id):
@@ -342,3 +342,6 @@ class DiscoSubnet(object):
                      {'Key': 'subnet', 'Value': self.name}]
         }
         keep_trying(300, self.boto3_ec2.create_tags, **tag_params)
+
+    def _refresh_route_table(self):
+        self._route_table = self._find_route_table()
