@@ -36,11 +36,10 @@ class DiscoVPCGateways(object):
             route_tuples = self._get_gateway_route_tuples(network.name, internet_gateway, vpn_gateway)
             network.update_gateways_and_routes(route_tuples, dry_run)
 
-    def destroy_all(self):
-        """ Destroy all Internet, VPN, and NAT gateways in a VPC """
+    def destroy_igw_and_detach_vgws(self):
+        """ Destroy Internet gateways and detach VPN gateways in a VPC """
         self._destroy_igws()
         self._detach_vgws()
-        self._destroy_nat_gateways()
 
     def _get_gateway_route_tuples(self, network_name, internet_gateway, vpn_gateway):
         route_tuples = []
@@ -258,7 +257,7 @@ class DiscoVPCGateways(object):
 
         return result
 
-    def _destroy_nat_gateways(self):
+    def destroy_nat_gateways(self):
         """ Find all NAT gateways belonging to a vpc and destroy them"""
         filter_params = {'Filters': create_filters({'vpc-id': [self.disco_vpc.vpc['VpcId']]})}
 

@@ -391,10 +391,10 @@ class DiscoVPC(object):
         self._destroy_rds()
         self.elasticache.delete_all_cache_clusters(wait=True)
         self.elasticache.delete_all_subnet_groups()
-        self._destroy_interfaces()
-
         self.disco_vpc_sg_rules.destroy()
-        self.disco_vpc_gateways.destroy_all()
+        self.disco_vpc_gateways.destroy_nat_gateways()
+        self._destroy_interfaces()
+        self.disco_vpc_gateways.destroy_igw_and_detach_vgws()
         DiscoVPCPeerings.delete_peerings(self.get_vpc_id())
         self._destroy_subnets()
         self._destroy_routes()
