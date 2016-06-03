@@ -13,6 +13,7 @@ Options:
      -h --help              Show this screen
      --debug                Log in debug level
      --env ENV              Environment to operate in
+     --first                In case of multiple matching instances, connect to the first instead of failing
 """
 
 import logging
@@ -39,6 +40,7 @@ class DiscoSSH(object):
         self.args = args
         self.config = read_config()
         self.env = self.args["--env"] or self.config.get("disco_aws", "default_environment")
+        self.pick_instance = self.args['--first']
         configure_logging(args["--debug"])
 
     def is_ip(self, string):
@@ -65,16 +67,25 @@ class DiscoSSH(object):
         Matches on hostname or hostclass substring.
         Raises ValueError if more than one match.
         """
-        matched_instances = [
-            i for i in self.instances()
-            if (host_string in i.tags.get("hostclass", "") or
-                host_string in i.tags.get("hostname", ""))]
+        matched_instances = []
+        names = []
+        hostclasses = set()
+        for i in self.instances():
+            if host_string in i.tags.get("hostclass", "") or host_string in i.tags.get("hostname", ""):
+                matched_instances.append(i)
+                names.append(i.tags.get("hostname") or i.id)
+                hostclasses.add(i.tags.get("hostclass", "MISSING_HOSTCLASS"))
+
         if not matched_instances:
             return None
         elif len(matched_instances) == 1:
             return matched_instances[0]
+        elif self.pick_instance:
+            if len(hostclasses) != 1:
+                raise EasyExit("Matched instances from multiple hostclasses: %s" % ", ".join(hostclasses))
+            logging.info("Matched instances %s: connecting to %s", ", ".join(names), names[0])
+            return matched_instances[0]
         else:
-            names = [i.tags.get("hostname") or i.id for i in matched_instances]
             raise EasyExit("Too many instances matched: %s" % ", ".join(names))
 
     def is_reachable(self, ip_address):
