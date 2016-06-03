@@ -211,6 +211,15 @@ class DiscoSubnet(object):
         self._route_table = self._find_route_table()
         return result
 
+    def replace_route_to_gateway(self, destination_cidr_block, gateway_id):
+        """ Replace an existing route """
+        params = {
+            'RouteTableId': self.route_table['RouteTableId'],
+            'DestinationCidrBlock': destination_cidr_block,
+            'GatewayId': gateway_id
+        }
+        self.boto3_ec2.replace_route(**params)
+
     def _find_subnet(self):
         filters = self._resource_filter
         filters['Filters'].extend(create_filters({'availabilityZone': [self.name]}))

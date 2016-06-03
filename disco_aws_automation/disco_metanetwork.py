@@ -321,14 +321,15 @@ class DiscoMetaNetwork(object):
         current_sg_rules = set(current_sg_rules)
         desired_sg_rules = set(desired_sg_rules) if desired_sg_rules else set()
 
-        logging.info("Adding new security group rules %s",
-                     list(desired_sg_rules - current_sg_rules))
-        logging.info("Revoking security group rules %s",
-                     list(current_sg_rules - desired_sg_rules))
+        sg_rules_to_add = list(desired_sg_rules - current_sg_rules)
+        sg_rules_to_delete = list(current_sg_rules - desired_sg_rules)
+
+        logging.info("Adding new security group rules %s", sg_rules_to_add)
+        logging.info("Revoking security group rules %s", sg_rules_to_delete)
 
         if not dry_run:
-            self._add_sg_rules(list(desired_sg_rules - current_sg_rules))
-            self._revoke_sg_rules(list(current_sg_rules - desired_sg_rules))
+            self._add_sg_rules(sg_rules_to_add)
+            self._revoke_sg_rules(sg_rules_to_delete)
 
     def _revoke_sg_rules(self, rule_tuples):
         """ Revoke the list of security group rules from the current meta network """
@@ -415,15 +416,29 @@ class DiscoMetaNetwork(object):
                     current_route_tuples.add(
                         (route['DestinationCidrBlock'], route['GatewayId']))
 
-        routes_to_delete = list(current_route_tuples - desired_route_tuples)
-        routes_to_add = list(desired_route_tuples - current_route_tuples)
+        current_cidrs = set([route_tuple[0] for route_tuple in current_route_tuples])
+        desired_cidrs = set([route_tuple[0] for route_tuple in desired_route_tuples])
+        common_cidrs = current_cidrs & desired_cidrs
+
+        routes_to_replace = set([(common_cidr, route_tuple[1])
+                                 for common_cidr in common_cidrs
+                                 for route_tuple in desired_route_tuples
+                                 if common_cidr == route_tuple[0]])
+        routes_to_be_replaced = set([(common_cidr, route_tuple[1])
+                                     for common_cidr in common_cidrs
+                                     for route_tuple in current_route_tuples
+                                     if common_cidr == route_tuple[0]])
+        routes_to_delete = current_route_tuples - desired_route_tuples - routes_to_be_replaced
+        routes_to_add = desired_route_tuples - current_route_tuples - routes_to_replace
 
         logging.info("Routes to delete: %s", routes_to_delete)
+        logging.info("Routes to replace existing ones: %s", routes_to_replace)
+        logging.info("Existing routes to be replaced: %s", routes_to_be_replaced)
         logging.info("Routes to add: %s", routes_to_add)
 
         if not dry_run:
-            # TODO: Use client.replace_route to avoid downtime
             self._delete_gateway_routes([route[0] for route in routes_to_delete])
+            self._replace_gateway_routes(routes_to_replace)
             self.add_gateway_routes(routes_to_add)
 
     def _add_gateway_route(self, destination_cidr_block, gateway_id):
@@ -456,6 +471,24 @@ class DiscoMetaNetwork(object):
                                                                  disco_subnet.name,
                                                                  destination_cidr_block,
                                                                  gateway_id))
+
+    def _replace_gateway_routes(self, route_tuples):
+        for route_tuple in route_tuples:
+            if self.centralized_route_table:
+                self._connection.replace_route(
+                    route_table_id=self.centralized_route_table.id,
+                    destination_cidr_block=route_tuple[0],
+                    gateway_id=route_tuple[1]
+                )
+            else:
+                # No centralized route table here, so replace the route in each disco_subnet
+                for disco_subnet in self.disco_subnets.values():
+                    if not disco_subnet.replace_route_to_gateway(route_tuple[0], route_tuple[1]):
+                        raise RuntimeError("Failed to replace a route for metanetwork-subnet {0}-{1}:"
+                                           "{2} -> {3}".format(self.name,
+                                                               disco_subnet.name,
+                                                               route_tuple[0],
+                                                               route_tuple[1]))
 
     def add_nat_gateway_route(self, dest_metanetwork):
         """ Add a default route in each of the subnet's route table to the corresponding NAT gateway

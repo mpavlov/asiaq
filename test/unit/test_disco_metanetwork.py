@@ -9,7 +9,7 @@ from disco_aws_automation.exceptions import EIPConfigError
 from test.helpers.patch_disco_aws import TEST_ENV_NAME
 
 
-MOCK_ROUCE_FILTER = {"vpc-id": "mock_vpc_id",
+MOCK_ROUTE_FILTER = {"vpc-id": "mock_vpc_id",
                      "tag:meta_network": TEST_ENV_NAME}
 MOCK_ZONE1 = MagicMock()
 MOCK_ZONE1.name = "aws-zone1"
@@ -24,8 +24,8 @@ MOCK_ROUTE_TABLE.id = "route_table_id"
 
 def _get_vpc_mock():
     ret = MagicMock()
-    ret.vpc_filters.return_value = [{"Name": "vpc-id", "Values": [MOCK_ROUCE_FILTER["vpc-id"]]}]
-    ret.get_vpc_id.return_value = MOCK_ROUCE_FILTER["vpc-id"]
+    ret.vpc_filters.return_value = [{"Name": "vpc-id", "Values": [MOCK_ROUTE_FILTER["vpc-id"]]}]
+    ret.get_vpc_id.return_value = MOCK_ROUTE_FILTER["vpc-id"]
 
     return ret
 
@@ -33,7 +33,20 @@ def _get_vpc_mock():
 def _get_vpc_conn_mock():
     ret = MagicMock()
     ret.get_all_zones.return_value = MOCK_ZONES
-    ret.get_all_security_groups.return_value = [MagicMock()]
+
+    security_group = MagicMock()
+    grant = MagicMock()
+    grant.group_id = None
+    grant.cidr_ip = '12.23.34.45/23'
+    rule = MagicMock()
+    rule.ip_protocol = 'udp'
+    rule.from_port = 43
+    rule.to_port = 21
+    rule.grants = [grant]
+    security_group.rules = [rule]
+    security_group.id = 'sg_id'
+
+    ret.get_all_security_groups.return_value = [security_group]
     ret.get_all_route_tables.return_value = [MOCK_ROUTE_TABLE]
     return ret
 
@@ -56,9 +69,9 @@ class DiscoMetaNetworkTests(TestCase):
         self.meta_network.create()
 
         self.mock_vpc_conn.\
-            get_all_route_tables.assert_called_once_with(filters=MOCK_ROUCE_FILTER)
+            get_all_route_tables.assert_called_once_with(filters=MOCK_ROUTE_FILTER)
         self.mock_vpc_conn.\
-            get_all_security_groups.assert_called_once_with(filters=MOCK_ROUCE_FILTER)
+            get_all_security_groups.assert_called_once_with(filters=MOCK_ROUTE_FILTER)
 
         self.assertEquals(self.meta_network.centralized_route_table,
                           MOCK_ROUTE_TABLE)
@@ -194,3 +207,51 @@ class DiscoMetaNetworkTests(TestCase):
             create_peering_routes_calls.append(call(mock_peering_conn_id, mock_cidr))
 
         mock_create_peering_routes.assert_has_calls(create_peering_routes_calls)
+
+    @patch('disco_aws_automation.disco_subnet.DiscoSubnet.__init__', return_value=None)
+    def test_update_sg_rules(self, mock_subnet_init):
+        """ Verify updating security group rules """
+        self.meta_network.create()
+
+        self.meta_network.update_sg_rules([('sg_id', 'tcp', 123, 234, 'source_sg_id', None)])
+
+        self.mock_vpc_conn.authorize_security_group.assert_called_once_with(
+            src_security_group_group_id='source_sg_id', to_port=234,
+            from_port=123, group_id='sg_id', ip_protocol='tcp')
+        self.mock_vpc_conn.revoke_security_group.assert_called_once_with(
+            cidr_ip='12.23.34.45/23', from_port=43, group_id='sg_id',
+            ip_protocol='udp', to_port=21)
+
+    @patch('disco_aws_automation.disco_subnet.DiscoSubnet.__init__', return_value=None)
+    def test_update_gateways_and_routes(self, mock_subnet_init):
+        """ Verify gateways and routes are updated correctly """
+        mock_cidr_1 = '23.34.32.12/32'
+        mock_cidr_2 = '65.76.23.23/32'
+        mock_cidr_3 = '6.6.4.23/32'
+        mock_route_1 = MagicMock()
+        mock_route_1.gateway_id = "old_gateway_1_id"
+        mock_route_1.destination_cidr_block = mock_cidr_1
+        mock_route_2 = MagicMock()
+        mock_route_2.gateway_id = "old_gateway_2_id"
+        mock_route_2.destination_cidr_block = mock_cidr_2
+        mock_route_table = MagicMock()
+        mock_route_table.id = "mock_route_table_id"
+        mock_route_table.routes = [mock_route_1, mock_route_2]
+        self.mock_vpc_conn.get_all_route_tables.return_value = [mock_route_table]
+
+        self.meta_network.create()
+
+        self.meta_network.update_gateways_and_routes([
+            (mock_cidr_2, 'new_gateway_1_id'), (mock_cidr_3, 'new_gateway_2_id')])
+
+        self.mock_vpc_conn.delete_route.assert_called_once_with(
+            destination_cidr_block=mock_cidr_1, route_table_id='mock_route_table_id')
+        self.mock_vpc_conn.replace_route.assert_called_once_with(
+            destination_cidr_block=mock_cidr_2,
+            gateway_id='new_gateway_1_id',
+            route_table_id='mock_route_table_id')
+        self.mock_vpc_conn.create_route.assert_called_once_with(
+            destination_cidr_block=mock_cidr_3,
+            gateway_id='new_gateway_2_id',
+            route_table_id='mock_route_table_id'
+        )

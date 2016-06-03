@@ -75,7 +75,7 @@ class DiscoVPCGateways(object):
         vgw = self._find_vgw()
         if vgw:
             logging.debug("Attaching VGW: %s.", vgw)
-            if vgw['VpcAttachments'] and vgw['VpcAttachments'][0]['State'] != 'detached' and \
+            if vgw.get('VpcAttachments') and vgw['VpcAttachments'][0]['State'] != 'detached' and \
                     vgw['VpcAttachments'][0]['VpcId'] != self.disco_vpc.get_vpc_id():
 
                 logging.info("VGW %s already attached to %s. Will detach and reattach to %s.",
@@ -84,9 +84,11 @@ class DiscoVPCGateways(object):
                 self._detach_vgws()
                 logging.debug("Waiting 30s to avoid VGW 'non-existance' conditon post detach.")
                 time.sleep(30)
+
             self.boto3_ec2.attach_vpn_gateway(
                 VpnGatewayId=vgw['VpnGatewayId'], VpcId=self.disco_vpc.get_vpc_id())
             logging.debug("Waiting for VGW to become attached.")
+
             self._wait_for_vgw_states(u'attached')
             logging.debug("VGW have been attached.")
         else:
@@ -107,7 +109,7 @@ class DiscoVPCGateways(object):
 
     def _find_vgw(self):
         """Locate VPN Gateway that corresponds to this VPN"""
-        vgw_filter = create_filters({'tag-value': [self.disco_vpc.environment_name]})
+        vgw_filter = create_filters({'tag:Name': [self.disco_vpc.environment_name]})
         vgws = self.boto3_ec2.describe_vpn_gateways(Filters=vgw_filter)
         if not len(vgws['VpnGateways']):
             logging.debug("Cannot find the required VPN Gateway named %s.", self.disco_vpc.environment_name)
@@ -120,11 +122,12 @@ class DiscoVPCGateways(object):
         states = []
         vgws = self.boto3_ec2.describe_vpn_gateways(Filters=filters)
         for vgw in vgws['VpnGateways']:
-            for attachment in vgw['VpcAttachments']:
-                if state == u'detached':
-                    states.append(attachment['State'] == state)
-                elif attachment['VpcId'] == self.disco_vpc.get_vpc_id():
-                    states.append(attachment['State'] == state)
+            if vgw.get('VpcAttachments'):
+                for attachment in vgw['VpcAttachments']:
+                    if state == u'detached':
+                        states.append(attachment['State'] == state)
+                    elif attachment['VpcId'] == self.disco_vpc.get_vpc_id():
+                        states.append(attachment['State'] == state)
         logging.debug("%s of %s VGW attachments are now in state '%s'",
                       states.count(True), len(states), state)
         return states and all(states)

@@ -1,8 +1,7 @@
 ''' For package documentation, see README '''
 
-from os import getcwd, getenv
+from os import getenv
 from os.path import join, exists
-import sys
 from ConfigParser import ConfigParser
 
 
