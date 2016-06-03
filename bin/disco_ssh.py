@@ -71,7 +71,7 @@ class DiscoSSH(object):
         names = []
         hostclasses = set()
         for i in self.instances():
-            if (host_string in i.tags.get("hostclass", "") or host_string in i.tags.get("hostname", "")):
+            if host_string in i.tags.get("hostclass", "") or host_string in i.tags.get("hostname", ""):
                 matched_instances.append(i)
                 names.append(i.tags.get("hostname") or i.id)
                 hostclasses.add(i.tags.get("hostclass", "MISSING_HOSTCLASS"))
