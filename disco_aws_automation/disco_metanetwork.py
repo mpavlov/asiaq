@@ -424,10 +424,16 @@ class DiscoMetaNetwork(object):
                                  for common_cidr in common_cidrs
                                  for route_tuple in desired_route_tuples
                                  if common_cidr == route_tuple[0]])
+        # Remove the ones that are the same as in the current routes
+        routes_to_replace -= current_route_tuples
+
         routes_to_be_replaced = set([(common_cidr, route_tuple[1])
                                      for common_cidr in common_cidrs
                                      for route_tuple in current_route_tuples
                                      if common_cidr == route_tuple[0]])
+        # Remove the ones that are the same as in the desired routes
+        routes_to_be_replaced -= desired_route_tuples
+
         routes_to_delete = current_route_tuples - desired_route_tuples - routes_to_be_replaced
         routes_to_add = desired_route_tuples - current_route_tuples - routes_to_replace
 
