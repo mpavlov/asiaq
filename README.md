@@ -675,7 +675,7 @@ tool currently supports updating the following resources of an active environmen
 -   Security Group Rules
 -   NAT gateways creation and deletion (note: update to NAT gateway EIPs is not supported yet)  
 -   Routes to Internet, VPN, and NAT gateways
--   VPC Connection Peering
+-   VPC Connection Peering and route creations (note: update and deletion are not supported yet)
 -   Alarm notifications
 
 Updating an environment:
