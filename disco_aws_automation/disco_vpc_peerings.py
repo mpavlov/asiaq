@@ -31,8 +31,8 @@ class DiscoVPCPeerings(object):
         desired_peerings = self.parse_peering_strs_config(self.disco_vpc.environment_name)
         existing_peerings = self._get_existing_peerings()
 
-        logging.debug("Desired VPC peering connections: %s", desired_peerings)
-        logging.debug("Existing VPC peering connections: %s", existing_peerings)
+        logging.info("Desired VPC peering connections: %s", desired_peerings)
+        logging.info("Existing VPC peering connections: %s", existing_peerings)
 
         if existing_peerings > desired_peerings:
             raise RuntimeError("Some existing VPC peering connections are not "
