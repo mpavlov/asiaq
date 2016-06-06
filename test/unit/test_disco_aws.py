@@ -340,9 +340,9 @@ class DiscoAWSTests(TestCase):
 
         aws.elb.delete_elb.assert_not_called()
         aws.elb.get_or_create_elb.assert_called_once_with(
-            'mhcelb', elb_port=80, health_check_url='/foo',
+            'mhcelb', elb_ports=80, health_check_url='/foo',
             hosted_zone_name='example.com', instance_port=80,
-            elb_protocol='HTTP', instance_protocol='HTTP',
+            elb_protocols='HTTP', instance_protocol='HTTP',
             security_groups=['sg-1234abcd'], elb_public=False,
             sticky_app_cookie=None, subnets=['s-1234abcd', 's-1234abcd', 's-1234abcd'],
             connection_draining_timeout=300, idle_timeout=300, testing=False)
