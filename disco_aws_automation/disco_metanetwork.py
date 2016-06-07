@@ -489,12 +489,7 @@ class DiscoMetaNetwork(object):
             else:
                 # No centralized route table here, so replace the route in each disco_subnet
                 for disco_subnet in self.disco_subnets.values():
-                    if not disco_subnet.replace_route_to_gateway(route_tuple[0], route_tuple[1]):
-                        raise RuntimeError("Failed to replace a route for metanetwork-subnet {0}-{1}:"
-                                           "{2} -> {3}".format(self.name,
-                                                               disco_subnet.name,
-                                                               route_tuple[0],
-                                                               route_tuple[1]))
+                    disco_subnet.replace_route_to_gateway(route_tuple[0], route_tuple[1])
 
     def add_nat_gateway_route(self, dest_metanetwork):
         """ Add a default route in each of the subnet's route table to the corresponding NAT gateway

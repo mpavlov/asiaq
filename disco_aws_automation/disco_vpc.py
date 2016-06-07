@@ -388,7 +388,7 @@ class DiscoVPC(object):
         self.disco_vpc_endpoints.update(dry_run=dry_run)
         logging.info("Updating VPC peering connections...")
         self.disco_vpc_peerings.update_peering_connections(dry_run)
-        logging.info("Updating alarms...")
+        logging.info("Updating alarm notifications...")
         self.configure_notifications(dry_run)
 
     def destroy(self):
@@ -474,7 +474,15 @@ class DiscoVPC(object):
         self.boto3_ec2.delete_vpc(VpcId=self.get_vpc_id())
         self.vpc = None
 
-        self.boto3_ec2.delete_dhcp_options(DhcpOptionsId=dhcp_options_id)
+        dhcp_options = self.boto3_ec2.describe_dhcp_options(
+            DhcpOptionsIds=[dhcp_options_id])['DhcpOptions']
+        # If DHCP options didn't get created correctly during VPC creation, what we have here
+        # could be the default DHCP options, which cannot be deleted. We need to check the tag
+        # to make sure we are deleting the one that belongs to the VPC.
+        if len(dhcp_options) > 0:
+            tags = tag2dict(dhcp_options[0]['Tags'])
+            if tags['Name'] == self.environment_name:
+                self.boto3_ec2.delete_dhcp_options(DhcpOptionsId=dhcp_options_id)
 
     @staticmethod
     def find_vpc_id_by_name(vpc_name):
