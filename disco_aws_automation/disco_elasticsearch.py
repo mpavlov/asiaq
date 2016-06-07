@@ -194,7 +194,7 @@ class DiscoElasticsearch(object):
         """
         nat_eips = self._get_nat_eips()
         if nat_eips:
-            allowed_source_ips.append(nat_eips.split(','))
+            allowed_source_ips += nat_eips.split(',')
 
         resource = "arn:aws:es:{region}:{account}:domain/{domain_name}/*".format(region=self.region,
                                                                                  account=self.account_id,
