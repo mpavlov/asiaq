@@ -13,10 +13,6 @@ from test.helpers.patch_disco_aws import get_mock_config
 MOCK_AWS_CONFIG_DEFINITION = {
     "disco_aws": {
         "default_domain_name": "aws.example.com",
-        "http_proxy_hostclass": "mhcproxy"
-    },
-    "mhcproxy": {
-        "eip": "192.0.2.0"
     }
 }
 
@@ -225,7 +221,6 @@ class DiscoElastiSearchTests(TestCase):
         self.assertEquals(domain_config["SnapshotOptions"]["AutomatedSnapshotStartHour"],
                           int(MOCK_ES_CONFIG_DEFINITION[config_section]["snapshot_start_hour"]))
         expected_source_ips = MOCK_ES_CONFIG_DEFINITION[config_section]["allowed_source_ips"].split()
-        expected_source_ips.append(MOCK_AWS_CONFIG_DEFINITION["mhcproxy"]["eip"])
         expected_nat_gateways = MOCK_VPC_CONFIG_DEFINITION['envtype:foo']["tunnel_nat_gateways"].split(',')
         expected_source_ips += expected_nat_gateways
         access_policy = json.loads(domain_config["AccessPolicies"])
