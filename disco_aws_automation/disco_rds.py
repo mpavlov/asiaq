@@ -220,7 +220,7 @@ class DiscoRDS(object):
             logging.debug("Not deleting subnet group '%s': %s", db_subnet_group_name, repr(err))
 
         db_subnet_group_description = 'Subnet Group for VPC {0}'.format(self.vpc_name)
-        subnets = self.vpc.vpc.connection.get_all_subnets(filters=self.vpc.vpc_filter())
+        subnets = self.vpc.vpc.connection.get_all_subnets(filters=self.vpc.vpc_filters()[0])
         subnet_ids = [str(subnet.id) for subnet in subnets if subnet.tags['meta_network'] == 'intranet']
         self.client.create_db_subnet_group(DBSubnetGroupName=db_subnet_group_name,
                                            DBSubnetGroupDescription=db_subnet_group_description,
@@ -297,7 +297,7 @@ class DiscoRDS(object):
         vpc_instances = [
             instance
             for instance in instances
-            if instance["DBSubnetGroup"]["VpcId"] == self.vpc.vpc.id and (
+            if instance["DBSubnetGroup"]["VpcId"] == self.vpc.get_vpc_id() and (
                 not states or instance["DBInstanceStatus"] in states)]
         return vpc_instances
 

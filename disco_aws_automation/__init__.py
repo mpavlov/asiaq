@@ -1,8 +1,7 @@
 ''' For package documentation, see README '''
 
-from os import getcwd, getenv
+from os import getenv
 from os.path import join, exists
-import sys
 from ConfigParser import ConfigParser
 
 
@@ -46,6 +45,7 @@ from .disco_elb import DiscoELB
 from .disco_route53 import DiscoRoute53
 from .disco_elasticache import DiscoElastiCache
 from .disco_vpc import DiscoVPC
+from .disco_vpc_peerings import DiscoVPCPeerings
 from .hostclass_templating import HostclassTemplating
 from .disco_alarm import DiscoAlarm
 from .disco_alarm_config import DiscoAlarmsConfig, DiscoAlarmConfig

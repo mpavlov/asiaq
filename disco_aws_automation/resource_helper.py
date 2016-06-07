@@ -19,6 +19,23 @@ INSTANCE_SSHABLE_POLL_INTERVAL = 15  # seconds
 MAX_POLL_INTERVAL = 60  # seconds
 
 
+def create_filters(filter_dict):
+    """
+    Converts a dict to a list of boto3 filters. The keys and value of the dict represent
+    the Name and Values of a filter, respectively.
+    """
+    filters = []
+    for key in filter_dict.keys():
+        filters.append({'Name': key, 'Values': filter_dict[key]})
+
+    return filters
+
+
+def tag2dict(tags):
+    """ Converts a list of AWS tag dicts to a single dict with corresponding keys and values """
+    return {tag.get('Key'): tag.get('Value') for tag in tags or {}}
+
+
 def handle_date_format(obj):
     """
     Helper function that properly handles date object returned from AWS.
