@@ -129,8 +129,17 @@ def wait_for_state(resource, state, timeout=15 * 60, state_attr='state'):
     time_passed = 0
     while True:
         try:
-            resource.update()
+            try:
+                resource.update()
+            except AttributeError:
+                # boto3 uses reload() to update instance
+                resource.reload()
             current_state = getattr(resource, state_attr)
+            try:
+                # instances in boto3 have state thats a dict...
+                current_state = current_state["Name"]
+            except TypeError:
+                pass
             if current_state == state:
                 return
             elif current_state in (u'failed', u'terminated'):

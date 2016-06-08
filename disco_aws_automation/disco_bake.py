@@ -10,19 +10,21 @@ import getpass
 import re
 import time
 from os import path
+from random import randint
+from copy import deepcopy
 
 import boto
 import boto.ec2
 import boto.exception
+import boto3
 import dateutil.parser
 from pytz import UTC
 
 from . import normalize_path, read_config
 from .resource_helper import wait_for_sshable, keep_trying, wait_for_state
-from .disco_storage import DiscoStorage
 from .disco_remote_exec import DiscoRemoteExec, SSH_DEFAULT_OPTIONS
 from .disco_vpc import DiscoVPC
-from .exceptions import CommandError, AMIError, WrongPathError, EarlyExitException
+from .exceptions import CommandError, AMIError, WrongPathError
 from .disco_constants import DEFAULT_CONFIG_SECTION
 from .disco_aws_util import is_truthy
 
@@ -45,8 +47,6 @@ class DiscoBake(object):
             self._config = read_config()
 
         self.connection = connection or boto.connect_ec2()
-
-        self.disco_storage = DiscoStorage(self.connection)
 
         self._project_name = self._config.get("disco_aws", "project_name")
 
@@ -170,7 +170,12 @@ class DiscoBake(object):
 
         """
 
-        address = instance.private_ip_address if self._use_local_ip else instance.ip_address
+        try:
+            public_address = instance.ip_address
+        except AttributeError:
+            public_address = instance.public_ip_address
+
+        address = instance.private_ip_address if self._use_local_ip else public_address
         if not address:
             raise CommandError("No ip address available for sshing.")
         kwargs["user"] = kwargs.get("user", "root")
@@ -180,24 +185,42 @@ class DiscoBake(object):
         """ True if repo is up"""
         return self.repo_instance()
 
-    def init_phase(self, phase, instance, hostclass):
+    def init_phase(self, phase, instance, hostclass, chroot=None):
         """
         Runs the init script for a particular phase
         (i.e. phase1.sh for base bake and phase2.sh for hostclass specific bake).
         """
         logging.info("Phase %s config", phase)
 
-        wait_for_sshable(self.remotecmd, instance)
-        self.copy_aws_data(instance)
-        self.invoke_host_init(instance, hostclass, "phase{0}.sh".format(phase))
+        data_destination = self.option("data_destination")
+        chrooted_destination = re.sub(
+            r'/+', '/', "{0}/{1}".format(
+                chroot or "",
+                data_destination
+            )
+        )
 
-    def invoke_host_init(self, instance, hostclass, script):
+        self.copy_aws_data(instance, chrooted_destination)
+        self.invoke_host_init(
+            instance,
+            hostclass,
+            "phase{0}.sh".format(phase),
+            data_destination,
+            chroot
+        )
+
+    def invoke_host_init(self, instance, hostclass, script, data_destination, chroot=None):
         """
         Executes an init script that was dropped off by disco_aws_data.
         Hostclass and Hostname are passed in as arguments
         """
         logging.info("Running remote init script %s.", script)
-        script = "{0}/init/{1}".format(self.option("data_destination"), script)
+        script = "{0}{1}/init/{2}".format(
+            "chroot {0} ".format(chroot) if chroot else "",
+            #"systemd-nspawn -D {0} ".format(chroot) if chroot else "",
+            data_destination,
+            script
+        )
 
         repo = self.repo_instance()
         if not repo:
@@ -274,27 +297,35 @@ class DiscoBake(object):
         except:
             raise AMIError("Could not locate image {0}.".format(ami_id))
 
-    def copy_aws_data(self, instance):
+    def copy_aws_data(self, instance, data_destination):
         """
         Copies all the files in this repo to the destination instance.
         """
         logging.info("Copying discoaws data.")
-        config_data_destination = self.option("data_destination")
-        asiaq_data_destination = self.option("data_destination") + "/asiaq"
+        asiaq_data_destination = data_destination + "/asiaq"
         self.remotecmd(instance, ["mkdir", "-p", asiaq_data_destination])
-        self._rsync(instance,
-                    normalize_path(self.option("config_data_source")),
-                    config_data_destination,
-                    user="root")
+        self._rsync(
+            instance,
+            normalize_path(self.option("config_data_source")),
+            data_destination,
+            user="root"
+        )
         # Ensure there is a trailing / for rsync to do the right thing
         asiaq_data_source = re.sub(r'//$', '/', normalize_path(self.option("asiaq_data_source")) + "/")
-        self._rsync(instance,
-                    asiaq_data_source,
-                    asiaq_data_destination,
-                    user="root")
+        self._rsync(
+            instance,
+            asiaq_data_source,
+            asiaq_data_destination,
+            user="root"
+        )
 
     def _rsync(self, instance, *args, **kwargs):
-        address = instance.private_ip_address if self._use_local_ip else instance.ip_address
+        try:
+            public_address = instance.ip_address
+        except AttributeError:
+            public_address = instance.public_ip_address
+
+        address = instance.private_ip_address if self._use_local_ip else public_address
         return self.disco_remote_exec.rsync(address, *args, **kwargs)
 
     def _get_phase1_ami_id(self, hostclass):
@@ -303,25 +334,17 @@ class DiscoBake(object):
             raise AMIError("Couldn't find phase 1 ami.")
         return phase1_ami.id
 
-    def _enable_root_ssh(self, instance):
-        # Pylint wants us to name the exceptions, but we want to ignore all of them
-        # pylint: disable=W0702
-        ssh_args = SSH_DEFAULT_OPTIONS + ["-tt"]
-        try:
-            self.remotecmd(
-                instance,
-                ["sudo", "cp", "/home/ubuntu/.ssh/authorized_keys", "/root/.ssh/authorized_keys"],
-                user="ubuntu", ssh_options=ssh_args)
-        except:
-            logging.debug("Ubuntu specific; enabling of root login during bake failed")
+    def _bake_pre_check(self, hostclass):
+        config_path = normalize_path(self.option("config_data_source") + "/discoroot")
+        if not path.exists(config_path):
+            raise WrongPathError(
+                "Cannot locate data files relative to current working directory: %s"
+                "Ensure that you are baking from root of disco_aws_automation repo." % config_path
+            )
 
-        try:
-            self.remotecmd(
-                instance,
-                ["sudo", "cp", "/home/centos/.ssh/authorized_keys", "/root/.ssh/authorized_keys"],
-                user="centos", ssh_options=ssh_args)
-        except:
-            logging.debug("CentOS >6 specific; enabling of root login during bake failed")
+        if hostclass not in self.option("no_repo_hostclasses").split() and not self.is_repo_ready():
+            raise Exception("A {0} must be running to bake {1}"
+                            .format(self.option("repo_hostclass"), hostclass))
 
     def bake_ami(self, hostclass, no_destroy, source_ami_id=None, stage=None):
         # Pylint thinks this function has too many local variables and too many statements and branches
@@ -335,101 +358,37 @@ class DiscoBake(object):
 
         If no_destroy is True then the instance used to perform baking is not terminated at the end.
         """
-        config_path = normalize_path(self.option("config_data_source") + "/discoroot")
-        if not path.exists(config_path):
-            raise WrongPathError(
-                "Cannot locate data files relative to current working directory: %s"
-                "Ensure that you are baking from root of disco_aws_automation repo." % config_path
-            )
+        self._bake_pre_check(hostclass)
 
         phase = int(self.hc_option(hostclass, "phase")) if hostclass else 1
-
         if phase == 1:
-            base_image_name = hostclass if hostclass else self.option("phase1_ami_name")
+            base_image_name = hostclass or self.option("phase1_ami_name")
             source_ami_id = source_ami_id or self.hc_option(base_image_name, 'bake_ami')
             hostclass = self.option("phase1_hostclass")
-            logging.info("Creating phase 1 AMI named %s based on upstream AMI %s",
-                         base_image_name, source_ami_id)
         else:
             source_ami_id = source_ami_id or self._get_phase1_ami_id(hostclass)
             base_image_name = hostclass
-            logging.info("Creating phase 2 AMI for hostclass %s based on phase 1 AMI %s",
-                         base_image_name, source_ami_id)
+        logging.info(
+            "Creating phase %s AMI named %s based on AMI %s",
+            phase, base_image_name, source_ami_id
+        )
 
-        image_name = "{0} {1}".format(base_image_name, int(time.time()))
+        product_line = self.hc_option_default(hostclass, "product_line", None)
+        chroot_bake = is_truthy(self.hc_option(hostclass, "chroot_bake"))
+        stage = stage or self.ami_stages()[0]
 
-        if hostclass not in self.option("no_repo_hostclasses").split() and not self.is_repo_ready():
-            raise Exception("A {0} must be running to bake {1}"
-                            .format(self.option("repo_hostclass"), hostclass))
+        if chroot_bake:
+            logging.info("Using reusable bakery")
+            bakery = DiscoReusableBakery(self, source_ami_id, hostclass, stage, product_line, not no_destroy)
+        else:
+            logging.info("Using disposable bakery")
+            # Pylint: disable=R0204
+            bakery = DiscoDisposableBakery(self, source_ami_id, hostclass, stage, product_line, not no_destroy)
 
-        interfaces = self.vpc.networks["tunnel"].create_interfaces_specification(public_ip=True)
+        with bakery:
+            self.init_phase(phase, bakery.get_bakery_instance(), hostclass, bakery.work_path)
 
-        image = None
-        # Don't map the snapshot on bake.  Bake scripts shouldn't need the snapshotted volume.
-        reservation = self.connection.run_instances(
-            source_ami_id,
-            block_device_map=self.disco_storage.configure_storage(
-                hostclass, ami_id=source_ami_id, map_snapshot=False),
-            instance_type=self.option("bakery_instance_type"),
-            key_name=self.option("bake_key"),
-            network_interfaces=interfaces)
-        instance = reservation.instances[0]
-        try:
-            keep_trying(10, instance.add_tag, "hostclass", "bake_{0}".format(hostclass))
-        except Exception:
-            logging.exception("Setting hostclass during bake failed. Ignoring error.")
-
-        try:
-            wait_for_sshable(self.remotecmd, instance)
-            self._enable_root_ssh(instance)
-            self.init_phase(phase, instance, hostclass)
-
-            if no_destroy:
-                raise EarlyExitException("--no-destroy specified, skipping shutdown to allow debugging")
-
-            logging.debug("Stopping instance")
-            # We delete the authorized keys so there is no possibility of using the bake key
-            # for root login in production and we shutdown via the shutdown command to make
-            # sure the snapshot is of a clean filesystem that won't trigger fsck on start.
-            # We use nothrow to ignore ssh's 255 exit code on shutdown of centos7
-            self.remotecmd(instance, ["rm -Rf /root/.ssh/authorized_keys ; shutdown now -h"], nothrow=True)
-            wait_for_state(instance, u'stopped', 300)
-            logging.info("Creating snapshot from instance")
-
-            # Check whether or not enhanced networking should be enabled for this hostclass
-            enhanced_networking = self.hc_option_default(hostclass, "enhanced_networking", "false")
-            # This is the easiest way to accomplish this without significantly rewriting things.
-            # This attribute will be copied over the the AMI when it is created, and doesn't appear
-            # to cause any problems.
-            if is_truthy(enhanced_networking):
-                logging.info("Setting enhanced networking attribute")
-                self.connection.modify_instance_attribute(instance.id, "sriovNetSupport", "simple")
-
-            image_id = instance.create_image(image_name, no_reboot=True)
-            image = keep_trying(60, self.connection.get_image, image_id)
-
-            stage = stage or self.ami_stages()[0]
-
-            productline = self.hc_option_default(hostclass, "product_line", None)
-
-            DiscoBake._tag_ami_with_metadata(image, stage, source_ami_id, productline)
-
-            wait_for_state(image, u'available',
-                           int(self.hc_option_default(hostclass, "ami_available_wait_time", "600")))
-            logging.info("Created %s AMI %s", image_name, image_id)
-        except EarlyExitException as early_exit:
-            logging.info(str(early_exit))
-        except:
-            logging.exception("Snap shot failed. See trace below.")
-            raise
-        finally:
-            if not no_destroy:
-                instance.terminate()
-            else:
-                logging.info("Examine instance command: ssh root@%s",
-                             instance.ip_address or instance.private_ip_address)
-
-        return image
+        return bakery.image
 
     @staticmethod
     def _tag_ami_with_metadata(ami, stage, source_ami_id, productline=None):
@@ -697,3 +656,395 @@ class DiscoBake(object):
         branch = check_output(['git', 'rev-parse', '--abbrev-ref', 'HEAD']).strip()
         githash = check_output(['git', 'rev-parse', '--short', 'HEAD']).strip()
         return '%s-%s' % (branch, githash)
+
+
+class DiscoAbstractBakery(object):
+    def __init__(self, disco_bake, source_ami_id, hostclass, stage, product_line, destroy_on_exit=True):
+        self.disco_bake = disco_bake
+        self.source_ami_id = source_ami_id
+        self.hostclass = hostclass
+        self.ec2 = boto3.resource('ec2')
+        self._bakery_instance = None
+        self.work_path = None
+        self.destroy_on_exit = True
+        self.image = None
+        self.stage = stage
+        self.product_line = product_line
+        self.destroy_on_exit = destroy_on_exit
+        self._volume = None
+
+    def get_bakery_instance(self):
+        if not self._bakery_instance:
+            self._bakery_instance = self._get_bakery()
+        return self._bakery_instance
+
+    @property
+    def _image_name(self):
+        return "{0} {1}".format(self.hostclass, int(time.time()))
+
+    def _launch_bakery_instance(self):
+        tunnel_metanetwork = self.disco_bake.vpc.networks["tunnel"]
+        interfaces = tunnel_metanetwork.create_boto3_interfaces_specification(public_ip=True)
+        image_device_map = deepcopy(
+            self.ec2.Image(self.source_ami_id).block_device_mappings[0]
+        )
+        del(image_device_map["Ebs"]["Encrypted"])
+        # We attach another copy of ami snapshot so we can use it for imaging
+        chroot_device_map = deepcopy(image_device_map)
+        chroot_device_map["DeviceName"] = '/dev/xvdb' 
+
+        # Don't map the snapshot on bake.  Bake scripts shouldn't need the snapshotted volume.
+        params = {
+            "ImageId": self.source_ami_id,
+            "MinCount": 1,
+            "MaxCount": 1,
+            "KeyName" :self.disco_bake.option("bake_key"),
+            "InstanceType": self.disco_bake.option("bakery_instance_type"),
+            "InstanceInitiatedShutdownBehavior": 'terminate',
+            "BlockDeviceMappings": [ image_device_map, chroot_device_map],
+            "NetworkInterfaces": interfaces,
+        }
+        print(params)
+        instance = self.ec2.create_instances(**params)[0]
+        wait_for_sshable(self.disco_bake.remotecmd, instance)
+        self._enable_root_ssh(instance)
+        instance.create_tags(Tags=[
+            {"Key":"hostclass", "Value":self._hostclass_tag},
+            {"Key":"Name", "Value":self._hostclass_tag}
+        ])
+        return instance
+
+    def _enable_root_ssh(self, instance):
+        # Pylint wants us to name the exceptions, but we want to ignore all of them
+        # pylint: disable=W0702
+        ssh_args = SSH_DEFAULT_OPTIONS + ["-tt"]
+        try:
+            self.disco_bake.remotecmd(
+                instance,
+                ["sudo", "cp", "/home/ubuntu/.ssh/authorized_keys", "/root/.ssh/authorized_keys"],
+                user="ubuntu", ssh_options=ssh_args)
+        except:
+            logging.debug("Ubuntu specific; enabling of root login during bake failed")
+
+        try:
+            self.disco_bake.remotecmd(
+                instance,
+                ["sudo", "cp", "/home/centos/.ssh/authorized_keys", "/root/.ssh/authorized_keys"],
+                user="centos", ssh_options=ssh_args)
+        except:
+            logging.debug("CentOS >6 specific; enabling of root login during bake failed")
+
+    @property
+    def _enahnced_networking(self):
+        return is_truthy(self.disco_bake.hc_option_default(
+            self.hostclass, "enhanced_networking", "false"
+        ))
+
+    def __enter__(self):
+        self._start()
+        return self
+
+    def __exit__(self, exception_type, exception_value, excepion_traceback):
+        if self.destroy_on_exit:
+            self._stop()
+            wait_for_state(
+                self.image,
+                u'available',
+                int(self.disco_bake.hc_option_default(
+                    self.hostclass, "ami_available_wait_time", "600"
+                ))
+            )
+            self.image.create_tags(Tags=[
+                {"Key":"stage" , "Value":self.stage},
+                {"Key":"source" , "Value":self.source_ami_id},
+                {"Key":"baker" , "Value": getpass.getuser()},
+                {"Key":"version-asiaq" , "Value":DiscoBake._git_ref()},
+                {"Key":"productline", "Value":self.product_line},
+            ])
+            logging.info("Created %s AMI %s", self.hostclass, self.image.id)
+        else:
+            logging.info(
+                "Bake completed, as requested by no-destroy, image was not created. "
+                "To examine state, look at {0} on instance {1}".format(
+                    self.work_path,
+                    self.get_bakery_instance().id
+                )
+            )
+        if exception_type:
+            logging.exception("Snap shot failed. See trace below.")
+
+    def _get_bakery(self):
+        raise NotImplementedError("Abstract")
+
+    @property
+    def _hostclass_tag(self):
+        raise NotImplementedError("Abstract")
+
+    def _start(self):
+        raise NotImplementedError("Abstract")
+
+    def _stop(self):
+        raise NotImplementedError("Abstract")
+
+
+class DiscoReusableBakery(DiscoAbstractBakery):
+    @property
+    def _hostclass_tag(self):
+        return "bakery_{0}".format(self.source_ami_id)
+
+    def _find_reusable_bakery(self):
+        """
+        Return existing bakery
+        """
+        instance_filter = self.disco_bake.vpc.vpc_filters()
+        instance_filter.extend([
+            {
+                "Name": "tag:Name",
+                "Values": [self._hostclass_tag],
+            }, {
+                "Name": "tag:readyforbake",
+                "Values": ["True"],
+            }, {
+                "Name": "instance-state-name",
+                "Values": ["running"],
+            }
+        ])
+        try:
+            instance = list(self.ec2.instances.filter(Filters=instance_filter).limit(1))[0]
+        except IndexError:
+            return None
+        logging.info("Reusing existing chroot instance {0}.".format(instance.id))
+        # TODO validate instance is sshable, so we can error out early 
+        return instance
+
+
+    def _make_chroot_snap(self, instance):
+        """
+        Create a snapshot based of the root volume of the instance.
+
+        As per AWS docs:
+            If a volume has an AWS Marketplace product code:
+            The volume can only be attached to a stopped instance.
+
+        Even Free AMIs have product code, so we strip them by making
+        a new volume, dd'ing data over and creating a snap from it.
+
+        TODO optimization opportunity, copy over local application config to
+        chroot volume. This will speed up subsequent bakes.
+        """
+        logging.debug("Creating temporary volume for derived AMI's.")
+        # TODO find chroot volume by name?
+        root_volume_id = instance.block_device_mappings[1]["Ebs"]["VolumeId"]
+        root_volume = self.ec2.Volume(root_volume_id)
+        seed_volume = self.ec2.create_volume(
+            Size=root_volume.size,
+            AvailabilityZone=root_volume.availability_zone,
+            VolumeType="gp2",  # Hopefully this is bit faster than standard
+        )
+        wait_for_state(seed_volume, "available")
+        seed_volume.attach_to_instance(
+            InstanceId=instance.id,
+            Device='xvdc'
+        )
+        wait_for_state(seed_volume, "in-use")
+        logging.debug("Seeding temporary volume with root data.")
+        self.disco_bake.remotecmd(instance, [
+            "echo '- - -' > /sys/class/scsi_host/host0/scan; "
+            # TODO optimization opportunity: use xfs_copy if fs is xfs
+            "dd if=/dev/xvdb of=/dev/xvdc bs=64K conv=noerror,sync; "
+            "sync"
+        ])
+        logging.debug("Creating snapshot from temporary volume")
+        seed_volume.detach_from_instance()
+        wait_for_state(seed_volume, "available")
+        seed_snapshot = seed_volume.create_snapshot(
+            Description=self._hostclass_tag
+        )
+        seed_snapshot.wait_until_completed()
+        logging.debug("created snapshot id: %s", seed_snapshot.id)
+
+    def _get_chroot_snap(self):
+        """
+        Return snapshot created previously by _make_chroot_snap()
+        """
+        filters = [{
+            "Name": "description",
+            "Values": [self._hostclass_tag]
+        }]
+        snaps = list(self.ec2.snapshots.filter(OwnerIds=['self'], Filters=filters).limit(1))
+        if snaps:
+            return snaps[0]
+        return None
+
+    def _random_device_name(self, instance):
+        """
+        Return random unused device name in the range of xvdbb through xvdzz
+        LIMITATION: max of 25*26=3250 concurrent chroots ):
+        """
+        used_device_names = [
+            # we look at ending because aws' /dev/sda /dev/xvda xvda are all /dev/xvda on linux
+            # /dev/sda1 is magically handled since a1 is not part of set that we pick from ba-zz
+            mapping['DeviceName'][-2:]
+            for mapping in instance.block_device_mappings
+        ]
+        device_name = used_device_names[0]
+        while device_name[-2:] in used_device_names:
+            device_name = chr(randint(98, 99)) + chr(randint(97, 122))
+        return "xvd{0}".format(device_name)
+
+    def _create_reusable_bakery(self):
+        """
+        Launch an instance we'll use as a bakery, and make snap that we'll use
+        for chroot bake.
+        """
+        instance = self._launch_bakery_instance()
+
+        if not self._get_chroot_snap():
+            self._make_chroot_snap(instance)
+
+        # TODO schedule destruction
+
+        instance.create_tags(Tags=[
+            {"Key":"readyforbake", "Value":"True"},
+        ])
+        logging.info("Created new chroot bakery {0}.".format(instance.id))
+        return instance
+
+    def _get_bakery(self):
+        """
+        Find existing bakery matching the source ami or start a new one
+        """
+        return self._find_reusable_bakery() or self._create_reusable_bakery()
+
+    def _attach_chroot_volume(self):
+        """
+        Attach and mount chroot volume to instance.
+        Mount point is random and can be accessed through self.work_path
+        """
+        seed_snapshot = self._get_chroot_snap()
+        if not seed_snapshot:
+            raise AMIError("Cannot locate corresponding chroot snapshot for {0}.".format(self.source_ami_id))
+
+        self._volume = self.ec2.create_volume(
+            SnapshotId=seed_snapshot.id,
+            AvailabilityZone=self.get_bakery_instance().placement["AvailabilityZone"],
+            VolumeType="gp2",  # Hopefully this is bit faster than standard
+        )
+        wait_for_state(self._volume, "available")
+
+        device_name = self._random_device_name(self.get_bakery_instance())
+        self._volume.attach_to_instance(
+            InstanceId=self.get_bakery_instance().id,
+            Device=device_name,
+        )
+        self.work_path = "/var/tmp/{0}1".format(device_name)
+        wait_for_state(self._volume, "in-use")
+        self.disco_bake.remotecmd(self.get_bakery_instance(), [
+            "echo '- - -' > /sys/class/scsi_host/host0/scan; "
+            "mkdir -p {0}; "
+            "xfs_admin -U generate /dev/{1}1 || tune2fs /dev/{1}1 -U random; "
+            #"mount /dev/{1}1 {0}; "
+            "mount /dev/{1}1 {0} && "
+            "mount -t proc proc {0}/proc/ && "
+            "mount --bind /sys {0}/sys/ && "
+            "mount --bind /dev {0}/dev/ && "
+            "mount --bind /run {0}/run/; "
+            .format(self.work_path, device_name)
+        ])
+
+    def _start(self):
+        self.get_bakery_instance()
+        device_name = self._random_device_name(self.get_bakery_instance())
+        self._attach_chroot_volume()
+
+    def _stop(self):
+        """
+        Detach chroot volume from instance and create AMI from it.
+        """
+        self.disco_bake.remotecmd(self.get_bakery_instance(), [
+            "rm -Rf {0}/root/.ssh/authorized_keys; "
+            "fuser -k {0} || kill -9 $(lsof -t {0}); "
+            "grep {0}/ /proc/mounts | cut -f2 -d' ' | sort -r | xargs umount -n; "
+            "umount {0}/run/; "
+            "umount {0}/dev/; "
+            "umount {0}/sys/; "
+            "umount {0}/proc/; "
+            "umount --recursive {0};"
+            .format(self.work_path)
+        ])
+        self._volume.detach_from_instance()
+        wait_for_state(self._volume, "available")
+        snapshot = self._volume.create_snapshot(
+            Description="Snapshot for {0} based on {1}".format(
+                self.hostclass, self.source_ami_id
+            )
+        )
+        snapshot.wait_until_completed()
+        self._volume.delete()
+
+        self.image = self.ec2.register_image(
+            Name=self._image_name,
+            # Description='string',
+            Architecture='x86_64',
+            # KernelId='string',
+            # RamdiskId='string',
+            RootDeviceName='/dev/sda1',
+            BlockDeviceMappings=[{
+                # 'VirtualName': 'string',
+                'DeviceName': '/dev/sda1',
+                'Ebs': {
+                    'SnapshotId': snapshot.id,
+                    'VolumeSize': snapshot.volume_size,
+                    'DeleteOnTermination': True,
+                    'VolumeType': 'gp2',
+                    # 'Iops': 123,
+                    # 'Encrypted': True|False
+                },
+                # 'NoDevice': 'string'
+            }],
+            VirtualizationType='hvm',
+            # TODO FIX
+            # **({SriovNetSupport='string'} if self._enhanced_networking else {})
+        )
+        wait_for_state(self.image, "available")
+
+
+class DiscoDisposableBakery(DiscoAbstractBakery):
+    def _get_bakery(self):
+        return self._launch_bakery_instance()
+
+    def _start(self):
+        """
+        Create and return a single-use (non-chroot) bake instance
+        """
+        self.get_bakery_instance()
+        self.work_path = None
+
+    def _stop(self):
+        logging.debug("Stopping instance")
+        # We delete the authorized keys so there is no possibility of using the bake key
+        # for root login in production and we shutdown via the shutdown command to make
+        # sure the snapshot is of a clean filesystem that won't trigger fsck on start.
+        # We use nothrow to ignore ssh's 255 exit code on shutdown of centos7
+        self.disco_bake.remotecmd(
+            self.get_bakery_instance(),
+            ["rm -Rf /root/.ssh/authorized_keys ; shutdown now -h"],
+            nothrow=True
+        )
+        wait_for_state(self.get_bakery_instance(), u'stopped', 300)
+        logging.info("Creating snapshot from instance")
+
+        if self._enhanced_networking:
+            logging.info("Setting enhanced networking attribute")
+            self.disco_bakery.connection.modify_instance_attribute(
+                self.get_bakery_instance().id, "sriovNetSupport", "simple"
+            )
+
+        image_id = self.get_bakery_instance().create_image(
+            self._image_name, no_reboot=True
+        )
+        self.image = keep_trying(60, self.ec2.Image, image_id)
+
+    @property
+    def _hostclass_tag(self):
+        return "bake_{0}".format(self.hostclass)

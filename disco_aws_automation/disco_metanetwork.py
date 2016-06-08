@@ -241,20 +241,33 @@ class DiscoMetaNetwork(object):
                 return disco_subnet.subnet_dict
         raise IPRangeError("IP {0} is not in Metanetwork ({1}) range.".format(ip_address, self.name))
 
+    def _random_subnet_id(self, subnet_ids=None):
+        return choice(
+            subnet_ids if subnet_ids else
+            [
+                disco_subnet.subnet_dict['SubnetId']
+                for disco_subnet in self.disco_subnets.values()
+            ]
+        )
     def create_interfaces_specification(self, subnet_ids=None, public_ip=False):
         """
         Create a network interface specification for an instance -- to be used
         with run_instance()
         """
-        random_subnet_id = choice(subnet_ids if subnet_ids else
-                                  [disco_subnet.subnet_dict['SubnetId']
-                                   for disco_subnet in self.disco_subnets.values()])
         interface = NetworkInterfaceSpecification(
-            subnet_id=random_subnet_id,
+            subnet_id=self._random_subnet_id(subnet_ids),
             groups=[self.security_group.id],
             associate_public_ip_address=public_ip)
         interfaces = NetworkInterfaceCollection(interface)
         return interfaces
+
+    def create_boto3_interfaces_specification(self, subnet_ids=None, public_ip=False):
+        return [{
+            'DeviceIndex': 0,
+            'SubnetId': self._random_subnet_id(subnet_ids),
+            'Groups': [ self.security_group.id ],
+            'AssociatePublicIpAddress': public_ip
+        }]
 
     def get_interface(self, private_ip):
         """
