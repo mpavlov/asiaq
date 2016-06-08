@@ -77,13 +77,14 @@ class DiscoVPCEndpoints(object):
         policy_dict = policy_dict or S3_POLICY
 
         self.delete_s3(dry_run)
-        self.boto3_ec2.create_vpc_endpoint(
-            DryRun=dry_run,
-            VpcId=self.vpc_id,
-            ServiceName=self.service_name("s3"),
-            PolicyDocument=json.dumps(policy_dict),
-            RouteTableIds=route_table_ids,
-        )
+
+        if not dry_run:
+            self.boto3_ec2.create_vpc_endpoint(
+                VpcId=self.vpc_id,
+                ServiceName=self.service_name("s3"),
+                PolicyDocument=json.dumps(policy_dict),
+                RouteTableIds=route_table_ids,
+            )
 
     def list_s3_ids(self):
         """
@@ -105,10 +106,10 @@ class DiscoVPCEndpoints(object):
         if not s3_ids:
             return False
 
-        self.boto3_ec2.delete_vpc_endpoints(
-            DryRun=dry_run,
-            VpcEndpointIds=s3_ids,
-        )
+        if not dry_run:
+            self.boto3_ec2.delete_vpc_endpoints(
+                VpcEndpointIds=s3_ids,
+            )
         return True
 
     def update(self, dry_run=False):

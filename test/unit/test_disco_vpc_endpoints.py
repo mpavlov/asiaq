@@ -63,11 +63,9 @@ class DiscoVPCEndpointsTests(unittest.TestCase):
         endpoints = DiscoVPCEndpoints(VPC_ID, client)
         endpoints.update()
         client.delete_vpc_endpoints.assert_called_with(
-            DryRun=False,
             VpcEndpointIds=[REPLY_S3_ENDPOINTS["VpcEndpoints"][0]["VpcEndpointId"]]
         )
         client.create_vpc_endpoint.assert_called_with(
-            DryRun=False,
             PolicyDocument=json.dumps(S3_POLICY),
             VpcId=VPC_ID,
             ServiceName=REPLY_S3_ENDPOINTS["VpcEndpoints"][0]["ServiceName"],
