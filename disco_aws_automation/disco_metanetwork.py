@@ -313,7 +313,9 @@ class DiscoMetaNetwork(object):
         logging.info("Updating security rules for meta network %s", self.name)
         current_sg_rules = [
             self.create_sg_rule_tuple(
-                rule.ip_protocol, [int(rule.from_port), int(rule.to_port)],
+                rule.ip_protocol,
+                [int(rule.from_port) if rule.from_port else 0,
+                 int(rule.to_port) if rule.to_port else 65535],
                 grant.group_id, grant.cidr_ip)
             for rule in self.security_group.rules
             for grant in rule.grants]
