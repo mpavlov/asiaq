@@ -188,15 +188,18 @@ class DiscoMetaNetwork(object):
                                          len(self.disco_subnets.values()),
                                          len(allocation_ids)))
 
+        self._create_route_table_per_subnet()
+
+        for disco_subnet, allocation_id in zip(self.disco_subnets.values(), allocation_ids):
+            disco_subnet.create_nat_gateway(allocation_id)
+
+    def _create_route_table_per_subnet(self):
         if self.centralized_route_table:
             for disco_subnet in self.disco_subnets.values():
                 disco_subnet.recreate_route_table()
 
             self._connection.delete_route_table(self.centralized_route_table.id)
             self._centralized_route_table = None
-
-        for disco_subnet, allocation_id in zip(self.disco_subnets.values(), allocation_ids):
-            disco_subnet.create_nat_gateway(allocation_id)
 
     def delete_nat_gateways(self):
         """ Deletes all subnets' NAT gateways if any """
@@ -496,6 +499,8 @@ class DiscoMetaNetwork(object):
     def add_nat_gateway_route(self, dest_metanetwork):
         """ Add a default route in each of the subnet's route table to the corresponding NAT gateway
         of the same AZ in the destination metanetwork """
+        self._create_route_table_per_subnet()
+
         for zone in self.disco_subnets.keys():
             self.disco_subnets[zone].add_route_to_nat_gateway(
                 '0.0.0.0/0',
