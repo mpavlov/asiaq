@@ -57,11 +57,9 @@ class DiscoELB(object):
 
     def list(self):
         """Returns all of the ELBs for the current environment"""
-        # Grab all of the ELBs in this environment
-        return [
-            elb for elb in
-            throttled_call(self.elb_client.describe_load_balancers).get('LoadBalancerDescriptions', [])
-            if elb['VPCId'] == self.vpc.vpc.id]
+        return [elb for elb in
+                throttled_call(self.elb_client.describe_load_balancers).get('LoadBalancerDescriptions', [])
+                if elb['VPCId'] == self.vpc.get_vpc_id()]
 
     def list_for_display(self):
         """Returns information about all of the ELBs in the current environment for display purposes"""

@@ -20,6 +20,7 @@ from .disco_alarm import DiscoAlarm
 from .disco_aws_util import is_truthy
 from .disco_creds import DiscoS3Bucket
 from .disco_route53 import DiscoRoute53
+from .disco_vpc_sg_rules import DiscoVPCSecurityGroupRules
 from .exceptions import TimeoutError, RDSEnvironmentError
 from .resource_helper import keep_trying
 
@@ -48,6 +49,7 @@ class DiscoRDS(object):
         self.config_rds = read_config(config_file=DEFAULT_CONFIG_FILE_RDS)
         self.client = boto3.client('rds')
         self.vpc = vpc
+        self.disco_vpc_sg_rules = DiscoVPCSecurityGroupRules(vpc, vpc.boto3_ec2)
         self.vpc_name = vpc.environment_name
         if self.vpc_name not in ['staging', 'production']:
             self.domain_name = self.config_aws.get('disco_aws', 'default_domain_name')
@@ -129,7 +131,7 @@ class DiscoRDS(object):
         """
         Returns the intranet security group id for the VPC for the current environment
         """
-        security_groups = self.vpc.get_all_security_groups_for_vpc()
+        security_groups = self.disco_vpc_sg_rules.get_all_security_groups_for_vpc()
         intranet = [sg for sg in security_groups if sg.tags and sg.tags.get("meta_network") == "intranet"][0]
         return intranet.id
 
@@ -220,7 +222,7 @@ class DiscoRDS(object):
             logging.debug("Not deleting subnet group '%s': %s", db_subnet_group_name, repr(err))
 
         db_subnet_group_description = 'Subnet Group for VPC {0}'.format(self.vpc_name)
-        subnets = self.vpc.vpc.connection.get_all_subnets(filters=self.vpc.vpc_filter())
+        subnets = self.vpc.vpc.connection.get_all_subnets(filters=self.vpc.vpc_filters()[0])
         subnet_ids = [str(subnet.id) for subnet in subnets if subnet.tags['meta_network'] == 'intranet']
         self.client.create_db_subnet_group(DBSubnetGroupName=db_subnet_group_name,
                                            DBSubnetGroupDescription=db_subnet_group_description,
@@ -297,7 +299,7 @@ class DiscoRDS(object):
         vpc_instances = [
             instance
             for instance in instances
-            if instance["DBSubnetGroup"]["VpcId"] == self.vpc.vpc.id and (
+            if instance["DBSubnetGroup"]["VpcId"] == self.vpc.get_vpc_id() and (
                 not states or instance["DBInstanceStatus"] in states)]
         return vpc_instances
 
