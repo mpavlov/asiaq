@@ -1752,8 +1752,8 @@ Options:
 -   `elb_health_check_url` [Default /] The heartbeat end-point to test instance health
 -   `elb_instance_port` [Default=80] The port number that your services are running on
 -   `elb_instance_protocol` [Default inferred from port] HTTP | HTTPS | SSL | TCP
--   `elb_port` [Default=80] The port number to expose in the ELB
--   `elb_protocol` [Default inferred from port] HTTP | HTTPS | SSL | TCP
+-   `elb_port` [Default=80] Comma separated list of port numbers to expose in the ELB.
+-   `elb_protocol` [Default inferred from port] Comma separated list of protocols to expose from ELB. The protocols should be in the same order as the ELB ports. HTTP | HTTPS | SSL | TCP
 -   `elb_public` [Default no] yes | no Should the ELB have a publicly routable IP
 -   `elb_sticky_app_cookie` [Optional] Enable sticky sessions by setting the session cookie of your application
 -   `elb_idle_timeout` [Default=300] Timeout before ELB kills idle connections

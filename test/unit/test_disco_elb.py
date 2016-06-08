@@ -2,7 +2,7 @@
 from unittest import TestCase
 from mock import MagicMock
 from moto import mock_elb
-from disco_aws_automation import DiscoELB
+from disco_aws_automation import DiscoELB, CommandError
 
 TEST_ENV_NAME = 'unittestenv'
 TEST_HOSTCLASS = 'mhcunit'
@@ -33,7 +33,7 @@ class DiscoELBTests(TestCase):
     # pylint: disable=too-many-arguments
     def _create_elb(self, hostclass=None, public=False, tls=False,
                     instance_protocol='HTTP', instance_port=80,
-                    elb_protocol='HTTP', elb_port=80,
+                    elb_protocols='HTTP', elb_ports='80',
                     idle_timeout=None, connection_draining_timeout=None,
                     sticky_app_cookie=None):
         return self.disco_elb.get_or_create_elb(
@@ -44,8 +44,8 @@ class DiscoELBTests(TestCase):
             health_check_url="/" if instance_protocol.upper() in ('HTTP', 'HTTPS') else "",
             instance_protocol=instance_protocol,
             instance_port=instance_port,
-            elb_protocol="HTTPS" if tls else elb_protocol,
-            elb_port=443 if tls else elb_port,
+            elb_protocols="HTTPS" if tls else elb_protocols,
+            elb_ports='443' if tls else elb_ports,
             elb_public=public,
             sticky_app_cookie=sticky_app_cookie,
             idle_timeout=idle_timeout,
@@ -179,7 +179,7 @@ class DiscoELBTests(TestCase):
         elb_client = self.disco_elb.elb_client
         elb_client.create_load_balancer = MagicMock(wraps=elb_client.create_load_balancer)
         self._create_elb(instance_protocol='TCP', instance_port=25,
-                         elb_protocol='TCP', elb_port=25)
+                         elb_protocols='TCP', elb_ports=25)
         elb_client.create_load_balancer.assert_called_once_with(
             LoadBalancerName=DiscoELB.get_elb_id('unittestenv', 'mhcunit'),
             Listeners=[{
@@ -195,6 +195,43 @@ class DiscoELBTests(TestCase):
                 "Key": "elb_name",
                 "Value": DiscoELB.get_elb_name('unittestenv', 'mhcunit')
             }])
+
+    @mock_elb
+    def test_get_elb_with_multiple_ports(self):
+        """Test creating an ELB that listens on multiple ports"""
+        elb_client = self.disco_elb.elb_client
+        elb_client.create_load_balancer = MagicMock(wraps=elb_client.create_load_balancer)
+        self._create_elb(instance_protocol='HTTP', instance_port=80,
+                         elb_protocols='HTTP, HTTPS', elb_ports='80, 443')
+        elb_client.create_load_balancer.assert_called_once_with(
+            LoadBalancerName=DiscoELB.get_elb_id('unittestenv', 'mhcunit'),
+            Listeners=[{
+                'Protocol': 'HTTP',
+                'LoadBalancerPort': 80,
+                'InstanceProtocol': 'HTTP',
+                'InstancePort': 80
+            }, {
+                'Protocol': 'HTTPS',
+                'LoadBalancerPort': 443,
+                'InstanceProtocol': 'HTTP',
+                'InstancePort': 80,
+                'SSLCertificateId': TEST_CERTIFICATE_ARN_ACM
+            }],
+            Subnets=['sub-1'],
+            SecurityGroups=['sec-1'],
+            Scheme='internal',
+            Tags=[{
+                "Key": "elb_name",
+                "Value": DiscoELB.get_elb_name('unittestenv', 'mhcunit')
+            }])
+
+    @mock_elb
+    def test_get_elb_mismatched_ports_protocols(self):
+        """Test that creating an ELB fails when using a different number of ELB ports and protocols"""
+        self.assertRaises(CommandError,
+                          self._create_elb,
+                          elb_protocols='HTTP, HTTPS',
+                          elb_ports='80')
 
     @mock_elb
     def test_get_elb_with_idle_timeout(self):
