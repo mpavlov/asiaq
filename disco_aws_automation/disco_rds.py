@@ -22,7 +22,7 @@ from .disco_creds import DiscoS3Bucket
 from .disco_route53 import DiscoRoute53
 from .disco_vpc_sg_rules import DiscoVPCSecurityGroupRules
 from .exceptions import TimeoutError, RDSEnvironmentError
-from .resource_helper import keep_trying
+from .resource_helper import keep_trying, tag2dict
 
 DEFAULT_CONFIG_FILE_RDS = "disco_rds.ini"
 RDS_STATE_POLL_INTERVAL = 30  # seconds
@@ -132,8 +132,12 @@ class DiscoRDS(object):
         Returns the intranet security group id for the VPC for the current environment
         """
         security_groups = self.disco_vpc_sg_rules.get_all_security_groups_for_vpc()
-        intranet = [sg for sg in security_groups if sg.tags and sg.tags.get("meta_network") == "intranet"][0]
-        return intranet.id
+        for sg in security_groups:
+            tags = tag2dict(sg['Tags'])
+            if tags.get("meta_network") == "intranet":
+                return sg['GroupId']
+
+        raise RuntimeError('Security group for intranet meta network is missing.')
 
     def update_cluster_by_id(self, database_identifier):
         """Update a RDS cluster by its database identifier"""
