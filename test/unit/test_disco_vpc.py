@@ -28,9 +28,10 @@ class DiscoVPCTests(unittest.TestCase):
         self.assertIsNone(subnet)
 
     # pylint: disable=unused-argument
+    @patch('disco_aws_automation.disco_vpc.DiscoVPCEndpoints')
     @patch('disco_aws_automation.disco_vpc.DiscoVPC.config', new_callable=PropertyMock)
     @patch('disco_aws_automation.disco_vpc.DiscoMetaNetwork')
-    def test_create_meta_networks(self, meta_network_mock, config_mock):
+    def test_create_meta_networks(self, meta_network_mock, config_mock, endpoints_mock):
         """Test creating meta networks with dynamic ip ranges"""
         vpc_mock = {'CidrBlock': '10.0.0.0/28',
                     'VpcId': 'mock_vpc_id'}
@@ -65,9 +66,10 @@ class DiscoVPCTests(unittest.TestCase):
 
         self.assertItemsEqual(actual_ip_ranges, expected_ip_ranges)
 
+    @patch('disco_aws_automation.disco_vpc.DiscoVPCEndpoints')
     @patch('disco_aws_automation.disco_vpc.DiscoVPC.config', new_callable=PropertyMock)
     @patch('disco_aws_automation.disco_vpc.DiscoMetaNetwork')
-    def test_create_meta_networks_static_dynamic(self, meta_network_mock, config_mock):
+    def test_create_meta_networks_static_dynamic(self, meta_network_mock, config_mock, endpoints_mock):
         """Test creating meta networks with a mix of static and dynamic ip ranges"""
         vpc_mock = {'CidrBlock': '10.0.0.0/28',
                     'VpcId': 'mock_vpc_id'}
@@ -103,6 +105,7 @@ class DiscoVPCTests(unittest.TestCase):
         self.assertItemsEqual(actual_ip_ranges, expected_ip_ranges)
 
     # pylint: disable=unused-argument
+    @patch('disco_aws_automation.disco_vpc.DiscoVPCEndpoints')
     @patch('disco_aws_automation.disco_vpc.DiscoSNS')
     @patch('disco_aws_automation.disco_vpc.DiscoVPCGateways')
     @patch('time.sleep')
@@ -112,7 +115,7 @@ class DiscoVPCTests(unittest.TestCase):
     @patch('disco_aws_automation.disco_vpc.DiscoMetaNetwork')
     def test_create_auto_vpc(self, meta_network_mock, boto3_resource_mock,
                              boto3_client_mock, config_mock,
-                             sleep_mock, gateways_mock, sns_mock):
+                             sleep_mock, gateways_mock, sns_mock, endpoints_mock):
         """Test creating a VPC with a dynamic ip range"""
         # FIXME This needs to mock way too many things. DiscoVPC needs to be refactored
 
