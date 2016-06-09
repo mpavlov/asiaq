@@ -21,6 +21,18 @@ def _get_vpc_mock():
     vpc_mock.environment_name = TEST_ENV_NAME
     vpc_mock.vpc = MagicMock()
     vpc_mock.vpc.id = TEST_VPC_ID
+    mock_boto3_ec2 = MagicMock()
+    mock_boto3_ec2.describe_subnets.return_value = {
+        'Subnets': [
+            {
+                'SubnetId': 'mock_subnet_id',
+                'Tags': [
+                    {'Key': 'meta_network', 'Value': 'intranet'}
+                ]
+            }
+        ]
+    }
+    vpc_mock.boto3_ec2 = mock_boto3_ec2
     return vpc_mock
 
 
@@ -143,6 +155,11 @@ class DiscoRDSTests(unittest.TestCase):
                                                                     'unittestenv-db-name.example.com.',
                                                                     'CNAME',
                                                                     'foo.example.com')
+
+        self.rds.client.create_db_subnet_group.assert_called_once_with(
+            DBSubnetGroupDescription='Subnet Group for VPC unittestenv',
+            DBSubnetGroupName='unittestenv-db-name',
+            SubnetIds=['mock_subnet_id'])
 
     def test_get_rds_security_group_id(self):
         """ Verify security group ID is retrieved correctly """
