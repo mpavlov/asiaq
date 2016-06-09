@@ -51,6 +51,7 @@ def _get_vpc_sg_rules_mock():
 
     return vpc_sg_rules_mock
 
+
 class DiscoRDSTests(unittest.TestCase):
     """Test DiscoRDS class"""
 
