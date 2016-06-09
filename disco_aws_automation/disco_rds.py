@@ -226,8 +226,14 @@ class DiscoRDS(object):
             logging.debug("Not deleting subnet group '%s': %s", db_subnet_group_name, repr(err))
 
         db_subnet_group_description = 'Subnet Group for VPC {0}'.format(self.vpc_name)
-        subnets = self.vpc.vpc.connection.get_all_subnets(filters=self.vpc.vpc_filters()[0])
-        subnet_ids = [str(subnet.id) for subnet in subnets if subnet.tags['meta_network'] == 'intranet']
+        # TODO: Move the logic of querying subnets inside DiscoVPC
+        subnets = self.vpc.boto3_ec2.describe_subnets(filters=self.vpc.vpc_filters())['Subnets']
+        subnet_ids = []
+        for subnet in subnets:
+            tags = tag2dict(subnet['Tags'])
+            if tags['meta_network'] == 'intranet':
+                subnet_ids.append(str(subnet['SubnetId']))
+
         self.client.create_db_subnet_group(DBSubnetGroupName=db_subnet_group_name,
                                            DBSubnetGroupDescription=db_subnet_group_description,
                                            SubnetIds=subnet_ids)
