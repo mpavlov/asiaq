@@ -19,20 +19,14 @@ def _get_vpc_mock():
     """Nastily copied from test_disco_elb"""
     vpc_mock = MagicMock()
     vpc_mock.environment_name = TEST_ENV_NAME
-    vpc_mock.vpc = MagicMock()
-    vpc_mock.vpc.id = TEST_VPC_ID
-    mock_boto3_ec2 = MagicMock()
-    mock_boto3_ec2.describe_subnets.return_value = {
-        'Subnets': [
-            {
-                'SubnetId': 'mock_subnet_id',
-                'Tags': [
-                    {'Key': 'meta_network', 'Value': 'intranet'}
-                ]
-            }
-        ]
-    }
-    vpc_mock.boto3_ec2 = mock_boto3_ec2
+    vpc_mock.get_all_subnets.return_value = [
+        {
+            'SubnetId': 'mock_subnet_id',
+            'Tags': [
+                {'Key': 'meta_network', 'Value': 'intranet'}
+            ]
+        }
+    ]
     return vpc_mock
 
 

@@ -411,6 +411,10 @@ class DiscoVPC(object):
         self._destroy_routes()
         self._destroy_vpc()
 
+    def get_all_subnets(self):
+        """ Returns a list of all the subnets in the current VPC """
+        return self.boto3_ec2.describe_subnets(Filters=self.vpc_filters())['Subnets']
+
     def _destroy_instances(self):
         """ Find all instances in vpc and terminate them """
         autoscale = DiscoAutoscale(environment_name=self.environment_name)
