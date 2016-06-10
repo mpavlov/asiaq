@@ -32,7 +32,7 @@ from .disco_vpc_endpoints import DiscoVPCEndpoints
 from .disco_vpc_gateways import DiscoVPCGateways
 from .disco_vpc_peerings import DiscoVPCPeerings
 from .disco_vpc_sg_rules import DiscoVPCSecurityGroupRules
-from .resource_helper import (tag2dict, create_filters)
+from .resource_helper import (tag2dict, create_filters, keep_trying)
 from .exceptions import (
     MultipleVPCsForVPCNameError, VPCConfigError, VPCEnvironmentError,
     VPCNameNotFound)
@@ -401,10 +401,10 @@ class DiscoVPC(object):
         self._destroy_rds()
         self.elasticache.delete_all_cache_clusters(wait=True)
         self.elasticache.delete_all_subnet_groups()
-        self.disco_vpc_sg_rules.destroy()
         self.disco_vpc_gateways.destroy_nat_gateways()
-        self._destroy_interfaces()
         self.disco_vpc_gateways.destroy_igw_and_detach_vgws()
+        self._destroy_interfaces()
+        self.disco_vpc_sg_rules.destroy()
         DiscoVPCPeerings.delete_peerings(self.get_vpc_id())
         self._destroy_subnets()
         self.disco_vpc_endpoints.delete()
@@ -444,13 +444,14 @@ class DiscoVPC(object):
 
     def _destroy_interfaces(self):
         """ Deleting interfaces explicitly lets go of subnets faster """
-        for interface in self.boto3_ec2.describe_network_interfaces(
-                Filters=self.vpc_filters())["NetworkInterfaces"]:
-            try:
+        def _destroy():
+            for interface in self.boto3_ec2.describe_network_interfaces(
+                    Filters=self.vpc_filters())["NetworkInterfaces"]:
+
                 self.boto3_ec2.delete_network_interface(NetworkInterfaceId=interface['NetworkInterfaceId'])
-            except EC2ResponseError:
-                # Occasionally we get InvalidNetworkInterfaceID.NotFound, not sure why.
-                logging.exception("Skipping error deleting network.")
+
+        # Keep trying because delete could fail for reasons based on interface's state
+        keep_trying(300, _destroy)
 
     def _destroy_subnets(self):
         """ Find all subnets belonging to a vpc and destroy them"""

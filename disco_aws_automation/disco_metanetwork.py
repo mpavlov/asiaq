@@ -417,7 +417,8 @@ class DiscoMetaNetwork(object):
         else:
             # Only need to get from one subnet since they are the same
             for route in self.disco_subnets.values()[0].route_table['Routes']:
-                if route.get('GatewayId') and route.get('GatewayId') != 'local':
+                if route.get('DestinationCidrBlock') and \
+                        route.get('GatewayId') and route.get('GatewayId') != 'local':
                     current_route_tuples.add(
                         (route['DestinationCidrBlock'], route['GatewayId']))
 
