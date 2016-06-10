@@ -30,7 +30,7 @@ import logging
 
 from docopt import docopt
 
-from disco_aws_automation import DiscoAWS, DiscoSNS, read_config
+from disco_aws_automation import DiscoSNS, read_config
 from disco_aws_automation.disco_aws_util import run_gracefully
 from disco_aws_automation.disco_logging import configure_logging
 from disco_aws_automation.disco_alarm_config import DiscoAlarmsConfig
@@ -50,16 +50,18 @@ def run():
     hostclass = args.get("--hostclass")
     env = args.get("--env") or config.get("disco_aws", "default_environment")
     alarms_config = DiscoAlarmsConfig(env)
+    disco_alarm = DiscoAlarm()
 
     if args["update_notifications"]:
         notifications = alarms_config.get_notifications()
         DiscoSNS().update_sns_with_notifications(notifications, env, delete=delete, dry_run=dry_run)
     elif args["update_metrics"]:
         if delete:
-            DiscoAlarm().delete_hostclass_environment_alarms(env, hostclass)
-        DiscoAWS(config, env).spinup_alarms([hostclass])
+            disco_alarm.delete_hostclass_environment_alarms(env, hostclass)
+        alarms = alarms_config.get_alarms(hostclass)
+        disco_alarm.create_alarms(alarms)
     elif args["list"]:
-        alarms = DiscoAlarm().get_alarms(
+        alarms = disco_alarm.get_alarms(
             {"env": env, "hostclass": hostclass} if hostclass else {"env": env})
         for alarm in alarms:
             print(alarm)

@@ -3,6 +3,7 @@ from unittest import TestCase
 from random import randint
 import logging
 
+from mock import MagicMock
 from moto import mock_cloudwatch
 from boto.ec2.cloudwatch import CloudWatchConnection
 from disco_aws_automation import DiscoAlarm, DiscoAlarmsConfig
@@ -15,12 +16,15 @@ from test.helpers.patch_disco_aws import get_mock_config
 TOPIC_ARN = "arn:aws:sns:us-west-2:123456789012:ci"
 ENVIRONMENT = "testenv"
 ACCOUNT_ID = "123456789012"  # mock_sns uses account id 123456789012
+MOCK_GROUP_NAME = "ci_mhcfoo_123141231245123"
 
 
 class DiscoAlarmTests(TestCase):
     """Test disco_alarm"""
 
     def setUp(self):
+        self.autoscale = MagicMock()
+        self.autoscale.get_existing_group.return_value.name = MOCK_GROUP_NAME
         self.cloudwatch_mock = mock_cloudwatch()
         self.cloudwatch_mock.start()
         disco_sns = DiscoSNS(account_id=ACCOUNT_ID)
@@ -61,6 +65,7 @@ class DiscoAlarmTests(TestCase):
             "threshold_max": "90",
             "level": "critical",
             "team": "america",
+            "autoscaling_group_name": "{}_{}_{}".format(hostclass, ENVIRONMENT, randint(100000, 999999))
         }
         return DiscoAlarmConfig(options)
 
@@ -152,9 +157,9 @@ class DiscoAlarmTests(TestCase):
 
     def test_get_alarm_config(self):
         """Test DiscoAlarmsConfig get_alarms for regular metrics"""
-        disco_alarms_config = DiscoAlarmsConfig(ENVIRONMENT)
+        disco_alarms_config = DiscoAlarmsConfig(ENVIRONMENT, autoscale=self.autoscale)
         disco_alarms_config.config = get_mock_config({
-            'reporting.EC2.CPU.mhcrasberi': {
+            'reporting.AWS/EC2.CPU.mhcrasberi': {
                 'log_pattern_metric': 'false',
                 'threshold_max': '1',
                 'duration': '60',
@@ -167,12 +172,13 @@ class DiscoAlarmTests(TestCase):
 
         alarm_configs = disco_alarms_config.get_alarms('mhcrasberi')
         self.assertEqual(1, len(alarm_configs))
-        self.assertEquals('EC2', alarm_configs[0].namespace)
+        self.assertEquals('AWS/EC2', alarm_configs[0].namespace)
         self.assertEquals('CPU', alarm_configs[0].metric_name)
+        self.assertEquals(MOCK_GROUP_NAME, alarm_configs[0].autoscaling_group_name)
 
     def test_get_alarm_config_log_pattern_metric(self):
         """Test DiscoAlarmsConfig get_alarms for log pattern metrics"""
-        disco_alarms_config = DiscoAlarmsConfig(ENVIRONMENT)
+        disco_alarms_config = DiscoAlarmsConfig(ENVIRONMENT, autoscale=self.autoscale)
         disco_alarms_config.config = get_mock_config({
             'reporting.LogMetrics.ErrorCount.mhcrasberi': {
                 'log_pattern_metric': 'true',
@@ -192,7 +198,7 @@ class DiscoAlarmTests(TestCase):
 
     def test_get_alarm_config_elb_metric(self):
         """Test DiscoAlarmsConfig get_alarms for ELB metrics"""
-        disco_alarms_config = DiscoAlarmsConfig(ENVIRONMENT)
+        disco_alarms_config = DiscoAlarmsConfig(ENVIRONMENT, autoscale=self.autoscale)
         disco_alarms_config.config = get_mock_config({
             'reporting.AWS/ELB.HealthyHostCount.mhcbanana': {
                 'threshold_min': '1',
