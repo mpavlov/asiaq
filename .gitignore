@@ -38,3 +38,4 @@ reports
 
 # Pycharm
 .idea/*
+.ropeproject/

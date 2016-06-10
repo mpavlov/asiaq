@@ -31,9 +31,12 @@ def parse_arguments():
 
     parser_delete_group = subparsers.add_parser('deletegroup', help='Delete autoscaling group')
     parser_delete_group.set_defaults(mode="deletegroup")
-    parser_delete_group.add_argument("--hostclass", required=True, help='Name of autoscaling group')
     parser_delete_group.add_argument("--force", action='store_true',
                                      required=False, default=False, help='Force deletion')
+    parser_delete_specifier_group = parser_delete_group.add_mutually_exclusive_group(required=True)
+    parser_delete_specifier_group.add_argument("--hostclass", default=None, help='Name of the hostclass')
+    parser_delete_specifier_group.add_argument("--name", default=None,
+                                               help='Name of the autoscaling group')
 
     # Launch Configuration commands
 
@@ -84,15 +87,15 @@ def run():
     # Autoscaling group commands
     if args.mode == "listgroups":
         format_str = "{0} {1:12} {2:3} {3:3} {4:3} {5:3}"
-        groups = autoscale.get_groups()
+        groups = autoscale.get_existing_groups()
         instances = autoscale.get_instances()
         if args.debug:
             print(format_str.format(
-                "Name".ljust(26 + len(environment_name)), "AMI", "min", "des", "max", "cnt"))
+                "Name".ljust(35 + len(environment_name)), "AMI", "min", "des", "max", "cnt"))
         for group in groups:
             launch_cfg = list(autoscale.get_configs(names=[group.launch_config_name]))
             image_id = launch_cfg[0].image_id if len(launch_cfg) else ""
-            group_str = group.name.ljust(26 + len(environment_name))
+            group_str = group.name.ljust(35 + len(environment_name))
             group_cnt = len([instance for instance in instances if instance.group_name == group.name])
             print(format_str.format(group_str, image_id,
                                     group.min_size, group.desired_capacity, group.max_size,
@@ -100,7 +103,7 @@ def run():
     elif args.mode == "cleangroups":
         autoscale.clean_groups()
     elif args.mode == "deletegroup":
-        autoscale.delete_group(args.hostclass, args.force)
+        autoscale.delete_groups(hostclass=args.hostclass, group_name=args.name, force=args.force)
 
     # Launch Configuration commands
     elif args.mode == "listconfigs":

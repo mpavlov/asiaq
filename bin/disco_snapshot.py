@@ -30,7 +30,7 @@ def get_parser():
         'create', help='Creates an unformated EBS volume snapshot in a random availibility zone')
     parser_create.set_defaults(mode='create')
     parser_create.add_argument('--size', dest='size', required=True, type=int, help='Volume size in GB')
-    parser_create.add_argument('--hostclass', dest='hostclasses', default=[], action='append', type=str,
+    parser_create.add_argument('--hostclass', dest='hostclass', type=str,
                                help="hostclass that uses this snapshot")
 
     parser_list = subparsers.add_parser('list', help='List all EBS snapshots')
@@ -112,7 +112,7 @@ def run():
             aws.disco_storage.delete_snapshot(snapshot_id)
     elif args.mode == "update":
         snapshot = aws.disco_storage.get_latest_snapshot(args.hostclass)
-        aws.autoscale.update_snapshot(args.hostclass, snapshot.id, snapshot.volume_size)
+        aws.autoscale.update_snapshot(snapshot.id, snapshot.volume_size, hostclass=args.hostclass)
 
 if __name__ == "__main__":
     run_gracefully(run)

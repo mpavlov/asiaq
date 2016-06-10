@@ -37,3 +37,11 @@ class DiscoEIP(object):
                 return False
 
         return eip.release()
+
+    def find_eip_address(self, eip):
+        """ Finds the EIP Address for the public eip specified. """
+        address_filter = {'public-ip': eip}
+        try:
+            return self.vpc_conn.get_all_addresses(filters=address_filter)[0]
+        except IndexError:
+            return None

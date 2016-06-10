@@ -44,6 +44,10 @@ class DiscoS3Bucket(object):
         else:
             raise KeyError("%s does not exist in bucket %s" % (key_name, self.bucket.name))
 
+    def key_exists(self, key_name):
+        '''Returns True if a key exists in the bucket'''
+        return self.bucket.get_key(key_name)
+
     def load_config(self, key):
         """Deserializes ConfigParser from the contents of the specified key's value"""
         config = ConfigParser()

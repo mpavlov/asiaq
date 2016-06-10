@@ -28,6 +28,7 @@ Table of Contents
   * [Chaos](#chaos)
   * [ElastiCache](#elasticache)
   * [Elasticsearch](#elasticsearch)
+  * [RDS](#rds)
   * [Testing a hostclass](#testing-hostclasses)
 
 
@@ -634,7 +635,7 @@ Environments
 Environments created by Asiaq are separated out by VPCs.
 Each environment resides in its own VPC and has its own metanetworks,
 gateways, instances, and so on. All environment management is done with
-the disco_vpc.py tool.
+the disco_vpc_ui.py tool.
 
 ### Listing Active Environments
 
@@ -664,6 +665,28 @@ fits your purpose or define a new one.
 Creating environment:
 
     disco_vpc_ui.py create --type sandbox --name test
+
+### Updating an Active Environment
+
+Updating an active environment involves making changes to the corresponding environment type
+in the `disco_vpc.ini` file, and running the `disco_vpc_ui.py` tool. The `disco_vpc_ui.py`
+tool currently supports updating the following resources of an active environment:
+
+-   Security Group Rules
+-   NAT gateways creation and deletion (note: update to NAT gateway EIPs is not supported yet)  
+-   Routes to Internet, VPN, and NAT gateways
+-   VPC Connection Peering and route creations (note: update and deletion are not supported yet)
+-   Alarm notifications
+
+Updating an environment:
+
+    disco_vpc_ui.py update --name test
+
+The `update` command also supports dry-run mode, in which resulting updates are printed out in
+the console but not actually made to the environment. The dry-run mode is activated using the
+`--dry-run` flag:
+
+    disco_vpc_ui.py update --name test --dry-run
 
 ### Destroying an Active Environment
 
@@ -1063,6 +1086,29 @@ ranges can also be defined with `intranet_cidr`, `tunnel_cidr`,
     Usually the problem is not as severe as there are only 2-4
     Availability zones per region.
 
+##### Dynamic IP ranges
+
+The IP range for a VPC can also be dynamically alocated with the `ip_space` and `vpc_cidr_size` options. For example:
+
+    [envtype:sandbox]
+    ip_space=10.0.0.0/16
+    vpc_cidr_size=20
+    
+A random IP range of size `vpc_cidr_size` inside of `ip_space` will be allocated for the VPC.
+The IP range chosen will not overlap with any existing VPCs or, if its not possible, an error will be thrown.
+
+In the same way, the IP range of the metaworks can be dynamically allocated
+by specifying `auto` for the metanetwork cidr options. For example:
+
+    [envtype:sandbox]
+    intranet_cidr=auto
+    tunnel_cidr=auto
+    maintenance_cidr=auto
+    dmz_cidr=10.0.1.0/24
+
+The IP range of the VPC will be automatically divided to allocate the metanetworks. 
+The `auto` option can be used together with statically defined IP ranges for different metanetworks. 
+
 #### Security Group (firewall) Settings
 
 Each metanetwork have many Security Group rules associated with it. Each
@@ -1093,8 +1139,8 @@ Opening ports for customers using `{$my_metanetwork}_sg_rules` is somewhat
 cumbersome. As customers can only talk to DMZ metanetwork, ports need to be
 openeded on both intranet and DMZ. A shortcut is provided to make this easier:
 
-	customer_ports=443,80
-	customer_cidr=0.0.0.0/0
+    customer_ports=443,80
+    customer_cidr=0.0.0.0/0
 
 This will open port 443 and 80 to DMZ from internet, and also open the same
 ports from DMZ to intranet. This way DMZ load balancer can both serve customer
@@ -1132,6 +1178,16 @@ to instances on boot with DHCP. We expose a smaller subset of these:
 We use AWS resolver by specifying AmazonProvidedDNS for internal_dns
 and external_dns, alternatively the APIPA address 169.254.169.253 can
 be used.
+
+##### NTP server by offset.
+
+NTP server can also be [assigned by metanetwork offset](#assigning-private-ips):
+
+    ntp_server_metanetwork=tunnel
+    ntp_server_offset=+5
+
+For this to work the ntp_sever option must not be specified, as it takes
+presidence.
 
 #### DirectConnect / VPN Gateway
 
@@ -1232,9 +1288,31 @@ nature the way amazon maps subnets to specific availability zones any
 instance with a static IP gets locked into one arbitrary availability
 zone.
 
-Just like with EIPs the `@` notation (see above) can be used to assign
-different private static IP to instance in different IPs.
+There are two ways to assign static private IP. By metanetwork (subnet)
+offset and absolute IP address. The latter is straight forward:
 
+    [myhostclass]
+    ...
+    private_ip=10.0.0.5
+    ...
+
+But setting absolute IPs can very quickly become bothersome. If you have
+5 different environments with different ip spaces you'd have to explicitly
+set eip for each environment using the `@` notation (same as in EIP example
+above). So instead you can use the metanetwork offset, that is, specify
+that a host should take the 5th ip from the beginning of the metanetwork range:
+
+    [myhostclass]
+    ...
+    private_ip=+5
+    ...
+
+With this configuration host will be assigned private ip 10.0.0.5 in a
+10.0.0.0/16 network and 192.168.0.5 in a 192.168.0.0/16.
+
+WARNING! Setting a private IP on an instance will lock it a single
+Availability Zone. This is a limitation of AWS' subnets, they cannot
+span multiple Availability Zones.
 
 EBS Snapshots
 -------------
@@ -1674,8 +1752,8 @@ Options:
 -   `elb_health_check_url` [Default /] The heartbeat end-point to test instance health
 -   `elb_instance_port` [Default=80] The port number that your services are running on
 -   `elb_instance_protocol` [Default inferred from port] HTTP | HTTPS | SSL | TCP
--   `elb_port` [Default=80] The port number to expose in the ELB
--   `elb_protocol` [Default inferred from port] HTTP | HTTPS | SSL | TCP
+-   `elb_port` [Default=80] Comma separated list of port numbers to expose in the ELB.
+-   `elb_protocol` [Default inferred from port] Comma separated list of protocols to expose from ELB. The protocols should be in the same order as the ELB ports. HTTP | HTTPS | SSL | TCP
 -   `elb_public` [Default no] yes | no Should the ELB have a publicly routable IP
 -   `elb_sticky_app_cookie` [Optional] Enable sticky sessions by setting the session cookie of your application
 -   `elb_idle_timeout` [Default=300] Timeout before ELB kills idle connections
@@ -1842,7 +1920,7 @@ List cache clusters from ElastiCache
 
     disco_elasticache.py [--env ENV] list
 
-Create/update the clusters in a environment from the `disco_elasticache.ini config
+Create/update the clusters in a environment from the `disco_elasticache.ini` config
 
     disco_elasticache.py [--env ENV] update [--cluster CLUSTER]
 
@@ -1926,6 +2004,59 @@ The CNAME provided by Route 53 can also be used:
 
 NOTE: When using CNAME, certificate will show as invalid because it was issued for *.us-west-2.es.amazonaws.com.
 
+RDS
+-------------------
+
+RDS provides databases as a service. Creating a new database instances with Asiaq involves
+editing the `disco_rds.ini` config file and running `disco_rds.py`. Route53 CNAMEs are automatically created for each RDS instance
+
+
+### Configuration
+The following configuration is available for RDS. A section is needed for each RDS instance in every VPC. The section names are formatted as `[VPC Name]-[Database Name]`
+
+    [ci-foodb]
+    allocated_storage=100
+    db_instance_class=db.m4.2xlarge
+    engine=oracle-se2
+    engine_version=12.1.0.2.v2
+    iops=1000
+    master_username=masteruser
+    port=1521
+    storage_encrypted=True
+    multi_az=True
+Options:
+
+-   `allocated_storage` Database size in GB
+-   `db_instance_class` The instance type to use for database instances
+-   `engine` The type of database such as Oracle or Postgres
+-   `engine_version` The database version to use
+-   `iops` Provisioned IOPS
+-   `master_username` Master username for connecting to the database
+-   `port` [Default 5432 for Postgres, 1521 for Oracle]
+-   `storage_encrypted` [Default True]
+-   `multi_az` [Default True]
+
+### Commands for managing RDS
+List RDS instances for an environment. Optionally display database URL.
+
+    disco_rds.py list [--env ENV] [--url]
+
+Create/update the RDS clusters in a environment from the `disco_rds.ini` config. Updates all RDS clusters in an environment by default or optionally specify a cluster to update.
+
+    disco_rds.py update [--env ENV] [--cluster CLUSTER]
+
+Delete a RDS cluster.
+
+    disco_rds.py delete [--env ENV] [--cluster CLUSTER] [--skip-final-snapshot]
+
+Delete old database snapshots.
+
+    disco_rds.py cleanup_snapshots [--env ENV] [--age DAYS]
+
+Clone a database from a different environment into the current environment. The new database will copy all configuration options from the source database and use the most recent database snapshot from source database.
+
+    disco_rds.py clone [--env ENV] --source-db SOURCE_DB --source-env SOURCE_ENV
+
 Testing Hostclasses
 -------------------
 
@@ -1942,12 +2073,13 @@ Configuration of integration tests is spread across two places, ```disco_aws.ini
 
 ##### disco_aws.ini
 
-There are three configuration options for integration tests in ```disco_aws.ini```.
+There are a few configuration options for integration tests in ```disco_aws.ini```.
 
 ```ini
 test_hostclass=mhcfootest
 test_user=integration_tester
 test_command=/opt/asiaq/bin/run_tests.sh
+deployment_strategy=classic # One of [classic, blue_green]
 ```
 
 * test_hostclass
@@ -1956,6 +2088,8 @@ test_command=/opt/asiaq/bin/run_tests.sh
   * The user to execute ```test_command``` as.
 * test_command
   * The command to execute the tests on ```test_hostclass``` as the ```test_user```. Typically a shell script with some logic for handling the test argument that is passed to it. The exit code of this command determines whether or not the integration tests were successful.
+* deployment_strategy
+  * The deployment strategy to use when deploying a new AMI. Either ```classic``` or ```blue_green```. The default is currently ```classic```.
 
 These options can be specified in two places in ```disco_aws.ini```, in the ```[test]``` section or in a given hostclass' section. Below is an example of specifying defaults in the ```[test]``` section and overriding them for the mhcfoo hostclass.
 
@@ -1970,9 +2104,10 @@ test_command=/opt/asiaq/bin/run_tests.sh
 
 [mhcfoo]
 test_hostclass=mhcfootests
+deployment_strategy=blue_green
 ```
 
-In this example, we set defaults in the ```[test]``` section for all hostclasses. Then ```[mhcfoo]``` overrides those defaults to specify a different test_hostclass for itself.
+In this example, we set defaults in the ```[test]``` section for all hostclasses. Then ```[mhcfoo]``` overrides those defaults to specify a different test_hostclass and deployment_strategy for itself.
 
 
 ##### Pipeline
@@ -1992,3 +2127,24 @@ sequence,hostclass,min_size,desired_size,max_size,instance_type,extra_disk,iops,
 
 In the above pipeline, mhcbar will be integration tested by passing ```mhcbar_integration``` as the argument to the ```test_command``` on the generic ```test_hostclass``` defined in our example ```disco_aws.ini``` above. In contrast, mhcfoo will be integration tested by passing ```mhcfoo_integration``` as the argument to the ```test_command``` on it's specially defined ```test_hostclass```. And because mhcnointegrationtests left the ```integration_test``` column empty, no integration tests will be run for it.
 
+#### Deployment Strategies
+
+##### Classic
+
+Classic deployment strategy is used by default. Instances with a new AMI are spun up in the existing ASG and automatically added to the existing nerve and ELB groups. There are a number of problems with this strategy, so it is slated for deprecation and removal soon. Let us speak no more of it.
+
+##### Blue/Green
+
+Blue/Green deployment strategy is currentlt opt-in only.
+
+The process is as follows:
+
+* A new ASG is created with an 'is_testing' tag and attached to a dedicated 'testing' ELB.
+* After waiting for smoke tests, integration tests are run against the isolated 'testing' ASG.
+  * ASG is isolated because it is attached to a separate ELB, a separate Nerve group, and its services should respect the 'is_testing' tag.
+* After integration tests pass, the instances in the new ASG are taken out of testing mode by executing `sudo /etc/asiaq/bin/testing_mode.sh off` as the `test_user`.
+  * Exiting testing mode should restore the nerve configs to their proper groups as well as grabbing ENIs/EIPs/etc.
+* After exiting test mode, the new ASG is attached to the normal ELB and the deploy process pauses until the ELB registers and marks the new instances as healthy.
+* After the new instances are marked as Healthy by the ELB, the old ASG is destroyed.
+
+If at any point there is a problem, the new ASG and testing ELB will be destroyed. Service to the original ASG and ELB should not be interrupted.
