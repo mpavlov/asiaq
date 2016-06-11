@@ -116,7 +116,7 @@ class DiscoVPCEndpoints(object):
         """
         Create/Update all VPC endpoints
         """
-        self.update_s3(dry_run)
+        self.update_s3(dry_run=dry_run)
 
     def delete(self, dry_run=False):
         """
