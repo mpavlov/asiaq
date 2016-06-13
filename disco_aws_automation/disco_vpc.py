@@ -451,7 +451,7 @@ class DiscoVPC(object):
                 self.boto3_ec2.delete_network_interface(NetworkInterfaceId=interface['NetworkInterfaceId'])
 
         # Keep trying because delete could fail for reasons based on interface's state
-        keep_trying(300, _destroy)
+        keep_trying(600, _destroy)
 
     def _destroy_subnets(self):
         """ Find all subnets belonging to a vpc and destroy them"""
