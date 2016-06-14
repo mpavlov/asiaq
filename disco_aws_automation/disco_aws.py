@@ -289,7 +289,7 @@ class DiscoAWS(object):
                 elb_subnets = self.get_subnets(elb_meta_network, hostclass)
                 subnet_ids = [subnet['SubnetId'] for subnet in elb_subnets]
 
-            elb_port = int(self.hostclass_option_default(hostclass, "elb_port", 80))
+            elb_port = self.hostclass_option_default(hostclass, "elb_port", 80)
             elb_protocol = self.hostclass_option_default(hostclass, "elb_protocol", None) or \
                 self._default_protocol_for_port(elb_port)
             instance_port = int(self.hostclass_option_default(hostclass, "elb_instance_port", 80))
@@ -303,7 +303,7 @@ class DiscoAWS(object):
                 hosted_zone_name=self.hostclass_option_default(hostclass, "domain_name"),
                 health_check_url=self.hostclass_option_default(hostclass, "elb_health_check_url"),
                 instance_protocol=instance_protocol, instance_port=instance_port,
-                elb_protocol=elb_protocol, elb_port=elb_port,
+                elb_protocols=elb_protocol, elb_ports=elb_port,
                 elb_public=is_truthy(self.hostclass_option_default(hostclass, "elb_public", "no")),
                 sticky_app_cookie=self.hostclass_option_default(hostclass, "elb_sticky_app_cookie", None),
                 idle_timeout=int(self.hostclass_option_default(hostclass, "elb_idle_timeout", 300)),
@@ -314,7 +314,7 @@ class DiscoAWS(object):
             )
 
         if update_autoscaling:
-            self.autoscale.update_elb(hostclass, [elb['LoadBalancerName']] if elb else [])
+            self.autoscale.update_elb([elb['LoadBalancerName']] if elb else [], hostclass=hostclass)
 
         return elb
 
@@ -516,7 +516,8 @@ class DiscoAWS(object):
         if filters:
             combined_filters.update(filters)
         if self.vpc:
-            combined_filters.update(self.vpc.vpc_filter())
+            vpc_filter = {tag.get('Name'): tag.get('Values')[0] for tag in self.vpc.vpc_filters()}
+            combined_filters.update(vpc_filter)
         reservations = keep_trying(
             60, self.connection.get_all_instances,
             filters=combined_filters, instance_ids=instance_ids

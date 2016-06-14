@@ -635,7 +635,7 @@ Environments
 Environments created by Asiaq are separated out by VPCs.
 Each environment resides in its own VPC and has its own metanetworks,
 gateways, instances, and so on. All environment management is done with
-the disco_vpc.py tool.
+the disco_vpc_ui.py tool.
 
 ### Listing Active Environments
 
@@ -665,6 +665,28 @@ fits your purpose or define a new one.
 Creating environment:
 
     disco_vpc_ui.py create --type sandbox --name test
+
+### Updating an Active Environment
+
+Updating an active environment involves making changes to the corresponding environment type
+in the `disco_vpc.ini` file, and running the `disco_vpc_ui.py` tool. The `disco_vpc_ui.py`
+tool currently supports updating the following resources of an active environment:
+
+-   Security Group Rules
+-   NAT gateways creation and deletion (note: update to NAT gateway EIPs is not supported yet)  
+-   Routes to Internet, VPN, and NAT gateways
+-   VPC Connection Peering and route creations (note: update and deletion are not supported yet)
+-   Alarm notifications
+
+Updating an environment:
+
+    disco_vpc_ui.py update --name test
+
+The `update` command also supports dry-run mode, in which resulting updates are printed out in
+the console but not actually made to the environment. The dry-run mode is activated using the
+`--dry-run` flag:
+
+    disco_vpc_ui.py update --name test --dry-run
 
 ### Destroying an Active Environment
 
@@ -1117,8 +1139,8 @@ Opening ports for customers using `{$my_metanetwork}_sg_rules` is somewhat
 cumbersome. As customers can only talk to DMZ metanetwork, ports need to be
 openeded on both intranet and DMZ. A shortcut is provided to make this easier:
 
-	customer_ports=443,80
-	customer_cidr=0.0.0.0/0
+    customer_ports=443,80
+    customer_cidr=0.0.0.0/0
 
 This will open port 443 and 80 to DMZ from internet, and also open the same
 ports from DMZ to intranet. This way DMZ load balancer can both serve customer
@@ -1749,8 +1771,8 @@ Options:
 -   `elb_health_check_url` [Default /] The heartbeat end-point to test instance health
 -   `elb_instance_port` [Default=80] The port number that your services are running on
 -   `elb_instance_protocol` [Default inferred from port] HTTP | HTTPS | SSL | TCP
--   `elb_port` [Default=80] The port number to expose in the ELB
--   `elb_protocol` [Default inferred from port] HTTP | HTTPS | SSL | TCP
+-   `elb_port` [Default=80] Comma separated list of port numbers to expose in the ELB.
+-   `elb_protocol` [Default inferred from port] Comma separated list of protocols to expose from ELB. The protocols should be in the same order as the ELB ports. HTTP | HTTPS | SSL | TCP
 -   `elb_public` [Default no] yes | no Should the ELB have a publicly routable IP
 -   `elb_sticky_app_cookie` [Optional] Enable sticky sessions by setting the session cookie of your application
 -   `elb_idle_timeout` [Default=300] Timeout before ELB kills idle connections

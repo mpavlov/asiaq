@@ -3,32 +3,22 @@
 import unittest
 
 from mock import MagicMock, patch, PropertyMock
+
 from disco_aws_automation import DiscoVPC
 from test.helpers.patch_disco_aws import get_mock_config
-from test.helpers.matchers import MatchClass
-
-
-def create_vpc_mock(env_name, env_type):
-    """vpc mock"""
-    vpc = MagicMock()
-    vpc.tags = {
-        'Name': env_name,
-        'type': env_type
-    }
-
-    return vpc
 
 
 class DiscoVPCTests(unittest.TestCase):
     """Test DiscoVPC"""
 
     # pylint: disable=unused-argument
+    @patch('disco_aws_automation.disco_vpc.DiscoVPCEndpoints')
     @patch('disco_aws_automation.disco_vpc.DiscoVPC.config', new_callable=PropertyMock)
-    @patch('disco_aws_automation.disco_vpc.VPCConnection')
-    def test_create_meta_networks(self, vpc_conn_mock, config_mock):
+    @patch('disco_aws_automation.disco_vpc.DiscoMetaNetwork')
+    def test_create_meta_networks(self, meta_network_mock, config_mock, endpoints_mock):
         """Test creating meta networks with dynamic ip ranges"""
-        vpc_mock = MagicMock()
-        vpc_mock.cidr_block = '10.0.0.0/28'
+        vpc_mock = {'CidrBlock': '10.0.0.0/28',
+                    'VpcId': 'mock_vpc_id'}
 
         config_mock.return_value = get_mock_config({
             'envtype:auto-vpc-type': {
@@ -40,6 +30,16 @@ class DiscoVPCTests(unittest.TestCase):
             }
         })
 
+        def _create_meta_network_mock(network_name, vpc, cidr):
+            ret = MagicMock()
+            ret.name = network_name
+            ret.vpc = vpc
+            ret.network_cidr = cidr
+
+            return ret
+
+        meta_network_mock.side_effect = _create_meta_network_mock
+
         auto_vpc = DiscoVPC('auto-vpc', 'auto-vpc-type', vpc_mock)
 
         meta_networks = auto_vpc._create_new_meta_networks()
@@ -50,13 +50,13 @@ class DiscoVPCTests(unittest.TestCase):
 
         self.assertItemsEqual(actual_ip_ranges, expected_ip_ranges)
 
-    # pylint: disable=unused-argument
+    @patch('disco_aws_automation.disco_vpc.DiscoVPCEndpoints')
     @patch('disco_aws_automation.disco_vpc.DiscoVPC.config', new_callable=PropertyMock)
-    @patch('disco_aws_automation.disco_vpc.VPCConnection')
-    def test_create_meta_networks_static_dynamic(self, vpc_conn_mock, config_mock):
+    @patch('disco_aws_automation.disco_vpc.DiscoMetaNetwork')
+    def test_create_meta_networks_static_dynamic(self, meta_network_mock, config_mock, endpoints_mock):
         """Test creating meta networks with a mix of static and dynamic ip ranges"""
-        vpc_mock = MagicMock()
-        vpc_mock.cidr_block = '10.0.0.0/28'
+        vpc_mock = {'CidrBlock': '10.0.0.0/28',
+                    'VpcId': 'mock_vpc_id'}
 
         config_mock.return_value = get_mock_config({
             'envtype:auto-vpc-type': {
@@ -67,6 +67,16 @@ class DiscoVPCTests(unittest.TestCase):
                 'maintenance_cidr': 'auto'
             }
         })
+
+        def _create_meta_network_mock(network_name, vpc, cidr):
+            ret = MagicMock()
+            ret.name = network_name
+            ret.vpc = vpc
+            ret.network_cidr = cidr
+
+            return ret
+
+        meta_network_mock.side_effect = _create_meta_network_mock
 
         auto_vpc = DiscoVPC('auto-vpc', 'auto-vpc-type', vpc_mock)
 
@@ -79,14 +89,17 @@ class DiscoVPCTests(unittest.TestCase):
         self.assertItemsEqual(actual_ip_ranges, expected_ip_ranges)
 
     # pylint: disable=unused-argument
+    @patch('disco_aws_automation.disco_vpc.DiscoVPCEndpoints')
     @patch('disco_aws_automation.disco_vpc.DiscoSNS')
+    @patch('disco_aws_automation.disco_vpc.DiscoVPCGateways')
     @patch('time.sleep')
-    @patch('disco_aws_automation.disco_vpc.DiscoVPC._wait_for_vgw_states')
     @patch('disco_aws_automation.disco_vpc.DiscoVPC.config', new_callable=PropertyMock)
-    @patch('disco_aws_automation.disco_vpc.VPCConnection')
-    @patch('disco_aws_automation.disco_metanetwork.DiscoSubnet')
-    def test_create_auto_vpc(self, subnet_mock, vpc_conn_mock, config_mock,
-                             _wait_vgw_states_mock, sleep_mock, sns_mock):
+    @patch('boto3.client')
+    @patch('boto3.resource')
+    @patch('disco_aws_automation.disco_vpc.DiscoMetaNetwork')
+    def test_create_auto_vpc(self, meta_network_mock, boto3_resource_mock,
+                             boto3_client_mock, config_mock,
+                             sleep_mock, gateways_mock, sns_mock, endpoints_mock):
         """Test creating a VPC with a dynamic ip range"""
         # FIXME This needs to mock way too many things. DiscoVPC needs to be refactored
 
@@ -102,69 +115,18 @@ class DiscoVPCTests(unittest.TestCase):
             }
         })
 
-        def _create_vpc_mock(cidr):
-            vpc = MagicMock()
-            vpc.cidr_block = cidr
-            vpc.connection = vpc_conn_mock.return_value
-            return vpc
+        # pylint: disable=C0103
+        def _create_vpc_mock(CidrBlock):
+            return {'Vpc': {'CidrBlock': CidrBlock,
+                            'VpcId': 'mock_vpc_id'}}
 
-        vpc_conn_mock.return_value.create_vpc.side_effect = _create_vpc_mock
-        vpc_conn_mock.return_value.get_all_zones.return_value = [MagicMock()]
+        client_mock = MagicMock()
+        client_mock.create_vpc.side_effect = _create_vpc_mock
+        client_mock.get_all_zones.return_value = [MagicMock()]
+        client_mock.describe_dhcp_options.return_value = {'DhcpOptions': [MagicMock()]}
+        boto3_client_mock.return_value = client_mock
 
         auto_vpc = DiscoVPC('auto-vpc', 'auto-vpc-type')
 
         possible_vpcs = ['10.0.0.0/26', '10.0.0.64/26', '10.0.0.128/26', '10.0.0.192/26']
-        self.assertIn(str(auto_vpc.vpc.cidr_block), possible_vpcs)
-
-    @patch('disco_aws_automation.disco_vpc.DiscoVPC.config', new_callable=PropertyMock)
-    def test_parse_peering_connection(self, config_mock):
-        """test parsing a simple peering connection line"""
-        config_mock.return_value = get_mock_config({
-            'envtype:sandbox': {
-                'vpc_cidr': '10.0.0.0/16',
-                'intranet_cidr': 'auto'
-            }
-        })
-
-        existing_vpc = [create_vpc_mock('env1', 'sandbox'),
-                        create_vpc_mock('env2', 'sandbox')]
-
-        result = DiscoVPC.parse_peering_connection_line('env1:sandbox/intranet env2:sandbox/intranet',
-                                                        existing_vpc)
-
-        peering_info = result['env1:sandbox/intranet env2:sandbox/intranet']
-
-        self.assertEquals(peering_info['vpc_metanetwork_map'], {'env1': 'intranet', 'env2': 'intranet'})
-        self.assertEquals(peering_info['vpc_map'], {'env1': MatchClass(DiscoVPC),
-                                                    'env2': MatchClass(DiscoVPC)})
-
-    @patch('disco_aws_automation.disco_vpc.DiscoVPC.config', new_callable=PropertyMock)
-    def test_parse_peering_connection_wildcards(self, config_mock):
-        """test parsing a peering connection line with wildcards"""
-        config_mock.return_value = get_mock_config({
-            'envtype:sandbox': {
-                'vpc_cidr': '10.0.0.0/16',
-                'intranet_cidr': 'auto'
-            }
-        })
-
-        existing_vpc = [create_vpc_mock('env1', 'sandbox'),
-                        create_vpc_mock('env2', 'sandbox'),
-                        create_vpc_mock('env3', 'sandbox')]
-
-        result = DiscoVPC.parse_peering_connection_line('*:sandbox/intranet env3:sandbox/intranet',
-                                                        existing_vpc)
-
-        self.assertEquals(2, len(result))
-
-        peering_info1 = result['env1:sandbox/intranet env3:sandbox/intranet']
-
-        self.assertEquals(peering_info1['vpc_metanetwork_map'], {'env1': 'intranet', 'env3': 'intranet'})
-        self.assertEquals(peering_info1['vpc_map'], {'env1': MatchClass(DiscoVPC),
-                                                     'env3': MatchClass(DiscoVPC)})
-
-        peering_info2 = result['env2:sandbox/intranet env3:sandbox/intranet']
-
-        self.assertEquals(peering_info2['vpc_metanetwork_map'], {'env2': 'intranet', 'env3': 'intranet'})
-        self.assertEquals(peering_info2['vpc_map'], {'env2': MatchClass(DiscoVPC),
-                                                     'env3': MatchClass(DiscoVPC)})
+        self.assertIn(str(auto_vpc.vpc['CidrBlock']), possible_vpcs)

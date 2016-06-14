@@ -12,13 +12,21 @@ from test.helpers.patch_disco_aws import get_mock_config
 TEST_ENV_NAME = 'unittestenv'
 TEST_VPC_ID = 'vpc-56e10e3d'  # the hard coded VPC Id that moto will always return
 
+MOCK_SG_GROUP_ID = 'mock_sg_group_id'
+
 
 def _get_vpc_mock():
     """Nastily copied from test_disco_elb"""
     vpc_mock = MagicMock()
     vpc_mock.environment_name = TEST_ENV_NAME
-    vpc_mock.vpc = MagicMock()
-    vpc_mock.vpc.id = TEST_VPC_ID
+    vpc_mock.get_all_subnets.return_value = [
+        {
+            'SubnetId': 'mock_subnet_id',
+            'Tags': [
+                {'Key': 'meta_network', 'Value': 'intranet'}
+            ]
+        }
+    ]
     return vpc_mock
 
 
@@ -41,24 +49,35 @@ def _get_bucket_mock():
     return bucket
 
 
+def _get_vpc_sg_rules_mock():
+    vpc_sg_rules_mock = MagicMock()
+    vpc_sg_rules_mock.get_all_security_groups_for_vpc.return_value = [{
+        'GroupId': MOCK_SG_GROUP_ID,
+        'Tags': [{'Key': 'meta_network', 'Value': 'intranet'}]}]
+
+    return vpc_sg_rules_mock
+
+
 class DiscoRDSTests(unittest.TestCase):
     """Test DiscoRDS class"""
 
     def setUp(self):
-        self.rds = DiscoRDS(_get_vpc_mock())
-        self.rds.client = MagicMock()
-        self.rds.get_rds_security_group_id = MagicMock(return_value='fake_security_id')
-        self.rds.config_rds = get_mock_config({
-            'some-env-db-name': {
-                'engine': 'oracle',
-                'allocated_storage': '100',
-                'db_instance_class': 'db.m4.2xlarge',
-                'engine_version': '12.1.0.2.v2',
-                'master_username': 'foo'
+        with patch('disco_aws_automation.disco_rds.DiscoVPCSecurityGroupRules',
+                   return_value=_get_vpc_sg_rules_mock()):
 
-            }
-        })
-        self.rds.domain_name = 'example.com'
+            self.rds = DiscoRDS(_get_vpc_mock())
+            self.rds.client = MagicMock()
+            self.rds.config_rds = get_mock_config({
+                'some-env-db-name': {
+                    'engine': 'oracle',
+                    'allocated_storage': '100',
+                    'db_instance_class': 'db.m4.2xlarge',
+                    'engine_version': '12.1.0.2.v2',
+                    'master_username': 'foo'
+
+                }
+            })
+            self.rds.domain_name = 'example.com'
 
     def test_get_db_parameter_group_family(self):
         """Tests that get_db_parameter_group_family handles all the expected cases"""
@@ -130,3 +149,14 @@ class DiscoRDSTests(unittest.TestCase):
                                                                     'unittestenv-db-name.example.com.',
                                                                     'CNAME',
                                                                     'foo.example.com')
+
+        self.rds.client.create_db_subnet_group.assert_called_once_with(
+            DBSubnetGroupDescription='Subnet Group for VPC unittestenv',
+            DBSubnetGroupName='unittestenv-db-name',
+            SubnetIds=['mock_subnet_id'])
+
+    def test_get_rds_security_group_id(self):
+        """ Verify security group ID is retrieved correctly """
+        sg_group_id = self.rds.get_rds_security_group_id()
+
+        self.assertEqual(MOCK_SG_GROUP_ID, sg_group_id)
