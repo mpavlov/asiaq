@@ -134,9 +134,10 @@ class DiscoSubnet(object):
                 'VpcPeeringConnectionId': peering_conn_id
             }
 
+            # VpcEndpoints dont have DestinationCidrBlock, skip them!
             peering_routes_for_cidr = [
                 _ for _ in self.route_table['Routes']
-                if _['DestinationCidrBlock'] == cidr
+                if 'DestinationCidrBlock' in _ and _['DestinationCidrBlock'] == cidr
             ]
 
             if not peering_routes_for_cidr:

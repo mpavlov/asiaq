@@ -133,9 +133,10 @@ class DiscoRDS(object):
         """
         security_groups = self.disco_vpc_sg_rules.get_all_security_groups_for_vpc()
         for security_group in security_groups:
-            tags = tag2dict(security_group['Tags'])
-            if tags.get("meta_network") == "intranet":
-                return security_group['GroupId']
+            if security_group.get('Tags'):
+                tags = tag2dict(security_group['Tags'])
+                if tags.get("meta_network") == "intranet":
+                    return security_group['GroupId']
 
         raise RuntimeError('Security group for intranet meta network is missing.')
 
