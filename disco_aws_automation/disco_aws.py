@@ -18,7 +18,6 @@ from boto.exception import EC2ResponseError
 from .disco_log_metrics import DiscoLogMetrics
 from .disco_elb import DiscoELB
 from .disco_alarm import DiscoAlarm
-from .disco_alarm_config import DiscoAlarmsConfig
 from .disco_autoscale import DiscoAutoscale
 from .disco_aws_util import (
     is_truthy,
@@ -58,7 +57,7 @@ class DiscoAWS(object):
     # Too many arguments, but we want to mock a lot of things out, so...
     # pylint: disable=too-many-arguments
     def __init__(self, config, environment_name, boto2_conn=None, vpc=None, remote_exec=None, storage=None,
-                 autoscale=None, elb=None, log_metrics=None, alarm_configs=None, alarms=None):
+                 autoscale=None, elb=None, log_metrics=None, alarms=None):
         self.environment_name = environment_name
         self._config = config
         self._project_name = self._config.get("disco_aws", "project_name")
@@ -69,7 +68,6 @@ class DiscoAWS(object):
         self._autoscale = autoscale or None  # lazily initialized
         self._elb = elb or None  # lazily initialized
         self._log_metrics = log_metrics or None  # lazily initialized
-        self._alarm_configs = alarm_configs or None  # lazily initialized
         self._alarms = alarms or None  # lazily initialized
 
     @property
@@ -111,15 +109,8 @@ class DiscoAWS(object):
     def alarms(self):
         """Lazily creates alarms object for our current VPC"""
         if not self._alarms:
-            self._alarms = DiscoAlarm()
+            self._alarms = DiscoAlarm(self.environment_name)
         return self._alarms
-
-    @property
-    def alarm_configs(self):
-        """Lazily creates alarm config object for our current VPC"""
-        if not self._alarm_configs:
-            self._alarm_configs = DiscoAlarmsConfig(self.environment_name)
-        return self._alarm_configs
 
     @property
     def vpc(self):
@@ -429,8 +420,7 @@ class DiscoAWS(object):
 
         # Create alarms and custom metrics for the hostclass, if is not being used for testing
         if not testing:
-            hostclass_alarms = self.alarm_configs.get_alarms(hostclass, group.name)
-            self.alarms.create_alarms(hostclass_alarms)
+            self.alarms.create_alarms(hostclass, group.name)
 
         logging.info("Spun up %s instances of %s from %s into group %s",
                      size_as_maximum_int_or_none(desired_size), hostclass, ami.id, group.name)

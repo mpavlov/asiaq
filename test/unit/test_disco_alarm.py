@@ -28,7 +28,7 @@ class DiscoAlarmTests(TestCase):
         self.cloudwatch_mock = mock_cloudwatch()
         self.cloudwatch_mock.start()
         disco_sns = DiscoSNS(account_id=ACCOUNT_ID)
-        self.alarm = DiscoAlarm(disco_sns)
+        self.alarm = DiscoAlarm(ENVIRONMENT, disco_sns=disco_sns)
 
     def tearDown(self):
         self.alarm.cloudwatch.delete_alarms(
@@ -76,9 +76,9 @@ class DiscoAlarmTests(TestCase):
         self.assertEqual(0, self._alarm_count())
         metric_alarm = self._make_alarm().to_metric_alarm(TOPIC_ARN)
         logging.debug("metric_alarm: %s", metric_alarm)
-        self.alarm.upsert_alarm(metric_alarm)
+        self.alarm._upsert_alarm(metric_alarm)
         self.assertEqual(1, self._alarm_count())
-        self.alarm.upsert_alarm(metric_alarm)
+        self.alarm._upsert_alarm(metric_alarm)
         self.assertEqual(1, self._alarm_count())
 
     def test_create_delete_alarms(self):
@@ -91,6 +91,7 @@ class DiscoAlarmTests(TestCase):
             self._make_alarm()
             for _ in range(0, number_of_alarms)
         ]
+        self.alarm.alarm_configs.get_alarms = MagicMock(return_value=alarms)
         logging.debug("alarms: %s", alarms)
         self.alarm.create_alarms(alarms)
         self.assertEqual(number_of_alarms, self._alarm_count())
@@ -102,17 +103,17 @@ class DiscoAlarmTests(TestCase):
         """
         Deletion by hostclass name
         """
-        self.alarm.upsert_alarm(self._make_alarm(hostclass="hcfoo").to_metric_alarm(TOPIC_ARN))
-        self.alarm.upsert_alarm(self._make_alarm(hostclass="hcfoo").to_metric_alarm(TOPIC_ARN))
-        self.alarm.upsert_alarm(self._make_alarm(hostclass="hcbar").to_metric_alarm(TOPIC_ARN))
+        self.alarm._upsert_alarm(self._make_alarm(hostclass="hcfoo").to_metric_alarm(TOPIC_ARN))
+        self.alarm._upsert_alarm(self._make_alarm(hostclass="hcfoo").to_metric_alarm(TOPIC_ARN))
+        self.alarm._upsert_alarm(self._make_alarm(hostclass="hcbar").to_metric_alarm(TOPIC_ARN))
         self.assertEqual(3, self._alarm_count())
         self.alarm.delete_hostclass_environment_alarms(ENVIRONMENT, "hcfoo")
         self.assertEqual(1, self._alarm_count())
 
     def test_get_alarms(self):
         """Test that get_alarms filter works"""
-        self.alarm.upsert_alarm(self._make_alarm(hostclass="hcfoo").to_metric_alarm(TOPIC_ARN))
-        self.alarm.upsert_alarm(self._make_alarm(hostclass="hcbar").to_metric_alarm(TOPIC_ARN))
+        self.alarm._upsert_alarm(self._make_alarm(hostclass="hcfoo").to_metric_alarm(TOPIC_ARN))
+        self.alarm._upsert_alarm(self._make_alarm(hostclass="hcbar").to_metric_alarm(TOPIC_ARN))
         self.assertEqual(2, len(self.alarm.get_alarms()))
         self.assertEqual(1, len(self.alarm.get_alarms({"hostclass": "hcfoo"})))
 

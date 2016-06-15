@@ -50,7 +50,7 @@ def run():
     hostclass = args.get("--hostclass")
     env = args.get("--env") or config.get("disco_aws", "default_environment")
     alarms_config = DiscoAlarmsConfig(env)
-    disco_alarm = DiscoAlarm()
+    disco_alarm = DiscoAlarm(env)
 
     if args["update_notifications"]:
         notifications = alarms_config.get_notifications()
@@ -58,8 +58,7 @@ def run():
     elif args["update_metrics"]:
         if delete:
             disco_alarm.delete_hostclass_environment_alarms(env, hostclass)
-        alarms = alarms_config.get_alarms(hostclass)
-        disco_alarm.create_alarms(alarms)
+        disco_alarm.create_alarms(hostclass)
     elif args["list"]:
         alarms = disco_alarm.get_alarms(
             {"env": env, "hostclass": hostclass} if hostclass else {"env": env})
