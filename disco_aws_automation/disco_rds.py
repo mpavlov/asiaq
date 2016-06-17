@@ -15,7 +15,6 @@ import botocore
 import pytz
 
 from . import read_config, ASIAQ_CONFIG
-from .disco_alarm_config import DiscoAlarmsConfig
 from .disco_alarm import DiscoAlarm
 from .disco_aws_util import is_truthy
 from .disco_creds import DiscoS3Bucket
@@ -195,10 +194,7 @@ class DiscoRDS(object):
         Configure alarms for this RDS instance. The alarms are configured in disco_alarms.ini
         """
         logging.debug("Configuring Cloudwatch alarms ")
-        disco_alarm_config = DiscoAlarmsConfig(self.vpc_name)
-        disco_alarm = DiscoAlarm()
-        instance_alarms = disco_alarm_config.get_alarms(database_name)
-        disco_alarm.create_alarms(instance_alarms)
+        DiscoAlarm(self.vpc_name).create_alarms(database_name)
 
     def update_all_clusters_in_vpc(self):
         """
