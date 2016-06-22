@@ -59,7 +59,7 @@ def _get_ec2_conn_mock(test_disco_subnet):
 
     def _mock_describe_route_tables(*_, **__):
         if test_disco_subnet.route_table:
-            return {'RouteTables': [test_disco_subnet.route_table]}
+            return {'RouteTables': [copy.deepcopy(test_disco_subnet.route_table)]}
         else:
             return {'RouteTables': []}
 
