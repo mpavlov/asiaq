@@ -18,20 +18,21 @@ from netaddr import IPNetwork, IPSet
 from disco_aws_automation.network_helper import calc_subnet_offset
 from . import normalize_path
 
-from .resource_helper import (tag2dict, create_filters)
-from .disco_log_metrics import DiscoLogMetrics
 from .disco_alarm import DiscoAlarm
 from .disco_alarm_config import DiscoAlarmsConfig
 from .disco_autoscale import DiscoAutoscale
 from .disco_constants import CREDENTIAL_BUCKET_TEMPLATE, NETWORKS
+from .disco_elasticache import DiscoElastiCache
+from .disco_elb import DiscoELB
+from .disco_log_metrics import DiscoLogMetrics
 from .disco_metanetwork import DiscoMetaNetwork
-from .disco_vpc_sg_rules import DiscoVPCSecurityGroupRules
+from .disco_rds import DiscoRDS
+from .disco_sns import DiscoSNS
+from .disco_vpc_endpoints import DiscoVPCEndpoints
 from .disco_vpc_gateways import DiscoVPCGateways
 from .disco_vpc_peerings import DiscoVPCPeerings
-from .disco_elasticache import DiscoElastiCache
-from .disco_sns import DiscoSNS
-from .disco_rds import DiscoRDS
-from .disco_elb import DiscoELB
+from .disco_vpc_sg_rules import DiscoVPCSecurityGroupRules
+from .resource_helper import (tag2dict, create_filters, keep_trying)
 from .exceptions import (
     MultipleVPCsForVPCNameError, VPCConfigError, VPCEnvironmentError,
     VPCNameNotFound)
@@ -52,10 +53,13 @@ class DiscoVPC(object):
 
         self.environment_name = environment_name
         self.environment_type = environment_type
-        self._config = None  # lazily initialized
-        self._region = None  # lazily initialized
-        self._networks = None  # lazily initialized
-        self._alarms_config = None  # lazily initialized
+
+        # Lazily initialized
+        self._config = None
+        self._region = None
+        self._networks = None
+        self._alarms_config = None
+        self._disco_vpc_endpoints = None
 
         if boto3_ec2:
             self.boto3_ec2 = boto3_ec2
@@ -176,6 +180,18 @@ class DiscoVPC(object):
 
         tags = tag2dict(vpcs[0]['Tags'] if 'Tags' in vpcs[0] else None)
         return cls(tags.get("Name", '-'), tags.get("type", '-'), vpcs[0])
+
+    @property
+    def disco_vpc_endpoints(self):
+        """
+        Manage VPC endpoints
+        """
+        if not self._disco_vpc_endpoints:
+            self._disco_vpc_endpoints = DiscoVPCEndpoints(
+                vpc_id=self.get_vpc_id(),
+                boto3_ec2_client=self.boto3_ec2,
+            )
+        return self._disco_vpc_endpoints
 
     @property
     def networks(self):
@@ -316,27 +332,18 @@ class DiscoVPC(object):
         self.boto3_ec2.modify_vpc_attribute(
             VpcId=self.vpc['VpcId'], EnableDnsHostnames={'Value': True})
 
-        # Create metanetworks (subnets, route_tables and security groups)
         self._networks = self._create_new_meta_networks()
 
         dhcp_options = self._configure_dhcp()
         self.boto3_ec2.associate_dhcp_options(DhcpOptionsId=dhcp_options['DhcpOptionsId'],
                                               VpcId=self.vpc['VpcId'])
 
-        # Configure security group rules for all meta networks
         self.disco_vpc_sg_rules.update_meta_network_sg_rules()
-
-        # Setup internet gateway and VPN gateway
         self.disco_vpc_gateways.update_gateways_and_routes()
-
-        # Setup NAT gateways
         self.disco_vpc_gateways.update_nat_gateways_and_routes()
-
+        self.disco_vpc_endpoints.update()
         self.configure_notifications()
-
-        # Setup VPC peering connections
         self.disco_vpc_peerings.update_peering_connections()
-
         self.rds.update_all_clusters_in_vpc()
 
     def configure_notifications(self, dry_run=False):
@@ -377,6 +384,8 @@ class DiscoVPC(object):
         self.disco_vpc_gateways.update_gateways_and_routes(dry_run)
         logging.info("Updating NAT gateways and routes...")
         self.disco_vpc_gateways.update_nat_gateways_and_routes(dry_run)
+        logging.info("Updating VPC S3 endpoints...")
+        self.disco_vpc_endpoints.update(dry_run=dry_run)
         logging.info("Updating VPC peering connections...")
         self.disco_vpc_peerings.update_peering_connections(dry_run)
         logging.info("Updating alarm notifications...")
@@ -384,7 +393,7 @@ class DiscoVPC(object):
 
     def destroy(self):
         """ Delete all VPC resources in the right order and then delete the vpc itself """
-        DiscoAlarm().delete_environment_alarms(self.environment_name)
+        DiscoAlarm(self.environment_name).delete_environment_alarms(self.environment_name)
         self.log_metrics.delete_all_metrics()
         self.log_metrics.delete_all_log_groups()
         self._destroy_instances()
@@ -392,14 +401,19 @@ class DiscoVPC(object):
         self._destroy_rds()
         self.elasticache.delete_all_cache_clusters(wait=True)
         self.elasticache.delete_all_subnet_groups()
-        self.disco_vpc_sg_rules.destroy()
         self.disco_vpc_gateways.destroy_nat_gateways()
-        self._destroy_interfaces()
         self.disco_vpc_gateways.destroy_igw_and_detach_vgws()
+        self._destroy_interfaces()
+        self.disco_vpc_sg_rules.destroy()
         DiscoVPCPeerings.delete_peerings(self.get_vpc_id())
         self._destroy_subnets()
+        self.disco_vpc_endpoints.delete()
         self._destroy_routes()
         self._destroy_vpc()
+
+    def get_all_subnets(self):
+        """ Returns a list of all the subnets in the current VPC """
+        return self.boto3_ec2.describe_subnets(Filters=self.vpc_filters())['Subnets']
 
     def _destroy_instances(self):
         """ Find all instances in vpc and terminate them """
@@ -430,13 +444,14 @@ class DiscoVPC(object):
 
     def _destroy_interfaces(self):
         """ Deleting interfaces explicitly lets go of subnets faster """
-        for interface in self.boto3_ec2.describe_network_interfaces(
-                Filters=self.vpc_filters())["NetworkInterfaces"]:
-            try:
+        def _destroy():
+            for interface in self.boto3_ec2.describe_network_interfaces(
+                    Filters=self.vpc_filters())["NetworkInterfaces"]:
+
                 self.boto3_ec2.delete_network_interface(NetworkInterfaceId=interface['NetworkInterfaceId'])
-            except EC2ResponseError:
-                # Occasionally we get InvalidNetworkInterfaceID.NotFound, not sure why.
-                logging.exception("Skipping error deleting network.")
+
+        # Keep trying because delete could fail for reasons based on interface's state
+        keep_trying(600, _destroy)
 
     def _destroy_subnets(self):
         """ Find all subnets belonging to a vpc and destroy them"""

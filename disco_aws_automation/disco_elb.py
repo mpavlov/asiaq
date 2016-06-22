@@ -119,24 +119,26 @@ class DiscoELB(object):
                            'UnhealthyThreshold': 2,
                            'HealthyThreshold': 2})
 
-    def _setup_sticky_cookies(self, elb_id, elb_port, sticky_app_cookie, elb_name):
+    def _setup_sticky_cookies(self, elb_id, elb_ports, sticky_app_cookie, elb_name):
         if sticky_app_cookie:
             logging.warning("Using sticky sessions for ELB %s", elb_name)
             throttled_call(self.elb_client.create_app_cookie_stickiness_policy,
                            LoadBalancerName=elb_id,
                            PolicyName=STICKY_POLICY_NAME,
                            CookieName=sticky_app_cookie)
-            throttled_call(self.elb_client.set_load_balancer_policies_of_listener,
-                           LoadBalancerName=elb_id,
-                           LoadBalancerPort=elb_port,
-                           PolicyNames=[STICKY_POLICY_NAME])
+            # add sticky sessions policy to every listener
+            for elb_port in elb_ports:
+                throttled_call(self.elb_client.set_load_balancer_policies_of_listener,
+                               LoadBalancerName=elb_id,
+                               LoadBalancerPort=int(elb_port),
+                               PolicyNames=[STICKY_POLICY_NAME])
         # TBD Remove stickiness policy if it exists
 
     # Pylint thinks this function has too many arguments
     # pylint: disable=R0913, R0914
     def get_or_create_elb(self, hostclass, security_groups, subnets, hosted_zone_name,
                           health_check_url, instance_protocol, instance_port,
-                          elb_protocol, elb_port, elb_public, sticky_app_cookie,
+                          elb_protocols, elb_ports, elb_public, sticky_app_cookie,
                           idle_timeout=None, connection_draining_timeout=None, testing=False):
         """
         Returns an elb.
@@ -151,8 +153,8 @@ class DiscoELB(object):
             health_check_url (str): The heartbeat url to use if protocol is HTTP or HTTPS
             instance_protocol (str): HTTP, HTTPS, SSL or TCP
             instance_port (int): The port that services on instances are running on
-            elb_protocol (str): HTTP, HTTPS, SSL or TCP
-            elb_port (int): The port to expose from the load balancer
+            elb_protocols (str): Comma separated list of protocols to expose. HTTP, HTTPS, SSL or TCP
+            elb_ports (str): Comma separated list of ports to expose from the load balancer
             elb_public (bool): True if the ELB should be internet routable
             sticky_app_cookie (str): The name of a cookie from your service to use for sticky sessions
             idle_timeout (int): time limit (in seconds) that ELB should wait before killing idle connections
@@ -164,23 +166,31 @@ class DiscoELB(object):
         elb_id = DiscoELB.get_elb_id(self.vpc.environment_name, hostclass, testing=testing)
         elb_name = DiscoELB.get_elb_name(self.vpc.environment_name, hostclass, testing=testing)
         elb = self.get_elb(hostclass, testing=testing)
+
+        elb_protocols = str(elb_protocols).split(',')
+        elb_ports = str(elb_ports).split(',')
+
         if not elb:
             logging.info("Creating ELB %s", elb_name)
 
-            listener = {
-                'Protocol': elb_protocol,
-                'LoadBalancerPort': elb_port,
-                'InstanceProtocol': instance_protocol,
-                'InstancePort': instance_port
-            }
+            if len(elb_protocols) != len(elb_ports):
+                raise CommandError('The number of ELB ports and protocols must match for ELB %s', elb_name)
 
-            # Only try to lookup a cert if we are using a secure protocol for the ELB
-            if elb_protocol.upper() in ["HTTPS", "SSL"]:
-                listener['SSLCertificateId'] = self.get_certificate_arn(cname) or ''
+            listeners = [{
+                'Protocol': listener_info[0].strip(),
+                'LoadBalancerPort': int(listener_info[1]),
+                'InstanceProtocol': instance_protocol,
+                'InstancePort': int(instance_port)
+            } for listener_info in zip(elb_protocols, elb_ports)]
+
+            for listener in listeners:
+                # Only try to lookup a cert if we are using a secure protocol for the ELB
+                if listener['Protocol'] in ["HTTPS", "SSL"]:
+                    listener['SSLCertificateId'] = self.get_certificate_arn(cname) or ''
 
             elb_args = {
                 'LoadBalancerName': elb_id,
-                'Listeners': [listener],
+                'Listeners': listeners,
                 'SecurityGroups': security_groups,
                 'Subnets': subnets,
                 'Tags': [
@@ -200,7 +210,7 @@ class DiscoELB(object):
         self.route53.create_record(hosted_zone_name, cname, 'CNAME', elb['DNSName'])
 
         self._setup_health_check(elb_id, health_check_url, instance_protocol, instance_port, elb_name)
-        self._setup_sticky_cookies(elb_id, elb_port, sticky_app_cookie, elb_name)
+        self._setup_sticky_cookies(elb_id, elb_ports, sticky_app_cookie, elb_name)
         self._update_elb_attributes(elb_id, idle_timeout, connection_draining_timeout)
 
         return elb
@@ -283,8 +293,8 @@ class DiscoELB(object):
         # load balancers can only have letters, numbers or dashes in their names so strip everything else
         elb_name = re.sub(r'[^a-zA-Z0-9-]', '', name)
 
-        if len(elb_name) > 32:
-            raise CommandError('ELB name ' + elb_name + " is over 32 characters")
+        if len(elb_name) > 255:
+            raise CommandError('ELB name ' + elb_name + " is over 255 characters")
 
         return elb_name
 
