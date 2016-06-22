@@ -310,7 +310,7 @@ class DiscoBake(object):
         try:
             self.remotecmd(
                 instance,
-                ["sudo", "cp", "/home/ubuntu/.ssh/authorized_keys", "/root/.ssh/authorized_keys"],
+                ["sudo", "mv", "/home/ubuntu/.ssh/authorized_keys", "/root/.ssh/authorized_keys"],
                 user="ubuntu", ssh_options=ssh_args)
         except:
             logging.debug("Ubuntu specific; enabling of root login during bake failed")
@@ -318,7 +318,7 @@ class DiscoBake(object):
         try:
             self.remotecmd(
                 instance,
-                ["sudo", "cp", "/home/centos/.ssh/authorized_keys", "/root/.ssh/authorized_keys"],
+                ["sudo", "mv", "/home/centos/.ssh/authorized_keys", "/root/.ssh/authorized_keys"],
                 user="centos", ssh_options=ssh_args)
         except:
             logging.debug("CentOS >6 specific; enabling of root login during bake failed")
