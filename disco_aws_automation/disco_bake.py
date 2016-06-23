@@ -311,7 +311,10 @@ class DiscoBake(object):
             try:
                 self.remotecmd(
                     instance,
-                    ["sudo mv /home/{0}/.ssh/authorized_keys /root/.ssh/authorized_keys; sudo chown root:root /root/.ssh/authorized_keys".format(user)],
+                    [
+                        "sudo mv /home/{0}/.ssh/authorized_keys /root/.ssh/authorized_keys; "
+                        "sudo chown root:root /root/.ssh/authorized_keys".format(user)
+                    ],
                     user=user, ssh_options=ssh_args)
                 break
             except:
