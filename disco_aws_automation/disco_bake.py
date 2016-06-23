@@ -215,11 +215,13 @@ class DiscoBake(object):
         Hostclass and Hostname are passed in as arguments
         """
         logging.info("Running remote init script %s.", script)
+        self.remotecmd(instance, ["/tmp/script.sh {0}".format(chroot)], log_on_error=True, forward_agent=True)
+
         script = "{0}{1}/init/{2}".format(
             "chroot {0} ".format(chroot) if chroot else "",
             #"systemd-nspawn -D {0} ".format(chroot) if chroot else "",
             data_destination,
-            script
+            script,
         )
 
         repo = self.repo_instance()
@@ -942,13 +944,14 @@ class DiscoReusableBakery(DiscoAbstractBakery):
         self.disco_bake.remotecmd(self.get_bakery_instance(), [
             "echo '- - -' > /sys/class/scsi_host/host0/scan; "
             "mkdir -p {0}; "
-            "xfs_admin -U generate /dev/{1}1 || tune2fs /dev/{1}1 -U random; "
+            #"xfs_admin -U generate /dev/{1}1 || tune2fs /dev/{1}1 -U random; "
             #"mount /dev/{1}1 {0}; "
             "mount /dev/{1}1 {0} && "
             "mount -t proc proc {0}/proc/ && "
             "mount --bind /sys {0}/sys/ && "
             "mount --bind /dev {0}/dev/ && "
             "mount --bind /run {0}/run/; "
+            #"sed -i \"s/UUID=[a-z0-9-]*/UUID=`blkid /dev/{1}1| sed -n 's/.*UUID=.\\([a-z0-9-]*\\).*/\\1/p'`/\" {0}/etc/fstab; "
             .format(self.work_path, device_name)
         ])
 
@@ -964,12 +967,14 @@ class DiscoReusableBakery(DiscoAbstractBakery):
         self.disco_bake.remotecmd(self.get_bakery_instance(), [
             "rm -Rf {0}/root/.ssh/authorized_keys; "
             "fuser -k {0} || kill -9 $(lsof -t {0}); "
+            #"uuid=`sed -n 's/UUID=\\([a-z0-9-]*\\) .*/\\1/p' /var/tmp/xvdcu1/etc/fstab`"
             "grep {0}/ /proc/mounts | cut -f2 -d' ' | sort -r | xargs umount -n; "
             "umount {0}/run/; "
             "umount {0}/dev/; "
             "umount {0}/sys/; "
             "umount {0}/proc/; "
-            "umount --recursive {0};"
+            "umount {0}; "
+            #"xfs_admin -U $uuid /dev/{1}1 || tune2fs /dev/{1}1 -U $uuid; "
             .format(self.work_path)
         ])
         self._volume.detach_from_instance()
