@@ -357,7 +357,7 @@ class DiscoBake(object):
         if phase == 1:
             base_image_name = hostclass if hostclass else self.option("phase1_ami_name")
             source_ami_id = source_ami_id or self.hc_option(base_image_name, 'bake_ami')
-            hostclass = self.hc_option(hostclass, "phase1_hostclass")
+            hostclass = self.option("phase1_hostclass")
             logging.info("Creating phase 1 AMI named %s based on upstream AMI %s",
                          base_image_name, source_ami_id)
         else:
