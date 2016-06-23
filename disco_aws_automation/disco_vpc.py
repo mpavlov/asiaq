@@ -393,7 +393,7 @@ class DiscoVPC(object):
 
     def destroy(self):
         """ Delete all VPC resources in the right order and then delete the vpc itself """
-        DiscoAlarm().delete_environment_alarms(self.environment_name)
+        DiscoAlarm(self.environment_name).delete_environment_alarms(self.environment_name)
         self.log_metrics.delete_all_metrics()
         self.log_metrics.delete_all_log_groups()
         self._destroy_instances()

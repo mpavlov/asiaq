@@ -8,8 +8,7 @@ from ConfigParser import ConfigParser
 
 from boto.ec2.cloudwatch import MetricAlarm
 
-from . import disco_aws_util
-from . import read_config
+from . import disco_aws_util, read_config, DiscoAutoscale
 from .exceptions import AlarmConfigError
 from .disco_elb import DiscoELB
 
@@ -50,6 +49,11 @@ class DiscoAlarmConfig(object):
         self.custom_metric = options["custom_metric"].lower() == "true"
         self.log_pattern_metric = disco_aws_util.is_truthy(options.get("log_pattern_metric", ""))
 
+        if "autoscaling_group_name" in options:
+            self.autoscaling_group_name = options["autoscaling_group_name"]
+        else:
+            self.autoscaling_group_name = None
+
         if options["level"] not in NOTIFICATION_LEVELS:
             raise AlarmConfigError(
                 "Level for {0} must be one of {1}"
@@ -87,11 +91,12 @@ class DiscoAlarmConfig(object):
         if self.namespace == 'AWS/ELB':
             return {'LoadBalancerName': DiscoELB.get_elb_id(self.environment, self.hostclass)}
 
-        value = "_".join([self.environment, self.hostclass])
         if self.custom_metric:
             key = "env_hostclass"
+            value = "_".join([self.environment, self.hostclass])
         else:
             key = "AutoScalingGroupName"
+            value = self.autoscaling_group_name
         return {key: value}
 
     @property
@@ -168,13 +173,14 @@ class DiscoAlarmsConfig(object):
     Represenation of all alarms in config file.
     """
 
-    def __init__(self, environment, config_file=None):
+    def __init__(self, environment, config_file=None, autoscale=None):
         if config_file:
             self.config = ConfigParser()
             self.config.read(config_file)
         else:
             self.config = read_config(DEFAULT_CONFIG_FILE)
         self.environment = environment
+        self._autoscale = autoscale or None  # laziliy intialized
         self._defaults = None
 
     @property
@@ -184,6 +190,15 @@ class DiscoAlarmsConfig(object):
         """
         self._defaults = self._defaults or self.get_defaults()
         return self._defaults
+
+    @property
+    def autoscale(self):
+        """
+        returns a lazily created disco autoscaling object
+        """
+        if not self._autoscale:
+            self._autoscale = DiscoAutoscale(environment_name=self.environment)
+        return self._autoscale
 
     @staticmethod
     def _decode_section_name(section):
@@ -200,7 +215,8 @@ class DiscoAlarmsConfig(object):
             raise AlarmConfigError("Skipping non-alarm like config section {0}.".format(section))
         return team, namespace, metric_name, section_hostclass
 
-    def _get_alarm_specification_dict(self, team, namespace, metric_name, hostclass, hostclass_specific):
+    def _get_alarm_specification_dict(self, team, namespace, metric_name, hostclass, hostclass_specific,
+                                      autoscaling_group_name=None):
         """
         Return options for alarm, inheriting values from parent.
         """
@@ -227,6 +243,15 @@ class DiscoAlarmsConfig(object):
         options["hostclass"] = hostclass
         options["environment"] = self.environment
 
+        # If an autoscaling group name was provided, include it
+        if autoscaling_group_name:
+            options["autoscaling_group_name"] = autoscaling_group_name
+        # Otherwise, if using the EC2 namespace, we should lookup the autoscaling group name of the hostclass
+        # and use that.
+        elif namespace == "AWS/EC2":
+            group = self.autoscale.get_existing_group(hostclass=hostclass)
+            options["autoscaling_group_name"] = group.name
+
         # metrics for log files have special environment specific namespaces and hostclass specific names
         if disco_aws_util.is_truthy(options.get("log_pattern_metric")):
             options["namespace"] = namespace + '/' + self.environment
@@ -234,7 +259,7 @@ class DiscoAlarmsConfig(object):
 
         return options
 
-    def get_alarms(self, hostclass):
+    def get_alarms(self, hostclass, autoscaling_group_name=None):
         """
         Returns list of DiscoAlarm objects for all the alarms associated with a hostclass.
         """
@@ -255,7 +280,9 @@ class DiscoAlarmsConfig(object):
 
             options = self._get_alarm_specification_dict(
                 team, namespace, metric_name, hostclass, section_hostclass == hostclass,
+                autoscaling_group_name=autoscaling_group_name
             )
+
             if not options:
                 # No alarms options means we don't need to make the alarm
                 continue
