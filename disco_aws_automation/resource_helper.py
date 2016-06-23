@@ -1,7 +1,6 @@
 """
 This module has a bunch of functions about waiting for an AWS resource to become available
 """
-import json
 import logging
 import time
 
@@ -34,20 +33,6 @@ def create_filters(filter_dict):
 def tag2dict(tags):
     """ Converts a list of AWS tag dicts to a single dict with corresponding keys and values """
     return {tag.get('Key'): tag.get('Value') for tag in tags or {}}
-
-
-def handle_date_format(obj):
-    """
-    Helper function that properly handles date object returned from AWS.
-    Only used with boto3
-    """
-    def date_handler(item):
-        """
-        The actual date handling logic is here
-        """
-        return item.isoformat() if hasattr(item, 'isoformat') else item
-
-    return json.loads(json.dumps(obj, default=date_handler))
 
 
 def find_or_create(find, create):
