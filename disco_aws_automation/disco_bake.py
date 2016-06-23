@@ -307,21 +307,21 @@ class DiscoBake(object):
         # Pylint wants us to name the exceptions, but we want to ignore all of them
         # pylint: disable=W0702
         ssh_args = SSH_DEFAULT_OPTIONS + ["-tt"]
-        try:
-            self.remotecmd(
-                instance,
-                ["sudo", "cp", "/home/ubuntu/.ssh/authorized_keys", "/root/.ssh/authorized_keys"],
-                user="ubuntu", ssh_options=ssh_args)
-        except:
-            logging.debug("Ubuntu specific; enabling of root login during bake failed")
-
-        try:
-            self.remotecmd(
-                instance,
-                ["sudo", "cp", "/home/centos/.ssh/authorized_keys", "/root/.ssh/authorized_keys"],
-                user="centos", ssh_options=ssh_args)
-        except:
-            logging.debug("CentOS >6 specific; enabling of root login during bake failed")
+        for user in ["ubuntu", "centos"]:
+            try:
+                self.remotecmd(
+                    instance,
+                    [
+                        "sudo mv /home/{0}/.ssh/authorized_keys /root/.ssh/authorized_keys; "
+                        "sudo chown root:root /root/.ssh/authorized_keys".format(user)
+                    ],
+                    user=user, ssh_options=ssh_args)
+                break
+            except:
+                logging.debug(
+                    "OS specific: moving %s user ssh keys to root",
+                    user
+                )
 
     def bake_ami(self, hostclass, no_destroy, source_ami_id=None, stage=None):
         # Pylint thinks this function has too many local variables and too many statements and branches
