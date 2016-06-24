@@ -5,7 +5,7 @@ import logging
 from boto.ec2.cloudwatch import CloudWatchConnection
 
 from .disco_sns import DiscoSNS
-from .disco_alarm_config import DiscoAlarmConfig
+from .disco_alarm_config import DiscoAlarmConfig, DiscoAlarmsConfig
 from .resource_helper import throttled_call
 
 # Max batch size for alarm deletion http://goo.gl/vMQOrX
@@ -17,11 +17,34 @@ class DiscoAlarm(object):
     Class orchestrating CloudWatch alarms
     """
 
-    def __init__(self, disco_sns=None):
+    def __init__(self, environment, disco_sns=None, alarm_configs=None):
         self.cloudwatch = CloudWatchConnection()
+        self.environment = environment
         self._disco_sns = disco_sns
+        self._alarm_configs = alarm_configs
 
-    def upsert_alarm(self, alarm):
+    @property
+    def disco_sns(self):
+        """
+        Lazy sns connection
+        """
+        self._disco_sns = self._disco_sns or DiscoSNS()
+        return self._disco_sns
+
+    @property
+    def alarm_configs(self):
+        """Lazily creates alarm config object for the current environment"""
+        if not self._alarm_configs:
+            self._alarm_configs = DiscoAlarmsConfig(self.environment)
+        return self._alarm_configs
+
+    def _sns_topic(self, alarm):
+        """
+        Retrieve SNS topic corresponding to the alarm
+        """
+        return self.disco_sns.topic_arn_from_name(alarm.notification_topic)
+
+    def _upsert_alarm(self, alarm):
         """
         Create an alarm, delete and re-create if it already exists
         """
@@ -35,26 +58,16 @@ class DiscoAlarm(object):
             alarm
         )
 
-    @property
-    def disco_sns(self):
+    def create_alarms(self, hostclass, autoscaling_group_name=None):
         """
-        Lazy sns connection
-        """
-        self._disco_sns = self._disco_sns or DiscoSNS()
-        return self._disco_sns
+        Create alarms for a hostclass.
 
-    def _sns_topic(self, alarm):
+        Internally calls disco_alarms_config to create the alarm configuration objects.
         """
-        retrieve SNS topic correspoding to the alarm
-        """
-        return self.disco_sns.topic_arn_from_name(alarm.notification_topic)
-
-    def create_alarms(self, alarms):
-        """
-        Create alarms from dict of DiscoAlarmConfig objects.
-        """
+        alarms = self.alarm_configs.get_alarms(hostclass=hostclass,
+                                               autoscaling_group_name=autoscaling_group_name)
         for alarm in alarms:
-            self.upsert_alarm(
+            self._upsert_alarm(
                 alarm.to_metric_alarm(
                     self._sns_topic(alarm)
                 )

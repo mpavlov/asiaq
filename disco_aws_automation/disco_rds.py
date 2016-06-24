@@ -15,13 +15,13 @@ import botocore
 import pytz
 
 from . import read_config, ASIAQ_CONFIG
-from .disco_alarm_config import DiscoAlarmsConfig
 from .disco_alarm import DiscoAlarm
 from .disco_aws_util import is_truthy
 from .disco_creds import DiscoS3Bucket
 from .disco_route53 import DiscoRoute53
+from .disco_vpc_sg_rules import DiscoVPCSecurityGroupRules
 from .exceptions import TimeoutError, RDSEnvironmentError
-from .resource_helper import keep_trying
+from .resource_helper import keep_trying, tag2dict
 
 DEFAULT_CONFIG_FILE_RDS = "disco_rds.ini"
 RDS_STATE_POLL_INTERVAL = 30  # seconds
@@ -48,6 +48,7 @@ class DiscoRDS(object):
         self.config_rds = read_config(config_file=DEFAULT_CONFIG_FILE_RDS)
         self.client = boto3.client('rds')
         self.vpc = vpc
+        self.disco_vpc_sg_rules = DiscoVPCSecurityGroupRules(vpc, vpc.boto3_ec2)
         self.vpc_name = vpc.environment_name
         if self.vpc_name not in ['staging', 'production']:
             self.domain_name = self.config_aws.get('disco_aws', 'default_domain_name')
@@ -129,9 +130,14 @@ class DiscoRDS(object):
         """
         Returns the intranet security group id for the VPC for the current environment
         """
-        security_groups = self.vpc.get_all_security_groups_for_vpc()
-        intranet = [sg for sg in security_groups if sg.tags and sg.tags.get("meta_network") == "intranet"][0]
-        return intranet.id
+        security_groups = self.disco_vpc_sg_rules.get_all_security_groups_for_vpc()
+        for security_group in security_groups:
+            if security_group.get('Tags'):
+                tags = tag2dict(security_group['Tags'])
+                if tags.get("meta_network") == "intranet":
+                    return security_group['GroupId']
+
+        raise RuntimeError('Security group for intranet meta network is missing.')
 
     def update_cluster_by_id(self, database_identifier):
         """Update a RDS cluster by its database identifier"""
@@ -188,10 +194,7 @@ class DiscoRDS(object):
         Configure alarms for this RDS instance. The alarms are configured in disco_alarms.ini
         """
         logging.debug("Configuring Cloudwatch alarms ")
-        disco_alarm_config = DiscoAlarmsConfig(self.vpc_name)
-        disco_alarm = DiscoAlarm()
-        instance_alarms = disco_alarm_config.get_alarms(database_name)
-        disco_alarm.create_alarms(instance_alarms)
+        DiscoAlarm(self.vpc_name).create_alarms(database_name)
 
     def update_all_clusters_in_vpc(self):
         """
@@ -220,8 +223,13 @@ class DiscoRDS(object):
             logging.debug("Not deleting subnet group '%s': %s", db_subnet_group_name, repr(err))
 
         db_subnet_group_description = 'Subnet Group for VPC {0}'.format(self.vpc_name)
-        subnets = self.vpc.vpc.connection.get_all_subnets(filters=self.vpc.vpc_filter())
-        subnet_ids = [str(subnet.id) for subnet in subnets if subnet.tags['meta_network'] == 'intranet']
+        subnets = self.vpc.get_all_subnets()
+        subnet_ids = []
+        for subnet in subnets:
+            tags = tag2dict(subnet['Tags'])
+            if tags['meta_network'] == 'intranet':
+                subnet_ids.append(str(subnet['SubnetId']))
+
         self.client.create_db_subnet_group(DBSubnetGroupName=db_subnet_group_name,
                                            DBSubnetGroupDescription=db_subnet_group_description,
                                            SubnetIds=subnet_ids)
@@ -297,7 +305,7 @@ class DiscoRDS(object):
         vpc_instances = [
             instance
             for instance in instances
-            if instance["DBSubnetGroup"]["VpcId"] == self.vpc.vpc.id and (
+            if instance["DBSubnetGroup"]["VpcId"] == self.vpc.get_vpc_id() and (
                 not states or instance["DBInstanceStatus"] in states)]
         return vpc_instances
 

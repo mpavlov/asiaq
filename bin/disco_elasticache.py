@@ -11,10 +11,10 @@ Usage:
     disco_elasticache.py (-h | --help)
 
 Commands:
-    list      List all cache clusters
+    list          List all cache clusters
     listsnapshots List snapshots
-    update    Update cache clusters
-    delete    Delete a cache cluster
+    update        Update cache clusters
+    delete        Delete a cache cluster
 
 Options:
     -h --help           Show this screen

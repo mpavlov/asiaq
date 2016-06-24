@@ -189,12 +189,9 @@ class DiscoElasticsearch(object):
     def _access_policy(self, domain_name, allowed_source_ips):
         """
         Construct an access policy for the new Elasticsearch cluster. Needs to be dynamically created because
-        it will use the environment's proxy hostclass to forward requests to the elasticsearch cluster and the
-        IP of the proxy hostclass could be different at run time.
+        it will use the environment's NAT Gateway to forward requests to the elasticsearch cluster and the
+        IP addresses of the NAT Gateway would be read from disco_vpc.ini.
         """
-        proxy_hostclass = self.get_aws_option('http_proxy_hostclass')
-        proxy_ip = self.get_hostclass_option('eip', proxy_hostclass)
-        allowed_source_ips.append(proxy_ip)
         nat_eips = self._get_nat_eips()
         if nat_eips:
             allowed_source_ips += nat_eips.split(',')

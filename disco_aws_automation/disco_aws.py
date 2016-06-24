@@ -18,7 +18,6 @@ from boto.exception import EC2ResponseError
 from .disco_log_metrics import DiscoLogMetrics
 from .disco_elb import DiscoELB
 from .disco_alarm import DiscoAlarm
-from .disco_alarm_config import DiscoAlarmsConfig
 from .disco_autoscale import DiscoAutoscale
 from .disco_aws_util import (
     is_truthy,
@@ -55,8 +54,10 @@ from .exceptions import (
 class DiscoAWS(object):
     '''Class orchestrating deployment on AWS'''
 
+    # Too many arguments, but we want to mock a lot of things out, so...
+    # pylint: disable=too-many-arguments
     def __init__(self, config, environment_name, boto2_conn=None, vpc=None, remote_exec=None, storage=None,
-                 autoscale=None, elb=None, log_metrics=None):
+                 autoscale=None, elb=None, log_metrics=None, alarms=None):
         self.environment_name = environment_name
         self._config = config
         self._project_name = self._config.get("disco_aws", "project_name")
@@ -67,6 +68,7 @@ class DiscoAWS(object):
         self._autoscale = autoscale or None  # lazily initialized
         self._elb = elb or None  # lazily initialized
         self._log_metrics = log_metrics or None  # lazily initialized
+        self._alarms = alarms or None  # lazily initialized
 
     @property
     def connection(self):
@@ -102,6 +104,13 @@ class DiscoAWS(object):
         if not self._elb:
             self._elb = DiscoELB(self.vpc)
         return self._elb
+
+    @property
+    def alarms(self):
+        """Lazily creates alarms object for our current VPC"""
+        if not self._alarms:
+            self._alarms = DiscoAlarm(self.environment_name)
+        return self._alarms
 
     @property
     def vpc(self):
@@ -289,7 +298,7 @@ class DiscoAWS(object):
                 elb_subnets = self.get_subnets(elb_meta_network, hostclass)
                 subnet_ids = [subnet['SubnetId'] for subnet in elb_subnets]
 
-            elb_port = int(self.hostclass_option_default(hostclass, "elb_port", 80))
+            elb_port = self.hostclass_option_default(hostclass, "elb_port", 80)
             elb_protocol = self.hostclass_option_default(hostclass, "elb_protocol", None) or \
                 self._default_protocol_for_port(elb_port)
             instance_port = int(self.hostclass_option_default(hostclass, "elb_instance_port", 80))
@@ -303,7 +312,7 @@ class DiscoAWS(object):
                 hosted_zone_name=self.hostclass_option_default(hostclass, "domain_name"),
                 health_check_url=self.hostclass_option_default(hostclass, "elb_health_check_url"),
                 instance_protocol=instance_protocol, instance_port=instance_port,
-                elb_protocol=elb_protocol, elb_port=elb_port,
+                elb_protocols=elb_protocol, elb_ports=elb_port,
                 elb_public=is_truthy(self.hostclass_option_default(hostclass, "elb_public", "no")),
                 sticky_app_cookie=self.hostclass_option_default(hostclass, "elb_sticky_app_cookie", None),
                 idle_timeout=int(self.hostclass_option_default(hostclass, "elb_idle_timeout", 300)),
@@ -314,7 +323,7 @@ class DiscoAWS(object):
             )
 
         if update_autoscaling:
-            self.autoscale.update_elb(hostclass, [elb['LoadBalancerName']] if elb else [])
+            self.autoscale.update_elb([elb['LoadBalancerName']] if elb else [], hostclass=hostclass)
 
         return elb
 
@@ -408,6 +417,10 @@ class DiscoAWS(object):
         )
 
         self.create_scaling_schedule(hostclass, min_size, desired_size, max_size)
+
+        # Create alarms and custom metrics for the hostclass, if is not being used for testing
+        if not testing:
+            self.alarms.create_alarms(hostclass, group.name)
 
         logging.info("Spun up %s instances of %s from %s into group %s",
                      size_as_maximum_int_or_none(desired_size), hostclass, ami.id, group.name)
@@ -516,7 +529,8 @@ class DiscoAWS(object):
         if filters:
             combined_filters.update(filters)
         if self.vpc:
-            combined_filters.update(self.vpc.vpc_filter())
+            vpc_filter = {tag.get('Name'): tag.get('Values')[0] for tag in self.vpc.vpc_filters()}
+            combined_filters.update(vpc_filter)
         reservations = keep_trying(
             60, self.connection.get_all_instances,
             filters=combined_filters, instance_ids=instance_ids
@@ -554,29 +568,17 @@ class DiscoAWS(object):
 
         .. warning:: This currently does a dirty shutdown, no attempt is made to preserve logs.
         """
-        disco_alarm = DiscoAlarm()
         for hostclass in hostclasses:
             self.autoscale.delete_groups(hostclass=hostclass, force=True)
 
             self.elb.delete_elb(hostclass)
 
-            disco_alarm.delete_hostclass_environment_alarms(
+            self.alarms.delete_hostclass_environment_alarms(
                 self.environment_name, hostclass
             )
 
             self.log_metrics.delete_metrics(hostclass)
             self.log_metrics.delete_log_groups(hostclass)
-
-    def spinup_alarms(self, hostclasses):
-        """
-        Configure alarms for all hostclasses
-        """
-        disco_alarm_config = DiscoAlarmsConfig(self.environment_name)
-        disco_alarm = DiscoAlarm()
-
-        for hostclass in hostclasses:
-            hostclass_alarms = disco_alarm_config.get_alarms(hostclass)
-            disco_alarm.create_alarms(hostclass_alarms)
 
     def spinup(self, hostclass_dicts, stage=None, no_smoke=False, testing=False, create_if_exists=False,
                group_name=None):
@@ -617,12 +619,6 @@ class DiscoAWS(object):
                     "Couldn't find AMI {0} for hostclass {1}, aborting spinup.".format(
                         entry.get("ami"), entry.get("hostclass")))
             entry["hostclass"] = DiscoBake.ami_hostclass(entry["ami_obj"])
-
-        # create cloudwatch metrics and alarms
-        self.spinup_alarms([
-            hdict["hostclass"]
-            for hdict in hostclass_dicts
-        ])
 
         # determine which subset of hostclasses will need smoke testing
         flammable = set([]) if no_smoke else set(

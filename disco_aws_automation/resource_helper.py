@@ -1,7 +1,6 @@
 """
 This module has a bunch of functions about waiting for an AWS resource to become available
 """
-import json
 import logging
 import time
 
@@ -19,18 +18,21 @@ INSTANCE_SSHABLE_POLL_INTERVAL = 15  # seconds
 MAX_POLL_INTERVAL = 60  # seconds
 
 
-def handle_date_format(obj):
+def create_filters(filter_dict):
     """
-    Helper function that properly handles date object returned from AWS.
-    Only used with boto3
+    Converts a dict to a list of boto3 filters. The keys and value of the dict represent
+    the Name and Values of a filter, respectively.
     """
-    def date_handler(item):
-        """
-        The actual date handling logic is here
-        """
-        return item.isoformat() if hasattr(item, 'isoformat') else item
+    filters = []
+    for key in filter_dict.keys():
+        filters.append({'Name': key, 'Values': filter_dict[key]})
 
-    return json.loads(json.dumps(obj, default=date_handler))
+    return filters
+
+
+def tag2dict(tags):
+    """ Converts a list of AWS tag dicts to a single dict with corresponding keys and values """
+    return {tag.get('Key'): tag.get('Value') for tag in tags or {}}
 
 
 def find_or_create(find, create):
