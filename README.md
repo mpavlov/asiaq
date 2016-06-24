@@ -1501,7 +1501,7 @@ workflow is:
 -   metrics and alarms are manually configured in disco_alarms.ini
 -   on VPC creation, SNS topics are created and subscribed to first
     responders
--   on hostclass provisioning, Clouwatch metrics and alarms are created,
+-   on hostclass provisioning, Cloudwatch metrics and alarms are created,
     and configured to push to appropriate SNS topic
 -   on hostclass termination, Cloudwatch metrics and alarms are deleted,
     but SNS topics are left intact
@@ -1578,6 +1578,15 @@ Options:
 
 For more information on the options refer to [CloudWatch' PutMetricAlarm
 API](CloudWatch'%20PutMetricAlarm%20API)
+
+##### Supported AWS Namespaces
+
+Currently, `disco_alarms.py` supports the following namespaces:
+
+-   AWS/EC2
+-   AWS/ELB
+-   AWS/RDS
+-   AWS/ES
 
 ##### Alarm Config for Custom Metrics
 
