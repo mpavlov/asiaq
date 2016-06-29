@@ -211,7 +211,9 @@ class DiscoELB(object):
                 'SecurityGroups': security_groups,
                 'Subnets': subnets,
                 'Tags': [
-                    {'Key': 'elb_name', 'Value': elb_name}
+                    {'Key': 'elb_name', 'Value': elb_name},
+                    {'Key': 'hostclass', 'Value': hostclass},
+                    {'Key': 'environment', 'Value': self.vpc.environment_name}
                 ]
             }
 
