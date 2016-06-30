@@ -119,9 +119,9 @@ class DiscoELBTests(TestCase):
             SecurityGroups=['sec-1'],
             Scheme='internal',
             Tags=[
-                {"Key": "elb_name", "Value": DiscoELB.get_elb_name('unittestenv', 'mhcunit')},
                 {"Key": "hostclass", "Value": 'mhcunit'},
-                {"Key": "environment", "Value": 'unittestenv'}
+                {"Key": "environment", "Value": 'unittestenv'},
+                {"Key": "is_testing", "Value": '0'}
             ])
 
     @mock_elb
@@ -144,9 +144,9 @@ class DiscoELBTests(TestCase):
             SecurityGroups=['sec-1'],
             Scheme='internal',
             Tags=[
-                {"Key": "elb_name", "Value": DiscoELB.get_elb_name('unittestenv', 'mhcunit')},
                 {"Key": "hostclass", "Value": 'mhcunit'},
-                {"Key": "environment", "Value": 'unittestenv'}
+                {"Key": "environment", "Value": 'unittestenv'},
+                {"Key": "is_testing", "Value": '0'}
             ])
 
     @mock_elb
@@ -166,9 +166,9 @@ class DiscoELBTests(TestCase):
             Subnets=[],
             SecurityGroups=['sec-1'],
             Tags=[
-                {"Key": "elb_name", "Value": DiscoELB.get_elb_name('unittestenv', 'mhcunit')},
                 {"Key": "hostclass", "Value": 'mhcunit'},
-                {"Key": "environment", "Value": 'unittestenv'}
+                {"Key": "environment", "Value": 'unittestenv'},
+                {"Key": "is_testing", "Value": '0'}
             ])
 
     @mock_elb
@@ -190,9 +190,9 @@ class DiscoELBTests(TestCase):
             SecurityGroups=['sec-1'],
             Scheme='internal',
             Tags=[
-                {"Key": "elb_name", "Value": DiscoELB.get_elb_name('unittestenv', 'mhcunit')},
                 {"Key": "hostclass", "Value": 'mhcunit'},
-                {"Key": "environment", "Value": 'unittestenv'}
+                {"Key": "environment", "Value": 'unittestenv'},
+                {"Key": "is_testing", "Value": '0'}
             ])
 
     @mock_elb
@@ -214,9 +214,9 @@ class DiscoELBTests(TestCase):
             SecurityGroups=['sec-1'],
             Scheme='internal',
             Tags=[
-                {"Key": "elb_name", "Value": DiscoELB.get_elb_name('unittestenv', 'mhcunit')},
                 {"Key": "hostclass", "Value": 'mhcunit'},
-                {"Key": "environment", "Value": 'unittestenv'}
+                {"Key": "environment", "Value": 'unittestenv'},
+                {"Key": "is_testing", "Value": '0'}
             ])
 
     @mock_elb
@@ -244,9 +244,9 @@ class DiscoELBTests(TestCase):
             SecurityGroups=['sec-1'],
             Scheme='internal',
             Tags=[
-                {"Key": "elb_name", "Value": DiscoELB.get_elb_name('unittestenv', 'mhcunit')},
                 {"Key": "hostclass", "Value": 'mhcunit'},
-                {"Key": "environment", "Value": 'unittestenv'}
+                {"Key": "environment", "Value": 'unittestenv'},
+                {"Key": "is_testing", "Value": '0'}
             ])
 
     @mock_elb
