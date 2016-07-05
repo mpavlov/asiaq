@@ -37,6 +37,7 @@ from disco_aws_automation.disco_alarm_config import DiscoAlarmsConfig
 from disco_aws_automation.disco_alarm import DiscoAlarm
 from disco_aws_automation.disco_elasticsearch import DiscoElasticsearch
 
+
 def run():
     """Parses command line and dispatches the commands"""
     args = docopt(__doc__)
