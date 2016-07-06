@@ -1558,11 +1558,14 @@ spun up. By appending the section with hostclass name (eg:
 one specific hostclass. This can also be used to 'override' any of the
 options on specific hostclass.
 
-Section name breaks down into 2-3 period separated fields:
+Section name breaks down into 3-4 period separated fields:
 
-1.  Namespace
-2.  MetricName
-3.  Hostclass (Optional)
+1.  Team
+2.  Namespace
+3.  MetricName
+4.  Hostclass (Optional)
+
+NOTE: For the `AWS/ES` namespace, the hostclass field is required and refers to the internal name of the Elasticsearch domain. IE: `logs`.
 
 Options:
 
