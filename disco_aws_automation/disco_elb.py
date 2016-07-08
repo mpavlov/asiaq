@@ -120,19 +120,37 @@ class DiscoELB(object):
                            'HealthyThreshold': 2})
 
     def _setup_sticky_cookies(self, elb_id, elb_ports, sticky_app_cookie, elb_name):
-        if sticky_app_cookie:
-            logging.warning("Using sticky sessions for ELB %s", elb_name)
-            throttled_call(self.elb_client.create_app_cookie_stickiness_policy,
-                           LoadBalancerName=elb_id,
-                           PolicyName=STICKY_POLICY_NAME,
-                           CookieName=sticky_app_cookie)
-            # add sticky sessions policy to every listener
+        policies = throttled_call(self.elb_client.describe_load_balancer_policies,
+                                      LoadBalancerName=elb_id)
+        logging.debug("ELB policies found: %s", policies['PolicyDescriptions'])
+
+        def set_policies_for_elb_ports(policies):
             for elb_port in elb_ports:
                 throttled_call(self.elb_client.set_load_balancer_policies_of_listener,
                                LoadBalancerName=elb_id,
                                LoadBalancerPort=int(elb_port),
-                               PolicyNames=[STICKY_POLICY_NAME])
-        # TBD Remove stickiness policy if it exists
+                               PolicyNames=policies)
+
+        if [desc for desc in policies['PolicyDescriptions'] if desc['PolicyName'] == STICKY_POLICY_NAME]:
+            logging.warning("Deleting sticky session policy from ELB %s", elb_name)
+            set_policies_for_elb_ports([])
+            throttled_call(self.elb_client.delete_load_balancer_policy,
+                           LoadBalancerName=elb_id,
+                           PolicyName=STICKY_POLICY_NAME)
+
+        if sticky_app_cookie:
+            policy_args = dict(LoadBalancerName=elb_id, PolicyName=STICKY_POLICY_NAME)
+            if sticky_app_cookie in ('ELB', 'AWSELB'):
+                logging.warning("Using ELB-generated sticky sessions for ELB %s", elb_name)
+                policy_creator = self.elb_client.create_lb_cookie_stickiness_policy
+            else:
+                logging.warning("Using app-generated sticky sessions for ELB %s", elb_name)
+                policy_args['CookieName'] = sticky_app_cookie
+                policy_creator = self.elb_client.create_app_cookie_stickiness_policy
+            throttled_call(policy_creator, **policy_args)
+            # add sticky sessions policy to every listener
+            set_policies_for_elb_ports([STICKY_POLICY_NAME])
+
 
     # Pylint thinks this function has too many arguments
     # pylint: disable=R0913, R0914
