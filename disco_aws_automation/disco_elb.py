@@ -121,10 +121,10 @@ class DiscoELB(object):
 
     def _setup_sticky_cookies(self, elb_id, elb_ports, sticky_app_cookie, elb_name):
         policies = throttled_call(self.elb_client.describe_load_balancer_policies,
-                                      LoadBalancerName=elb_id)
+                                  LoadBalancerName=elb_id)
         logging.debug("ELB policies found: %s", policies['PolicyDescriptions'])
 
-        def set_policies_for_elb_ports(policies):
+        def _set_policies_for_elb_ports(policies):
             for elb_port in elb_ports:
                 throttled_call(self.elb_client.set_load_balancer_policies_of_listener,
                                LoadBalancerName=elb_id,
@@ -133,7 +133,7 @@ class DiscoELB(object):
 
         if [desc for desc in policies['PolicyDescriptions'] if desc['PolicyName'] == STICKY_POLICY_NAME]:
             logging.warning("Deleting sticky session policy from ELB %s", elb_name)
-            set_policies_for_elb_ports([])
+            _set_policies_for_elb_ports([])
             throttled_call(self.elb_client.delete_load_balancer_policy,
                            LoadBalancerName=elb_id,
                            PolicyName=STICKY_POLICY_NAME)
@@ -149,8 +149,7 @@ class DiscoELB(object):
                 policy_creator = self.elb_client.create_app_cookie_stickiness_policy
             throttled_call(policy_creator, **policy_args)
             # add sticky sessions policy to every listener
-            set_policies_for_elb_ports([STICKY_POLICY_NAME])
-
+            _set_policies_for_elb_ports([STICKY_POLICY_NAME])
 
     # Pylint thinks this function has too many arguments
     # pylint: disable=R0913, R0914
