@@ -1520,7 +1520,7 @@ workflow is:
 -   metrics and alarms are manually configured in disco_alarms.ini
 -   on VPC creation, SNS topics are created and subscribed to first
     responders
--   on hostclass provisioning, Clouwatch metrics and alarms are created,
+-   on hostclass provisioning, Cloudwatch metrics and alarms are created,
     and configured to push to appropriate SNS topic
 -   on hostclass termination, Cloudwatch metrics and alarms are deleted,
     but SNS topics are left intact
@@ -1577,11 +1577,14 @@ spun up. By appending the section with hostclass name (eg:
 one specific hostclass. This can also be used to 'override' any of the
 options on specific hostclass.
 
-Section name breaks down into 2-3 period separated fields:
+Section name breaks down into 3-4 period separated fields:
 
-1.  Namespace
-2.  MetricName
-3.  Hostclass (Optional)
+1.  Team
+2.  Namespace
+3.  MetricName
+4.  Hostclass (Optional)
+
+NOTE: For the `AWS/ES` namespace, the hostclass field is required and refers to the internal name of the Elasticsearch domain. IE: `logs`.
 
 Options:
 
@@ -1597,6 +1600,15 @@ Options:
 
 For more information on the options refer to [CloudWatch' PutMetricAlarm
 API](CloudWatch'%20PutMetricAlarm%20API)
+
+##### Supported AWS Namespaces
+
+Currently, `disco_alarms.py` supports the following namespaces:
+
+-   AWS/EC2
+-   AWS/ELB
+-   AWS/RDS
+-   AWS/ES
 
 ##### Alarm Config for Custom Metrics
 

@@ -7,7 +7,6 @@ import logging
 import boto3
 
 from .resource_helper import (
-    handle_date_format,
     keep_trying,
     find_or_create,
     create_filters
@@ -225,9 +224,7 @@ class DiscoSubnet(object):
         filters = self._resource_filter
         filters['Filters'].extend(create_filters({'availabilityZone': [self.name]}))
         try:
-            return handle_date_format(
-                self.boto3_ec2.describe_subnets(**filters)
-            )['Subnets'][0]
+            return self.boto3_ec2.describe_subnets(**filters)['Subnets'][0]
         except IndexError:
             return None
 
@@ -241,7 +238,7 @@ class DiscoSubnet(object):
             'CidrBlock': self.cidr,
             'AvailabilityZone': self.name
         }
-        subnet_dict = handle_date_format(self.boto3_ec2.create_subnet(**params))['Subnet']
+        subnet_dict = self.boto3_ec2.create_subnet(**params)['Subnet']
         self._apply_subnet_tags(subnet_dict['SubnetId'])
         logging.debug("%s subnet_dict: %s", self.name, subnet_dict)
         return subnet_dict
@@ -250,9 +247,7 @@ class DiscoSubnet(object):
         params = dict()
         params['RouteTableIds'] = [route_table_id]
         try:
-            return handle_date_format(
-                self.boto3_ec2.describe_route_tables(**params)
-            )['RouteTables'][0]
+            return self.boto3_ec2.describe_route_tables(**params)['RouteTables'][0]
         except IndexError:
             return None
 
@@ -260,16 +255,14 @@ class DiscoSubnet(object):
         filters = self._resource_filter
         filters['Filters'].extend(create_filters({'tag:subnet': [self.name]}))
         try:
-            return handle_date_format(
-                self.boto3_ec2.describe_route_tables(**filters)
-            )['RouteTables'][0]
+            return self.boto3_ec2.describe_route_tables(**filters)['RouteTables'][0]
         except IndexError:
             return None
 
     def _create_route_table(self):
         params = dict()
         params['VpcId'] = self.metanetwork.vpc.vpc['VpcId']
-        route_table = handle_date_format(self.boto3_ec2.create_route_table(**params))['RouteTable']
+        route_table = self.boto3_ec2.create_route_table(**params)['RouteTable']
         self._apply_subnet_tags(route_table['RouteTableId'])
         logging.debug("%s route table: %s", self.name, route_table)
 
@@ -294,9 +287,7 @@ class DiscoSubnet(object):
                                        'state': ['available', 'pending']})
         }
         try:
-            result = handle_date_format(
-                self.boto3_ec2.describe_nat_gateways(**params)
-            )['NatGateways'][0]
+            result = self.boto3_ec2.describe_nat_gateways(**params)['NatGateways'][0]
         except IndexError:
             return None
 
@@ -319,9 +310,8 @@ class DiscoSubnet(object):
                 'AllocationId': self.nat_eip_allocation_id
             }
             logging.info("Creating NAT gateway with EIP allocation ID: %s", self.nat_eip_allocation_id)
-            nat_gateway = handle_date_format(self.boto3_ec2.create_nat_gateway(**params))['NatGateway']
+            nat_gateway = self.boto3_ec2.create_nat_gateway(**params)['NatGateway']
 
-            # TODO: refactor the waiter logic out
             waiter = self.boto3_ec2.get_waiter('nat_gateway_available')
             waiter.wait(NatGatewayIds=[nat_gateway['NatGatewayId']])
 

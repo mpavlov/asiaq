@@ -71,8 +71,13 @@ class DiscoACM(object):
             certs = [cert for cert in cert_summary if self._in_domain(cert[DOMAIN_NAME_KEY], dns_name)]
             # determine the most specific domain match
             certs.sort(key=lambda cert: len(cert[DOMAIN_NAME_KEY]), reverse=True)
-            return certs[0][CERT_ARN_KEY] if certs else None
+            if not certs:
+                logging.warning("No ACM certificates returned for %s", dns_name)
+                return None
+            else:
+                return certs[0][CERT_ARN_KEY]
         except (botocore.exceptions.EndpointConnectionError,
                 botocore.vendored.requests.exceptions.ConnectionError):
             # some versions of botocore(1.3.26) will try to connect to acm even if outside us-east-1
+            logging.exception("Unable to get ACM certificate")
             return None

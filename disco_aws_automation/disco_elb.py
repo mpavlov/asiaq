@@ -293,8 +293,8 @@ class DiscoELB(object):
         # load balancers can only have letters, numbers or dashes in their names so strip everything else
         elb_name = re.sub(r'[^a-zA-Z0-9-]', '', name)
 
-        if len(elb_name) > 32:
-            raise CommandError('ELB name ' + elb_name + " is over 32 characters")
+        if len(elb_name) > 255:
+            raise CommandError('ELB name ' + elb_name + " is over 255 characters")
 
         return elb_name
 
@@ -350,7 +350,8 @@ class DiscoELB(object):
         timeout         The number of seconds to wait for instances to reach that state. Default: 60.
         See http://boto3.readthedocs.io/en/latest/reference/services/elb.html
         """
-        elb_id = DiscoELB.get_elb_id(self.vpc.environment_name, hostclass, testing=testing)
+        elb = self.get_elb(hostclass=hostclass, testing=testing)
+        elb_id = elb["LoadBalancerName"]
         elb_name = DiscoELB.get_elb_name(self.vpc.environment_name, hostclass,
                                          testing=testing)
         stop_time = time.time() + timeout
