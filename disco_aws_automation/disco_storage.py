@@ -175,7 +175,7 @@ class DiscoStorage(object):
         # to the right four characters, i.e /dev/sdb becomes /dev/sdf, /dev/sdc becomes /dev/sde
         # and so on.
         # TODO  Figure out how to stop this from happening
-        disk_names = ['/dev/sd' + chr(ord('a') + i) for i in range(0, 26)]
+        disk_names = ['/dev/sd' + chr(ord('a') + i) for i in range(0, 25)]
         if ami_id:
             ami = self.connection.get_image(ami_id)
             if not ami:
@@ -194,16 +194,6 @@ class DiscoStorage(object):
         bdm[disk_names[current_disk]] = sda
         logging.debug("mapped %s to root partition", disk_names[current_disk])
         current_disk += 1
-
-        # Map the latest snapshot for this hostclass
-        if map_snapshot:
-            latest = self.get_latest_snapshot(hostclass)
-            if latest:
-                self.wait_for_snapshot(latest)
-                current_name = disk_names[current_disk]
-                bdm[current_name] = self.create_snapshot_bdm(latest, iops)
-                logging.debug("mapped %s to snapshot %s", current_name, latest.id)
-                current_disk += 1
 
         # Map extra disk
         if extra_disk:
