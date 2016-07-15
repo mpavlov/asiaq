@@ -1293,7 +1293,7 @@ offset and absolute IP address. The latter is straight forward:
 
     [myhostclass]
     ...
-    private_ip=10.0.0.5
+    ip_address=10.0.0.5
     ...
 
 But setting absolute IPs can very quickly become bothersome. If you have
@@ -1304,7 +1304,7 @@ that a host should take the 5th ip from the beginning of the metanetwork range:
 
     [myhostclass]
     ...
-    private_ip=+5
+    ip_address=+5
     ...
 
 With this configuration host will be assigned private ip 10.0.0.5 in a
