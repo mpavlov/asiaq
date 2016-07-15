@@ -171,10 +171,6 @@ class DiscoStorage(object):
         # Pylint thinks this function has too many local variables
         # pylint: disable=R0914
 
-        # We map disk names starting at /dev/sda, but aws shifts everything after /dev/sda
-        # to the right four characters, i.e /dev/sdb becomes /dev/sdf, /dev/sdc becomes /dev/sde
-        # and so on.
-        # TODO  Figure out how to stop this from happening
         disk_names = ['/dev/sd' + chr(ord('a') + i) for i in range(0, 25)]
         if ami_id:
             ami = self.connection.get_image(ami_id)
