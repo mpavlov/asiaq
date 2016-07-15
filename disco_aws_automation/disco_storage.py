@@ -173,6 +173,7 @@ class DiscoStorage(object):
         # Pylint thinks this function has too many local variables
         # pylint: disable=R0914
 
+        # disk names only go up to /dev/sdy. /dev/sdz is reserved for EBS volume
         disk_names = ['/dev/sd' + chr(ord('a') + i) for i in range(0, 25)]
         if ami_id:
             ami = self.connection.get_image(ami_id)
