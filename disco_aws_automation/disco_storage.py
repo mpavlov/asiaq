@@ -165,8 +165,7 @@ class DiscoStorage(object):
                           extra_space=None,
                           extra_disk=None,
                           iops=None,
-                          ephemeral_disk_count=0,
-                          map_snapshot=True):
+                          ephemeral_disk_count=0):
         ''' Cofigures block device mapping for root partition, extra disk if it's used,
         and the ephemeral discks. Note that EBS volume mapping is no longer being created
         here. The logic for attaching EBS volume has been moved to /etc/asiaq/init/ebs-start.sh '''
