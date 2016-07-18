@@ -3,8 +3,12 @@ import logging
 
 from boto3.session import Session
 from requests_aws4auth import AWS4Auth
-import curator
-from elasticsearch import Elasticsearch, RequestsHttpConnection, NotFoundError, TransportError
+from elasticsearch import (
+    Elasticsearch,
+    RequestsHttpConnection,
+    NotFoundError,
+    TransportError,
+)
 
 
 class DiscoESArchive(object):
@@ -45,7 +49,7 @@ class DiscoESArchive(object):
                 self.region,
                 'es'
             )
-            self._es_client = client = Elasticsearch(
+            self._es_client = Elasticsearch(
                 [self.host],
                 http_auth=aws_auth,
                 use_ssl=False,
@@ -65,8 +69,8 @@ class DiscoESArchive(object):
         total_bytes = cluster_stats["nodes"]["fs"]["total_in_bytes"]
         free_bytes = cluster_stats["nodes"]["fs"]['free_in_bytes']
         need_bytes = total_bytes * (1 - threshold)
+        logging.debug("disk utilization : %i%%", (total_bytes-free_bytes)*101/total_bytes)
         return need_bytes - free_bytes
-
 
     def archivable_indices(self, threshold):
         """
@@ -74,6 +78,7 @@ class DiscoESArchive(object):
         max disk space threshold. Oldest first.
         """
         bytes_to_free = self.bytes_to_free(threshold)
+        logging.debug("Need to free %i bytes.", bytes_to_free)
         if bytes_to_free <= 0:
             return []
 
@@ -96,17 +101,15 @@ class DiscoESArchive(object):
             freed_size += size
         return archivable_indices
 
+    def green_indices(self):
+        index_health = self.es_client.cluster.health(level='indices')
+        return [
+            index
+            for index in index_health['indices'].keys()
+            if index_health['indices'][index]['status'] == 'green'
+        ]
+
     def create_repository(self, bucket_name=None):
-        # Looks like it idempotent
-        #try:
-        #    print("here")
-        #    repository = self.es_client.snapshot.get_repository(self.repository_name)
-        #    if self.repository_name in repository: 
-        #        f=self.es_client.snapshot.delete_repository(self.repository_name)
-        #        print(f)
-        #    print("here")
-        #except NotFoundError:
-        #    pass
         # TODO auto create bucket if necessary?
         bucket_name = bucket_name or '{0}.es-log-archive'.format(self.region)
         repository_config = {
@@ -114,7 +117,7 @@ class DiscoESArchive(object):
             "settings": {
                 "bucket": bucket_name,
                 "region": self.region,
-                "role_arn": self.role_arn, 
+                "role_arn": self.role_arn,
             }
         }
         try:
@@ -128,24 +131,33 @@ class DiscoESArchive(object):
             )
             raise
 
-
-    def archive(self, threshold=.8, wait=False):
+    def archive(self, threshold=.8):
         indices = self.archivable_indices(threshold)
         if not indices:
             return
 
+        green_indices = self.green_indices()
+        green_archivable = set(indices) & set(green_indices)
+        ungreen_archivable = set(indices) - set(green_indices)
+        if ungreen_archivable:
+            logging.error(
+                "Skipping archiving of following unhealthy indexes: %s",
+                ",".join(ungreen_archivable)
+            )
+
         self.create_repository()
 
-        indices = [indices[0]]
-        print("Archiving: {0}".format(indices))
-        self.es_client.snapshot.create(
-            self.repository_name,
-            "master",
-            {
-                indices: ",".join(indexes)
-                "settings": {
-                    "role_arn": self.role_arn
+        for index in green_archivable:
+            logging.info("Archiving index: %s", index)
+            self.es_client.snapshot.create(
+                self.repository_name,
+                index,
+                {
+                    "indices": index,
+                    "settings": {
+                        "role_arn": self.role_arn
+                    }
                 }
-            }
-        )
-        #TODO do we need to delete them, I suspect so
+            )
+
+        #TODO wait for all indexes to complete snapshot and deactivate them on ES.
