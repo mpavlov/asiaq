@@ -601,6 +601,14 @@ class DiscoIAM(object):
         logging.debug("Deleted SAML providers: %s.", deleted)
         return deleted
 
+    def get_role_arn(self, policy_name):
+        role_prefix = self.option("role_prefix")
+        role_name = self._create_role_name(role_prefix, policy_name, [])
+
+        role = self.boto3_iam.get_role(RoleName=role_name).get("Role")
+
+        return role["Arn"] if role else ""
+
 
 class AssumeRolePolicyDocument(object):
     """

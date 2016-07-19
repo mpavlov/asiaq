@@ -1,4 +1,6 @@
 '''Various useful constants'''
+import os
+
 
 DEFAULT_CONFIG_SECTION = "disco_aws"
 HOSTCLASS_PREFIX = "mhc"
@@ -21,3 +23,6 @@ NETWORKS = {"intranet": "Inter host",
             "maintenance": "Admin jump box"}
 
 VPC_CONFIG_FILE = "disco_vpc.ini"
+ES_CONFIG_FILE = "disco_elasticsearch.ini"
+
+ES_ARCHIVE_LIFECYCLE_DIR = os.getenv("ASIAQ_CONFIG", ".") + "/iam/s3/es_archive"
