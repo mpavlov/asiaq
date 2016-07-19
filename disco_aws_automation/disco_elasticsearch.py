@@ -14,11 +14,13 @@ from . import read_config
 from .disco_route53 import DiscoRoute53
 from .resource_helper import throttled_call
 from .disco_aws_util import is_truthy
-from .disco_constants import DEFAULT_CONFIG_SECTION, VPC_CONFIG_FILE
+from .disco_constants import (
+    DEFAULT_CONFIG_SECTION,
+    VPC_CONFIG_FILE,
+    ES_CONFIG_FILE
+)
 from .disco_alarm import DiscoAlarm
 from .disco_alarm_config import DiscoAlarmsConfig
-
-CONFIG_FILE = "disco_elasticsearch.ini"
 
 
 class DiscoElasticsearch(object):
@@ -30,7 +32,7 @@ class DiscoElasticsearch(object):
                  config_vpc=None, route53=None, alarms=None):
         self.config_aws = config_aws or read_config()
         self.config_vpc = config_vpc or read_config(VPC_CONFIG_FILE)
-        self.config_es = config_es or read_config(CONFIG_FILE)
+        self.config_es = config_es or read_config(ES_CONFIG_FILE)
         self.route53 = route53 or DiscoRoute53()
 
         if environment_name:

@@ -6,6 +6,7 @@ from __future__ import print_function
 import argparse
 import sys
 from disco_aws_automation import DiscoElasticsearch
+from disco_aws_automation import DiscoESArchive
 from disco_aws_automation.disco_aws_util import run_gracefully, is_truthy
 from disco_aws_automation.disco_logging import configure_logging
 
@@ -44,6 +45,11 @@ def get_parser():
     parser_delete.add_argument("--all", dest="delete_all", action='store_const', default=False, const=True,
                                help="Delete *all* ElasticSearch domains")
 
+    parser_archive = subparsers.add_parser("archive",
+                                          help="TODO: fill the description.")
+    parser_archive.set_defaults(mode="archive")
+    parser_archive.add_argument("--cluster", dest="cluster", type=str, required=True,
+                                help="Name of the cluster to be archived.")
     return parser
 
 
@@ -87,6 +93,11 @@ def run():
             prompt += "Are you sure you want to delete {} ElasticSearch domains? (y/N)".format(scope)
             if not interactive_shell or is_truthy(raw_input(prompt)):
                 disco_es.delete(delete_all=args.delete_all)
+    elif args.mode == 'archive':
+        disco_es_archive = DiscoESArchive(env, args.cluster)
+        disco_es_archive.archive()
+
+
 
 if __name__ == "__main__":
     run_gracefully(run)

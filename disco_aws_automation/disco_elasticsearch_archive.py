@@ -1,27 +1,51 @@
-import re
-import logging
-from time import time, sleep
+from ConfigParser import NoOptionError
 from collections import defaultdict
+from time import time, sleep
+import json
+import logging
+import re
 
 from boto3.session import Session
-from requests_aws4auth import AWS4Auth
 from elasticsearch import (
     Elasticsearch,
     RequestsHttpConnection,
     TransportError,
 )
+from requests_aws4auth import AWS4Auth
+import boto3
+
+from . import read_config, DiscoElasticsearch, DiscoIAM
+from .disco_constants import (
+    ES_ARCHIVE_LIFECYCLE_DIR,
+    ES_CONFIG_FILE
+)
 
 ES_SNAPSHOT_FINAL_STATES = ['SUCCESS', 'FAILED']
 SNAPSHOT_WAIT_TIMEOUT = 60*60
 SNAPSHOT_POLL_INTERVAL = 60
+ES_ARCHIVE_ROLE = "es_archive"
 
 
 class DiscoESArchive(object):
-    def __init__(self, cluster_name, index_prefix_pattern=None, repository_name=None):
+    def __init__(self, environment_name, cluster_name, config_aws=None,
+                 config_es=None,
+                 index_prefix_pattern=None, repository_name=None, disco_es=None,
+                 disco_iam=None):
+        self.config_aws = config_aws or read_config()
+        self.config_es = config_es or read_config(ES_CONFIG_FILE)
+
+        if environment_name:
+            self.environment_name = environment_name.lower()
+        else:
+            self.environment_name = self.config_aws.get("disco_aws", "default_environment")
+
         self.cluster_name = cluster_name
         self._host = None
         self._es_client = None
         self._region = None
+        self._s3_client = None
+        self._disco_es = disco_es
+        self._disco_iam = disco_iam
         self.index_prefix_pattern = index_prefix_pattern or r'.*'
         self.repository_name = repository_name or 's3'
 
@@ -31,8 +55,15 @@ class DiscoESArchive(object):
         Return ES cluster hostname
         """
         if not self._host:
-            #TODO find cluster connection info using cluster name and disco_aws
-            self._host = {'host': 'es-logs-ci.aws.wgen.net', 'port': 80}
+            es_domains = self.disco_es.list()
+            try:
+                host = [es_domain["route_53_endpoint"]
+                        for es_domain in es_domains
+                        if es_domain.get("internal_name") == self.cluster_name][0]
+            except IndexError:
+                logging.info("Unable to find")
+                raise RuntimeError("Unable to find ES cluster: {}".format(self.cluster_name))
+            self._host = {'host': host, 'port': 80}
         return self._host
 
     @property
@@ -49,8 +80,11 @@ class DiscoESArchive(object):
         """
         Return aws role_arn
         """
-        # TODO pick this up automatically
-        return "arn:aws:iam::646102706174:role/disco_ci_es_archive"
+        arn = self.disco_iam.get_role_arn(ES_ARCHIVE_ROLE)
+        if not arn:
+            raise RuntimeError("Unable to find ARN for role: {}".format(ES_ARCHIVE_ROLE))
+
+        return arn
 
     @property
     def es_client(self):
@@ -75,7 +109,28 @@ class DiscoESArchive(object):
             )
         return self._es_client
 
-    def bytes_to_free(self, threshold):
+    @property
+    def disco_es(self):
+        if not self._disco_es:
+            self._disco_es = DiscoElasticsearch(self.environment_name)
+
+        return self._disco_es
+
+    @property
+    def disco_iam(self):
+        if not self._disco_iam:
+            self._disco_iam = DiscoIAM(environment=self.environment_name)
+
+        return self._disco_iam
+
+    @property
+    def s3_client(self):
+        if not self._s3_client:
+            self._s3_client = boto3.client("s3")
+
+        return self._s3_client
+
+    def _bytes_to_free(self, threshold):
         """
         Number of bytes disk space threshold is exceeded by. In other
         words, number of bytes of data that needs to be delted to drop
@@ -89,12 +144,12 @@ class DiscoESArchive(object):
         logging.debug("disk utilization : %i%%", (total_bytes-free_bytes)*101/total_bytes)
         return need_bytes - free_bytes
 
-    def archivable_indices(self, threshold):
+    def _archivable_indices(self, threshold):
         """
         Return list of indices that ough to be archived to get below
         max disk space threshold. Oldest first.
         """
-        bytes_to_free = self.bytes_to_free(threshold)
+        bytes_to_free = self._bytes_to_free(threshold)
         logging.debug("Need to free %i bytes.", bytes_to_free)
         if bytes_to_free <= 0:
             return []
@@ -118,7 +173,7 @@ class DiscoESArchive(object):
             freed_size += size
         return archivable_indices
 
-    def green_indices(self):
+    def _green_indices(self):
         """
         Return list of indexes that are in green state (healthy)
         """
@@ -129,13 +184,16 @@ class DiscoESArchive(object):
             if index_health['indices'][index]['status'] == 'green'
         ]
 
-    def create_repository(self, bucket_name=None):
+    def _create_repository(self, bucket_name=None):
         """
         Creates a s3 type repository where archives can be stored
         and retrieved.
         """
-        # TODO auto create bucket if necessary?
-        bucket_name = bucket_name or '{0}.es-log-archive'.format(self.region)
+        bucket_name = self._get_s3_bucket_name()
+
+        # Update S3 bucket based on config.
+        self._update_s3_bucket(bucket_name)
+
         repository_config = {
             "type": "s3",
             "settings": {
@@ -144,6 +202,7 @@ class DiscoESArchive(object):
                 "role_arn": self.role_arn,
             }
         }
+        logging.info("Creating ES snapshot repository: {0}".format(self.repository_name))
         try:
             self.es_client.snapshot.create_repository(self.repository_name, repository_config)
         except TransportError:
@@ -155,13 +214,59 @@ class DiscoESArchive(object):
             )
             raise
 
-    def archive(self, threshold=.8):
+    def _get_s3_bucket_name(self):
+        return "{0}.es-{1}-archive.{2}".format(self.region, self.cluster_name,
+                                               self.environment_name)
+
+    def _update_s3_bucket(self, name):
+        # Auto create bucket if necessary
+        buckets = self.s3_client.list_buckets()['Buckets']
+        if name not in [bucket['Name'] for bucket in buckets]:
+            logging.info("Creating bucket {0}".format(name))
+            self.s3_client.create_bucket(
+                Bucket=name,
+                CreateBucketConfiguration={
+                    'LocationConstraint': self.region})
+
+        lifecycle_policy = "{0}/{1}.lifecycle".format(
+            ES_ARCHIVE_LIFECYCLE_DIR,
+            self.get_es_option_default('s3_archive_lifecycle', 'default'))
+
+        with open(lifecycle_policy) as lifecycle_file:
+            lifecycle_config = json.load(lifecycle_file)
+
+        logging.info("Setting lifecycle configuration: {0}".format(lifecycle_config))
+        self.s3_client.put_bucket_lifecycle_configuration(
+            Bucket=name, LifecycleConfiguration=lifecycle_config)
+
+
+    def get_es_option(self, option):
+        """Returns appropriate configuration for the current environment"""
+        section = "{}:{}".format(self.environment_name, self.cluster_name)
+
+        if self.config_es.has_option(section, option):
+            return self.config_es.get(section, option)
+
+        raise NoOptionError(option, section)
+
+    def get_es_option_default(self, option, default=None):
+        """Returns appropriate configuration for the current environment"""
+        try:
+            return self.get_es_option(option)
+        except NoOptionError:
+            return default
+
+    def archive(self):
         """
         Archive enough indexes to bring down disk usage to specified threshold.
         Archive means move to s3 and delete from es cluster.
         """
-        indices = self.archivable_indices(threshold)
-        green_indices = self.green_indices()
+        threshold = float(self.get_es_option("archive_threshold"))
+        if threshold > 1.0:
+            raise RuntimeError("ElasticSearch archive threshold cannot exceed 1")
+
+        indices = self._archivable_indices(threshold)
+        green_indices = self._green_indices()
         green_archivable = set(indices) & set(green_indices)
         ungreen_archivable = set(indices) - set(green_indices)
         if ungreen_archivable:
@@ -169,15 +274,11 @@ class DiscoESArchive(object):
                 "Skipping archiving of following unhealthy indexes: %s",
                 ",".join(ungreen_archivable)
             )
-
         if not green_archivable:
             logging.warning("No indexes to archive.")
             return
 
-
-        self.create_repository()
-
-        green_archivable = set([green_archivable[8]])
+        self._create_repository()
 
         for index in green_archivable:
             logging.info("Archiving index: %s", index)
@@ -191,7 +292,6 @@ class DiscoESArchive(object):
                     }
                 }
             )
-            break  # TODO remove this debug line
 
         return self.wait_for_complete_snaps(green_archivable)
 
