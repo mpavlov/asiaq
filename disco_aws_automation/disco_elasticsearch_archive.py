@@ -1,14 +1,19 @@
 import re
 import logging
+from time import time, sleep
+from collections import defaultdict
 
 from boto3.session import Session
 from requests_aws4auth import AWS4Auth
 from elasticsearch import (
     Elasticsearch,
     RequestsHttpConnection,
-    NotFoundError,
     TransportError,
 )
+
+ES_SNAPSHOT_FINAL_STATES = ['SUCCESS', 'FAILED']
+SNAPSHOT_WAIT_TIMEOUT = 60*60
+SNAPSHOT_POLL_INTERVAL = 60
 
 
 class DiscoESArchive(object):
@@ -22,6 +27,9 @@ class DiscoESArchive(object):
 
     @property
     def host(self):
+        """
+        Return ES cluster hostname
+        """
         if not self._host:
             #TODO find cluster connection info using cluster name and disco_aws
             self._host = {'host': 'es-logs-ci.aws.wgen.net', 'port': 80}
@@ -29,17 +37,26 @@ class DiscoESArchive(object):
 
     @property
     def region(self):
+        """
+        Current region, based of boto connection.
+        """
         if not self._region:
             self._region = Session().region_name
         return self._region
 
     @property
     def role_arn(self):
+        """
+        Return aws role_arn
+        """
         # TODO pick this up automatically
         return "arn:aws:iam::646102706174:role/disco_ci_es_archive"
 
     @property
     def es_client(self):
+        """
+        Return authenticated ElasticSeach connection object
+        """
         if not self._es_client:
             session = Session()
             credentials = session.get_credentials()
@@ -102,6 +119,9 @@ class DiscoESArchive(object):
         return archivable_indices
 
     def green_indices(self):
+        """
+        Return list of indexes that are in green state (healthy)
+        """
         index_health = self.es_client.cluster.health(level='indices')
         return [
             index
@@ -110,6 +130,10 @@ class DiscoESArchive(object):
         ]
 
     def create_repository(self, bucket_name=None):
+        """
+        Creates a s3 type repository where archives can be stored
+        and retrieved.
+        """
         # TODO auto create bucket if necessary?
         bucket_name = bucket_name or '{0}.es-log-archive'.format(self.region)
         repository_config = {
@@ -132,10 +156,11 @@ class DiscoESArchive(object):
             raise
 
     def archive(self, threshold=.8):
+        """
+        Archive enough indexes to bring down disk usage to specified threshold.
+        Archive means move to s3 and delete from es cluster.
+        """
         indices = self.archivable_indices(threshold)
-        if not indices:
-            return
-
         green_indices = self.green_indices()
         green_archivable = set(indices) & set(green_indices)
         ungreen_archivable = set(indices) - set(green_indices)
@@ -145,7 +170,14 @@ class DiscoESArchive(object):
                 ",".join(ungreen_archivable)
             )
 
+        if not green_archivable:
+            logging.warning("No indexes to archive.")
+            return
+
+
         self.create_repository()
+
+        green_archivable = set([green_archivable[8]])
 
         for index in green_archivable:
             logging.info("Archiving index: %s", index)
@@ -159,5 +191,54 @@ class DiscoESArchive(object):
                     }
                 }
             )
+            break  # TODO remove this debug line
 
-        #TODO wait for all indexes to complete snapshot and deactivate them on ES.
+        return self.wait_for_complete_snaps(green_archivable)
+
+
+    def snapshots(self, snapshots=None):
+        """
+        List snapshots their state & etc.
+        """
+        snaps = self.es_client.snapshot.get(self.repository_name, snapshots or '_all')
+        return snaps['snapshots']
+
+    def snapshots_by_state(self, snapshots=None):
+        """
+        Return all snapshots of by state type
+        {'FAILED': ['foo'], 'SUCCESS': ['bar', 'baz']}
+        """
+        # We don't use the more sensible methods which use ES's _snapshot endpoint,
+        # it is not exposed on AWS
+        snaps = self.snapshots(",".join(snapshots))
+        snap_by_state = defaultdict(list)
+        for snap in snaps['snapshots']:
+            snap_by_state[snap['state']].append(snap['snapshot'])
+
+    def _complete_snaps(self, snap_states):
+        return set([
+            snap
+            for state in snap_states
+            for snap in snap_states[state]
+            if state in ES_SNAPSHOT_FINAL_STATES
+        ])
+
+    def wait_for_complete_snaps(self, snapshots=None):
+        """
+        Wait for specified snapshots to complete snapshotting process.
+        """
+        snapshots = set(snapshots)
+        max_time = time() + SNAPSHOT_WAIT_TIMEOUT
+        while True:
+            snap_states = self.snapshots_by_state(snapshots)
+            uncompleted = snapshots - self._complete_snaps(snap_states)
+            if not uncompleted or time() < max_time:
+                break
+            sleep(SNAPSHOT_POLL_INTERVAL)
+        return snap_states
+
+    def restore(self, snapshot):
+        """
+        Bring back index from archive to ES cluster
+        """
+        self.es_client.snapshot.restore(self.repository_name, snapshot)
