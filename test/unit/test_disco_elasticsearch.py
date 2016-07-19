@@ -10,17 +10,19 @@ from disco_aws_automation import DiscoElasticsearch
 from disco_aws_automation.disco_aws_util import is_truthy
 from test.helpers.patch_disco_aws import get_mock_config
 
-MOCK_AWS_CONFIG_DEFINITON = {
+MOCK_AWS_CONFIG_DEFINITION = {
     "disco_aws": {
         "default_domain_name": "aws.example.com",
-        "http_proxy_hostclass": "mhcproxy"
-    },
-    "mhcproxy": {
-        "eip": "192.0.2.0"
     }
 }
 
-MOCK_ES_CONFIG_DEFINITON = {
+MOCK_VPC_CONFIG_DEFINITION = {
+    "envtype:foo": {
+        "tunnel_nat_gateways": "1.1.1.1,2.2.2.2,3.3.3.3"
+    }
+}
+
+MOCK_ES_CONFIG_DEFINITION = {
     "foo:logs": {
         "instance_type": "m3.medium.elasticsearch",
         "instance_count": "3",
@@ -59,20 +61,26 @@ def _get_mock_route53():
     return route53
 
 
+# Pylint thinks the test method names are too long. Test method names should be long and descriptive...
+# pylint: disable=invalid-name
 class DiscoElastiSearchTests(TestCase):
     """Test DiscoElasticSearch"""
 
     def setUp(self):
         self.mock_route_53 = _get_mock_route53()
 
-        config_aws = get_mock_config(MOCK_AWS_CONFIG_DEFINITON)
-        config_es = get_mock_config(MOCK_ES_CONFIG_DEFINITON)
+        config_aws = get_mock_config(MOCK_AWS_CONFIG_DEFINITION)
+        config_vpc = get_mock_config(MOCK_VPC_CONFIG_DEFINITION)
+        config_es = get_mock_config(MOCK_ES_CONFIG_DEFINITION)
         self.account_id = ''.join(random.choice("0123456789") for _ in range(12))
         self.region = "us-west-2"
         self.environment_name = "foo"
 
-        self._es = DiscoElasticsearch(environment_name=self.environment_name,
-                                      config_aws=config_aws, config_es=config_es, route53=self.mock_route_53)
+        self.mock_alarms = MagicMock()
+
+        self._es = DiscoElasticsearch(environment_name=self.environment_name, alarms=self.mock_alarms,
+                                      config_aws=config_aws, config_es=config_es,
+                                      config_vpc=config_vpc, route53=self.mock_route_53)
 
         self._es._account_id = self.account_id
         self._es._region = self.region
@@ -100,12 +108,16 @@ class DiscoElastiSearchTests(TestCase):
             domain_name = config["DomainName"]
             if domain_name in self.domain_configs:
                 endpoint = self.domain_configs[domain_name]["DomainStatus"]["Endpoint"]
+                domain_id = self.domain_configs[domain_name]["DomainStatus"]["DomainId"]
             else:
                 cluster_id = ''.join(random.choice("0123456789abcdef") for _ in range(60))
                 endpoint = "search-{}-{}.{}.es.amazonaws.com".format(domain_name, cluster_id,
                                                                      self.region)
+                client_id = ''.join(random.choice("0123456789") for _ in range(12))
+                domain_id = "{}/{}".format(client_id, domain_name)
 
             config["Endpoint"] = endpoint
+            config["DomainId"] = domain_id
 
             domain_config = {
                 "DomainStatus": config
@@ -124,10 +136,11 @@ class DiscoElastiSearchTests(TestCase):
         self._es._conn.create_elasticsearch_domain.side_effect = _create_elasticsearch_domain
         self._es._conn.update_elasticsearch_domain_config.side_effect = _update_elasticsearch_domain_config
 
-    # pylint doesn't like Boto3's argument names
-    # pylint: disable=C0103
-    def _get_endpoint(self, DomainName):
-        return self.domain_configs[DomainName]["DomainStatus"]["Endpoint"]
+    def _get_endpoint(self, domain_name):
+        return self.domain_configs[domain_name]["DomainStatus"]["Endpoint"]
+
+    def _get_client_id(self, domain_name):
+        return self.domain_configs[domain_name]["DomainStatus"]["DomainId"].split('/')[0]
 
     def test_domain_name_formatted(self):
         """Make sure that the domain name is formatted correctly"""
@@ -176,6 +189,15 @@ class DiscoElastiSearchTests(TestCase):
         actual_endpoint = self._es.get_endpoint(domain_name)
         self.assertEquals(actual_endpoint, expected_endpoint)
 
+    def test_get_client_id_with_a_domain(self):
+        """Verify that get_client_id returns the correct client_id for a domain"""
+        elasticsearch_name = "logs"
+        domain_name = self._es.get_domain_name(elasticsearch_name)
+        self._es.update(elasticsearch_name)
+        expected_client_id = self._get_client_id(domain_name)
+        actual_client_id = self._es.get_client_id(domain_name)
+        self.assertEquals(actual_client_id, expected_client_id)
+
     def test_get_endpoint_with_bad_domain(self):
         """Verify that get_endpoint returns None if the requested domain_name doesn't exist"""
         self.assertEquals(self._es.get_endpoint("DoesntMatter"), None)
@@ -195,29 +217,30 @@ class DiscoElastiSearchTests(TestCase):
         self.assertIn(domain_name, self._es._list())
         domain_config = self._es._describe_es_domain(domain_name)["DomainStatus"]
         self.assertEquals(domain_config["ElasticsearchClusterConfig"]["InstanceType"],
-                          MOCK_ES_CONFIG_DEFINITON[config_section]["instance_type"])
+                          MOCK_ES_CONFIG_DEFINITION[config_section]["instance_type"])
         self.assertEquals(domain_config["ElasticsearchClusterConfig"]["InstanceCount"],
-                          int(MOCK_ES_CONFIG_DEFINITON[config_section]["instance_count"]))
+                          int(MOCK_ES_CONFIG_DEFINITION[config_section]["instance_count"]))
         self.assertEquals(domain_config["ElasticsearchClusterConfig"]["DedicatedMasterEnabled"],
-                          is_truthy(MOCK_ES_CONFIG_DEFINITON[config_section]["dedicated_master"]))
+                          is_truthy(MOCK_ES_CONFIG_DEFINITION[config_section]["dedicated_master"]))
         self.assertEquals(domain_config["ElasticsearchClusterConfig"]["ZoneAwarenessEnabled"],
-                          is_truthy(MOCK_ES_CONFIG_DEFINITON[config_section]["zone_awareness"]))
+                          is_truthy(MOCK_ES_CONFIG_DEFINITION[config_section]["zone_awareness"]))
         self.assertEquals(domain_config["ElasticsearchClusterConfig"]["DedicatedMasterType"],
-                          MOCK_ES_CONFIG_DEFINITON[config_section]["dedicated_master_type"])
+                          MOCK_ES_CONFIG_DEFINITION[config_section]["dedicated_master_type"])
         self.assertEquals(domain_config["ElasticsearchClusterConfig"]["DedicatedMasterCount"],
-                          int(MOCK_ES_CONFIG_DEFINITON[config_section]["dedicated_master_count"]))
+                          int(MOCK_ES_CONFIG_DEFINITION[config_section]["dedicated_master_count"]))
         self.assertEquals(domain_config["EBSOptions"]["EBSEnabled"],
-                          is_truthy(MOCK_ES_CONFIG_DEFINITON[config_section]["ebs_enabled"]))
+                          is_truthy(MOCK_ES_CONFIG_DEFINITION[config_section]["ebs_enabled"]))
         self.assertEquals(domain_config["EBSOptions"]["Iops"],
-                          int(MOCK_ES_CONFIG_DEFINITON[config_section]["iops"]))
+                          int(MOCK_ES_CONFIG_DEFINITION[config_section]["iops"]))
         self.assertEquals(domain_config["EBSOptions"]["VolumeSize"],
-                          int(MOCK_ES_CONFIG_DEFINITON[config_section]["volume_size"]))
+                          int(MOCK_ES_CONFIG_DEFINITION[config_section]["volume_size"]))
         self.assertEquals(domain_config["EBSOptions"]["VolumeType"],
-                          MOCK_ES_CONFIG_DEFINITON[config_section]["volume_type"])
+                          MOCK_ES_CONFIG_DEFINITION[config_section]["volume_type"])
         self.assertEquals(domain_config["SnapshotOptions"]["AutomatedSnapshotStartHour"],
-                          int(MOCK_ES_CONFIG_DEFINITON[config_section]["snapshot_start_hour"]))
-        expected_source_ips = MOCK_ES_CONFIG_DEFINITON[config_section]["allowed_source_ips"].split()
-        expected_source_ips.append(MOCK_AWS_CONFIG_DEFINITON["mhcproxy"]["eip"])
+                          int(MOCK_ES_CONFIG_DEFINITION[config_section]["snapshot_start_hour"]))
+        expected_source_ips = MOCK_ES_CONFIG_DEFINITION[config_section]["allowed_source_ips"].split()
+        expected_nat_gateways = MOCK_VPC_CONFIG_DEFINITION['envtype:foo']["tunnel_nat_gateways"].split(',')
+        expected_source_ips += expected_nat_gateways
         access_policy = json.loads(domain_config["AccessPolicies"])
         actual_source_ips = access_policy["Statement"][0]["Condition"]["IpAddress"]["aws:SourceIp"]
         self.assertEquals(set(actual_source_ips), set(expected_source_ips))
@@ -240,6 +263,22 @@ class DiscoElastiSearchTests(TestCase):
         self.assertEquals(len(self._es.list()), 1)
         self._es.delete(elasticsearch_name)
         self.assertEquals(len(self._es.list()), 0)
+
+    def test_create_a_domain_creates_route53_record(self):
+        """Verify that creating a domain makes the expected route53 record"""
+        elasticsearch_name = "logs"
+        self._es.update(elasticsearch_name)
+        domain_name = self._es.get_domain_name(elasticsearch_name)
+        endpoint = self._get_endpoint(domain_name)
+        self.mock_route_53.create_record.assert_called_once_with(self._es.zone,
+                                                                 '{}.{}'.format(domain_name, self._es.zone),
+                                                                 'CNAME', endpoint)
+
+    def test_create_a_domain_creates_alarms(self):
+        """Verify that a domain can be deleted after its been created"""
+        elasticsearch_name = "logs"
+        self._es.update(elasticsearch_name)
+        self.mock_alarms.create_alarms.assert_called_once_with(elasticsearch_name)
 
     def test_delete_domain_with_no_domain(self):
         """Verify that deleting a domain that does not exist throws no exception and has no effect"""

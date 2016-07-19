@@ -307,21 +307,21 @@ class DiscoBake(object):
         # Pylint wants us to name the exceptions, but we want to ignore all of them
         # pylint: disable=W0702
         ssh_args = SSH_DEFAULT_OPTIONS + ["-tt"]
-        try:
-            self.remotecmd(
-                instance,
-                ["sudo", "cp", "/home/ubuntu/.ssh/authorized_keys", "/root/.ssh/authorized_keys"],
-                user="ubuntu", ssh_options=ssh_args)
-        except:
-            logging.debug("Ubuntu specific; enabling of root login during bake failed")
-
-        try:
-            self.remotecmd(
-                instance,
-                ["sudo", "cp", "/home/centos/.ssh/authorized_keys", "/root/.ssh/authorized_keys"],
-                user="centos", ssh_options=ssh_args)
-        except:
-            logging.debug("CentOS >6 specific; enabling of root login during bake failed")
+        for user in ["ubuntu", "centos"]:
+            try:
+                self.remotecmd(
+                    instance,
+                    [
+                        "sudo mv /home/{0}/.ssh/authorized_keys /root/.ssh/authorized_keys; "
+                        "sudo chown root:root /root/.ssh/authorized_keys".format(user)
+                    ],
+                    user=user, ssh_options=ssh_args)
+                break
+            except:
+                logging.debug(
+                    "OS specific: moving %s user ssh keys to root",
+                    user
+                )
 
     def bake_ami(self, hostclass, no_destroy, source_ami_id=None, stage=None):
         # Pylint thinks this function has too many local variables and too many statements and branches
@@ -392,7 +392,7 @@ class DiscoBake(object):
             # for root login in production and we shutdown via the shutdown command to make
             # sure the snapshot is of a clean filesystem that won't trigger fsck on start.
             # We use nothrow to ignore ssh's 255 exit code on shutdown of centos7
-            self.remotecmd(instance, ["rm -Rf /root/.ssh/authorized_keys ; shutdown now -P"], nothrow=True)
+            self.remotecmd(instance, ["rm -Rf /root/.ssh/authorized_keys ; shutdown now -h"], nothrow=True)
             wait_for_state(instance, u'stopped', 300)
             logging.info("Creating snapshot from instance")
 
@@ -682,7 +682,9 @@ class DiscoBake(object):
         elif hostclass:
             filters = {}
             filters["name"] = "{0} *".format(hostclass)
-            amis = self.ami_filter(self.get_amis(filters=filters), stage, product_line)
+            amis = self.get_amis(filters=filters)
+            logging.debug("AMI search for %s found %s", filters, amis)
+            amis = self.ami_filter(amis, stage, product_line)
             return max(amis, key=self.ami_timestamp) if amis else None
         else:
             raise ValueError("Must specify either hostclass or AMI")

@@ -7,6 +7,8 @@ import logging
 from boto.route53 import Route53Connection
 from boto.route53.record import Record
 
+from disco_aws_automation.resource_helper import throttled_call
+
 
 class DiscoRoute53(object):
     """
@@ -18,7 +20,7 @@ class DiscoRoute53(object):
 
     def list_zones(self):
         """Returns a list of Hosted Zones in Route53"""
-        return sorted(self.route53.get_zones(), key=lambda zone: zone.name)
+        return sorted(throttled_call(self.route53.get_zones), key=lambda zone: zone.name)
 
     def create_record(self, hosted_zone_name, record_name, record_type, value):
         """
@@ -29,17 +31,17 @@ class DiscoRoute53(object):
             record_type (str): the type of record (A, AAAA, CNAME, etc)
             value (str): a single value to insert into the record
         """
-        zone = self.route53.get_zone(hosted_zone_name)
+        zone = throttled_call(self.route53.get_zone, hosted_zone_name)
 
-        record = Record(record_name, record_type, ttl=60)
+        record = Record(record_name, record_type, ttl=5)
         record.add_value(value)
 
         logging.info("Setting Record %s of type %s to %s", record_name, record_type, value)
 
-        changes = self.route53.get_all_rrsets(zone.id)
+        changes = throttled_call(self.route53.get_all_rrsets, zone.id)
         changes.add_change_record('UPSERT', record)
 
-        changes.commit()
+        throttled_call(changes.commit)
 
     def list_records(self, hosted_zone_name):
         """
@@ -47,8 +49,8 @@ class DiscoRoute53(object):
         Args:
             hosted_zone_name (str): the domain of the Hosted Zone
         """
-        zone = self.route53.get_zone(hosted_zone_name)
-        return sorted(self.route53.get_all_rrsets(zone.id), key=lambda record: record.name)
+        zone = throttled_call(self.route53.get_zone, hosted_zone_name)
+        return sorted(throttled_call(self.route53.get_all_rrsets, zone.id), key=lambda record: record.name)
 
     def delete_record(self, hosted_zone_name, record_name, record_type):
         """
@@ -58,9 +60,9 @@ class DiscoRoute53(object):
             record_name (str): the name of the record
             record_type (str): the type of record (A, AAAA, CNAME, etc)
         """
-        zone = self.route53.get_zone(hosted_zone_name)
+        zone = throttled_call(self.route53.get_zone, hosted_zone_name)
 
-        records = self.route53.get_all_rrsets(zone.id)
+        records = throttled_call(self.route53.get_all_rrsets, zone.id)
         # Needs a default None, to prevent StopIteration when the iterator is exhausted
         selected_record = next((record for record in records
                                 if record.name == record_name and record.type == record_type), None)
@@ -69,7 +71,7 @@ class DiscoRoute53(object):
                          record_name, hosted_zone_name)
             return
         records.add_change_record('DELETE', selected_record)
-        records.commit()
+        throttled_call(records.commit)
 
     def delete_records_by_value(self, record_type, value):
         """

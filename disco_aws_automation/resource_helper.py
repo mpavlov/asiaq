@@ -18,6 +18,32 @@ INSTANCE_SSHABLE_POLL_INTERVAL = 15  # seconds
 MAX_POLL_INTERVAL = 60  # seconds
 
 
+def create_filters(filter_dict):
+    """
+    Converts a dict to a list of boto3 filters. The keys and value of the dict represent
+    the Name and Values of a filter, respectively.
+    """
+    filters = []
+    for key in filter_dict.keys():
+        filters.append({'Name': key, 'Values': filter_dict[key]})
+
+    return filters
+
+
+def tag2dict(tags):
+    """ Converts a list of AWS tag dicts to a single dict with corresponding keys and values """
+    return {tag.get('Key'): tag.get('Value') for tag in tags or {}}
+
+
+def find_or_create(find, create):
+    """Given a find and a create function, create a resource iff it doesn't exist"""
+    result = find()
+    if result:
+        return result
+    else:
+        return create()
+
+
 def keep_trying(max_time, fun, *args, **kwargs):
     """
     Execute function fun with args and kwargs until it does
@@ -103,6 +129,41 @@ def wait_for_state(resource, state, timeout=15 * 60, state_attr='state'):
             raise TimeoutError(
                 "Timed out waiting for {0} to change state to {1} after {2}s."
                 .format(resource, state, time_passed))
+
+        time.sleep(STATE_POLL_INTERVAL)
+        time_passed += STATE_POLL_INTERVAL
+
+
+def wait_for_state_boto3(describe_func, params_dict, resources_name,
+                         expected_state, state_attr='state', timeout=15 * 60):
+    """Wait for an AWS resource to reach a specified state using the boto3 library"""
+    time_passed = 0
+    while True:
+        try:
+            resources = describe_func(**params_dict)[resources_name]
+            all_good = True
+            failure = False
+            for resource in resources:
+                if resource[state_attr] != expected_state:
+                    all_good = False
+                elif resource[state_attr] in (u'failed', u'terminated'):
+                    failure = True
+
+            if all_good:
+                return
+            elif failure:
+                raise ExpectedTimeoutError(
+                    "At least some resources who meet the following description entered either "
+                    "'failed' or 'terminated' state after {0}s waiting for state {1}:\n{2}"
+                    .format(time_passed, expected_state, params_dict))
+        except EC2ResponseError:
+            pass  # These are most likely transient, we will timeout if they are not
+
+        if time_passed >= timeout:
+            raise TimeoutError(
+                "Timed out waiting for resources who meet the following description to change "
+                "state to {0} after {1}s:\n{2}"
+                .format(expected_state, time_passed, params_dict))
 
         time.sleep(STATE_POLL_INTERVAL)
         time_passed += STATE_POLL_INTERVAL

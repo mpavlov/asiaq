@@ -18,11 +18,36 @@ class EasyExit(Exception):
     pass
 
 
+def get_tag_value(tag_list, key):
+    """
+    Given a list of dictionaries representing tags, returns the value of the given key, or None if the key
+    cannot be found.
+    """
+    for tag in tag_list:
+        if tag["Key"] == key:
+            return tag["Value"]
+    return None
+
+
 def is_truthy(value):
     """
     Return true if value resembles a affirmation
     """
     return value and value.lower() in YES_LIST
+
+
+def chunker(sequence, size):
+    """
+    Creates a generator that yields chunks of sequence in the given size
+
+    for group in chunker(range(0, 20), 5):
+        print group
+    # [0, 1, 2, 3, 4]
+    # [5, 6, 7, 8, 9]
+    # [10, 11, 12, 13, 14]
+    # [15, 16, 17, 18, 19]
+    """
+    return (sequence[position:position + size] for position in xrange(0, len(sequence), size))
 
 
 def run_gracefully(main_function):
