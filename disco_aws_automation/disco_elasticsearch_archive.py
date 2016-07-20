@@ -293,7 +293,6 @@ class DiscoESArchive(object):
 
         self._create_repository()
 
-        green_archivable = set([list(green_archivable)[11]])
         snap_states = defaultdict(list)
         snap_states['skipped'] = list(ungreen_archivable)
 
@@ -325,7 +324,6 @@ class DiscoESArchive(object):
             else:
                 self.es_client.snapshot.delete('s3', index)
             snap_states[snap_state] = index
-            break
 
         return snap_states
 
