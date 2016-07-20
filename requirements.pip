@@ -11,4 +11,5 @@ python-dateutil>=2.4.0,<3
 semantic_version>=2.4.2
 elasticsearch-curator>3,<4
 requests_aws4auth<2
-elasticsearch>=2.3.0,<3
+# Since aws ES is 1.5 we must pin elasticsearch-py as follows:
+elasticsearch>=1.0.0,<2.0.0

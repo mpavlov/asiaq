@@ -5,16 +5,18 @@ import json
 import logging
 import re
 
+import boto3
 from boto3.session import Session
 from elasticsearch import (
     Elasticsearch,
+    NotFoundError,
     RequestsHttpConnection,
     TransportError,
 )
 from requests_aws4auth import AWS4Auth
-import boto3
 
 from . import read_config, DiscoElasticsearch, DiscoIAM
+from .exceptions import TimeoutError
 from .disco_constants import (
     ES_ARCHIVE_LIFECYCLE_DIR,
     ES_CONFIG_FILE
@@ -202,17 +204,28 @@ class DiscoESArchive(object):
                 "role_arn": self.role_arn,
             }
         }
-        logging.info("Creating ES snapshot repository: {0}".format(self.repository_name))
+        logging.info("Creating ES snapshot repository: %s", self.repository_name)
         try:
             self.es_client.snapshot.create_repository(self.repository_name, repository_config)
         except TransportError:
-            print(
-                "Could not create archive repository. "
-                "Make sure bucket {0} exists and IAM policy allows es to access bucket. "
-                "repository config:{1}"
-                .format(bucket_name, repository_config)
-            )
-            raise
+            try:
+                self.es_client.snapshot.get_repository('s3')
+                # This can happen when repo is used to make snapshot but we
+                # attempt to re-create it.
+                logging.warning(
+                    "Error on creating ES snapshot respository %s, "
+                    "but one already exists, ingnoring",
+                    self.repository_name
+                )
+            except:
+                logging.error(
+                    "Could not create archive repository. "
+                    "Make sure bucket %s exists and IAM policy allows es to access bucket. "
+                    "repository config: %s",
+                    bucket_name,
+                    repository_config,
+                )
+                raise
 
     def _get_s3_bucket_name(self):
         return "{0}.es-{1}-archive.{2}".format(self.region, self.cluster_name,
@@ -222,7 +235,7 @@ class DiscoESArchive(object):
         # Auto create bucket if necessary
         buckets = self.s3_client.list_buckets()['Buckets']
         if name not in [bucket['Name'] for bucket in buckets]:
-            logging.info("Creating bucket {0}".format(name))
+            logging.info("Creating bucket %s", name)
             self.s3_client.create_bucket(
                 Bucket=name,
                 CreateBucketConfiguration={
@@ -235,7 +248,7 @@ class DiscoESArchive(object):
         with open(lifecycle_policy) as lifecycle_file:
             lifecycle_config = json.load(lifecycle_file)
 
-        logging.info("Setting lifecycle configuration: {0}".format(lifecycle_config))
+        logging.info("Setting lifecycle configuration: %s", lifecycle_config)
         self.s3_client.put_bucket_lifecycle_configuration(
             Bucket=name, LifecycleConfiguration=lifecycle_config)
 
@@ -272,7 +285,7 @@ class DiscoESArchive(object):
         if ungreen_archivable:
             logging.error(
                 "Skipping archiving of following unhealthy indexes: %s",
-                ",".join(ungreen_archivable)
+                ", ".join(ungreen_archivable)
             )
         if not green_archivable:
             logging.warning("No indexes to archive.")
@@ -280,7 +293,20 @@ class DiscoESArchive(object):
 
         self._create_repository()
 
+        green_archivable = set([list(green_archivable)[11]])
+        snap_states = defaultdict(list)
+        snap_states['skipped'] = list(ungreen_archivable)
+
         for index in green_archivable:
+            if self.snapshot_state(index) != 'unknown':
+                logging.error(
+                    'Index archive with conflicting name %s exists, skipping archiving',
+                    index
+                )
+                # TODO optionally delete snapshot for overwriting? 
+                snap_states['skipped'].append(index)
+                continue
+
             logging.info("Archiving index: %s", index)
             self.es_client.snapshot.create(
                 self.repository_name,
@@ -292,8 +318,16 @@ class DiscoESArchive(object):
                     }
                 }
             )
+            snap_state = self._wait_for_snapshot(index)
+            if snap_state == 'SUCCESS':
+                # TODO make deletion of index from cluster optional?
+                self.es_client.indices.delete(index)
+            else:
+                self.es_client.snapshot.delete('s3', index)
+            snap_states[snap_state] = index
+            break
 
-        return self.wait_for_complete_snaps(green_archivable)
+        return snap_states
 
 
     def snapshots(self, snapshots=None):
@@ -303,39 +337,33 @@ class DiscoESArchive(object):
         snaps = self.es_client.snapshot.get(self.repository_name, snapshots or '_all')
         return snaps['snapshots']
 
-    def snapshots_by_state(self, snapshots=None):
+    def snapshot_state(self, snapshot):
         """
-        Return all snapshots of by state type
-        {'FAILED': ['foo'], 'SUCCESS': ['bar', 'baz']}
+        Return state of specified snapshot or 'unknown'.
         """
-        # We don't use the more sensible methods which use ES's _snapshot endpoint,
-        # it is not exposed on AWS
-        snaps = self.snapshots(",".join(snapshots))
-        snap_by_state = defaultdict(list)
-        for snap in snaps['snapshots']:
-            snap_by_state[snap['state']].append(snap['snapshot'])
+        try:
+            for snap in self.snapshots(snapshot):
+                if snap['snapshot'] == snapshot:
+                    return snap['state']
+        except NotFoundError:
+            pass
+        return 'unknown'
 
-    def _complete_snaps(self, snap_states):
-        return set([
-            snap
-            for state in snap_states
-            for snap in snap_states[state]
-            if state in ES_SNAPSHOT_FINAL_STATES
-        ])
-
-    def wait_for_complete_snaps(self, snapshots=None):
+    def _wait_for_snapshot(self, snapshot):
         """
         Wait for specified snapshots to complete snapshotting process.
         """
-        snapshots = set(snapshots)
         max_time = time() + SNAPSHOT_WAIT_TIMEOUT
         while True:
-            snap_states = self.snapshots_by_state(snapshots)
-            uncompleted = snapshots - self._complete_snaps(snap_states)
-            if not uncompleted or time() < max_time:
-                break
             sleep(SNAPSHOT_POLL_INTERVAL)
-        return snap_states
+            snap_state = self.snapshot_state(snapshot)
+            if snap_state in ES_SNAPSHOT_FINAL_STATES:
+                return snap_state
+            if time() > max_time:
+                raise TimeoutError(
+                    "Timed out ({0}s) waiting for {1} to enter final state."
+                    .format(SNAPSHOT_WAIT_TIMEOUT, snapshot)
+                )
 
     def restore(self, snapshot):
         """
