@@ -351,7 +351,6 @@ class DiscoESArchive(object):
 
         self._create_repository()
 
-        green_archivable = set([list(green_archivable)[11]])
         snap_states = defaultdict(list)
         snap_states['skipped'] = list(ungreen_archivable)
 
