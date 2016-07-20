@@ -159,16 +159,36 @@ class DiscoESArchive(object):
         logging.debug("disk utilization : %i%%", (total_bytes-free_bytes)*101/total_bytes)
         return need_bytes - free_bytes
 
-    def _archivable_indices(self, threshold):
+    def _indices_to_delete(self, threshold):
         """
-        Return list of indices that ough to be archived to get below
-        max disk space threshold. Oldest first.
+        Return list of indices that have already been archived, so that when they are deleted,
+        disk space would get below the threshold. Oldest first.
         """
         bytes_to_free = self._bytes_to_free(threshold)
         logging.debug("Need to free %i bytes.", bytes_to_free)
         if bytes_to_free <= 0:
             return []
 
+        index_sizes = self._get_all_indices_and_sizes()
+        indices_to_delete = []
+        freed_size = 0
+        for index, size in index_sizes:
+            if self.snapshot_state(index) == 'SUCCESS':
+                indices_to_delete.append(index)
+                freed_size += size
+                if freed_size >= bytes_to_free:
+                    break
+        return indices_to_delete
+
+    def _archivable_indices(self):
+        """ Return list of all the indices other than latest """
+        return [index[0] for index in self._get_all_indices_and_sizes()[:-1]]
+
+    def _get_all_indices_and_sizes(self):
+        """
+        Return list of all the indices and their sizes sorted by the date from
+        oldest to latest
+        """
         stats = self.es_client.indices.stats()
         dated_index_pattern = re.compile(
             self.index_prefix_pattern + r'-[\d]{4}(\.[\d]{2}){2}$'
@@ -179,14 +199,7 @@ class DiscoESArchive(object):
             if re.match(dated_index_pattern, index)
         ]
 
-        archivable_indices = []
-        freed_size = 0
-        for index, size in index_sizes:
-            if freed_size > bytes_to_free:
-                break
-            archivable_indices.append(index)
-            freed_size += size
-        return archivable_indices
+        return index_sizes
 
     def _green_indices(self):
         """
@@ -208,7 +221,7 @@ class DiscoESArchive(object):
         self._update_s3_bucket(self.s3_bucket_name)
 
         repository_config = {
-            "type": "s3",
+            "type": self.repository_name,
             "settings": {
                 "bucket": self.s3_bucket_name,
                 "region": self.region,
@@ -221,7 +234,7 @@ class DiscoESArchive(object):
             self.es_client.snapshot.create_repository(self.repository_name, repository_config)
         except TransportError:
             try:
-                self.es_client.snapshot.get_repository('s3')
+                self.es_client.snapshot.get_repository(self.repository_name)
                 # This can happen when repo is used to make snapshot but we
                 # attempt to re-create it.
                 logging.warning(
@@ -327,16 +340,12 @@ class DiscoESArchive(object):
         except NoOptionError:
             return default
 
-    def archive(self):
+    def archive(self, dry_run=False):
         """
-        Archive enough indexes to bring down disk usage to specified threshold.
-        Archive means move to s3 and delete from es cluster.
+        Archive all the indices, other than the latest one, that have not already been archived.
+        Archiving an index doesn't include deleting it from the cluster.
         """
-        threshold = float(self.get_es_option("archive_threshold"))
-        if threshold > 1.0:
-            raise RuntimeError("ElasticSearch archive threshold cannot exceed 1")
-
-        indices = self._archivable_indices(threshold)
+        indices = self._archivable_indices()
         green_indices = self._green_indices()
         green_archivable = set(indices) & set(green_indices)
         ungreen_archivable = set(indices) - set(green_indices)
@@ -346,7 +355,7 @@ class DiscoESArchive(object):
                 ", ".join(ungreen_archivable)
             )
         if not green_archivable:
-            logging.warning("No indexes to archive.")
+            logging.warning("No indices to archive.")
             return
 
         self._create_repository()
@@ -355,36 +364,63 @@ class DiscoESArchive(object):
         snap_states['skipped'] = list(ungreen_archivable)
 
         for index in green_archivable:
-            if self.snapshot_state(index) != 'unknown':
-                logging.error(
-                    'Index archive with conflicting name %s exists, skipping archiving',
+            snap_state = self.snapshot_state(index)
+            if snap_state == 'FAILED':
+                logging.info(
+                    "Deleting the falied snapshot for index (%s) so that it can be archived again.",
+                    index)
+                if not dry_run:
+                    self.es_client.snapshot.delete('s3', index)
+            elif snap_state != 'unknown':
+                logging.info(
+                    'Index (%s) was already archived.',
                     index
                 )
-                # TODO optionally delete snapshot for overwriting? 
-                snap_states['skipped'].append(index)
+                snap_states['existed'].append(index)
                 continue
 
             logging.info("Archiving index: %s", index)
-            self.es_client.snapshot.create(
-                self.repository_name,
-                index,
-                {
-                    "indices": index,
-                    "settings": {
-                        "role_arn": self.role_arn
+            if not dry_run:
+                self.es_client.snapshot.create(
+                    self.repository_name,
+                    index,
+                    {
+                        "indices": index,
+                        "settings": {
+                            "role_arn": self.role_arn
+                        }
                     }
-                }
-            )
-            snap_state = self._wait_for_snapshot(index)
-            if snap_state == 'SUCCESS':
-                # TODO make deletion of index from cluster optional?
-                self.es_client.indices.delete(index)
+                )
+                snap_state = self._wait_for_snapshot(index)
+
+                if snap_state != 'SUCCESS':
+                    self.es_client.snapshot.delete('s3', index)
+
+                snap_states[snap_state].append(index)
             else:
-                self.es_client.snapshot.delete('s3', index)
-            snap_states[snap_state] = index
+                # During dry run, assume all snapshots are created successfully
+                snap_states['SUCCESS'].append(index)
 
         return snap_states
 
+    def groom(self, dry_run=False):
+        """
+        Delete enough indices from the cluster to bring down disk usage to the archive threshold.
+        """
+        threshold = float(self.get_es_option("archive_threshold"))
+        if threshold > 1.0:
+            raise RuntimeError("ElasticSearch archive threshold cannot exceed 1")
+        logging.info("Using threshold: %s", threshold)
+        indices_to_delete = self._indices_to_delete(threshold)
+
+        if indices_to_delete:
+            for index in indices_to_delete:
+                logging.info("Deleting index (%s) from cluster (%s).",
+                             index, self.cluster_name)
+                if not dry_run:
+                    self.es_client.indices.delete(index)
+        else:
+            logging.info("No need to delete any indices.")
 
     def snapshots(self, snapshots=None):
         """
