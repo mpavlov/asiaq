@@ -1,26 +1,31 @@
-import re
-import logging
-import json
-import os
 from ConfigParser import NoOptionError
+from collections import defaultdict
+from time import time, sleep
+import json
+import logging
+import re
+import os
 
 import boto3
 from boto3.session import Session
-from requests_aws4auth import AWS4Auth
 from elasticsearch import (
     Elasticsearch,
-    RequestsHttpConnection,
     NotFoundError,
+    RequestsHttpConnection,
     TransportError,
 )
+from requests_aws4auth import AWS4Auth
 
 from . import read_config, DiscoElasticsearch, DiscoIAM
+from .exceptions import TimeoutError
 from .disco_constants import (
     ES_ARCHIVE_LIFECYCLE_DIR,
     ES_CONFIG_FILE
 )
 
-
+ES_SNAPSHOT_FINAL_STATES = ['SUCCESS', 'FAILED']
+SNAPSHOT_WAIT_TIMEOUT = 60*60
+SNAPSHOT_POLL_INTERVAL = 60
 ES_ARCHIVE_ROLE = "es_archive"
 
 
@@ -50,6 +55,9 @@ class DiscoESArchive(object):
 
     @property
     def host(self):
+        """
+        Return ES cluster hostname
+        """
         if not self._host:
             es_domains = self.disco_es.list()
             try:
@@ -64,12 +72,18 @@ class DiscoESArchive(object):
 
     @property
     def region(self):
+        """
+        Current region, based of boto connection.
+        """
         if not self._region:
             self._region = Session().region_name
         return self._region
 
     @property
     def role_arn(self):
+        """
+        Return aws role_arn
+        """
         arn = self.disco_iam.get_role_arn(ES_ARCHIVE_ROLE)
         if not arn:
             raise RuntimeError("Unable to find ARN for role: {}".format(ES_ARCHIVE_ROLE))
@@ -78,6 +92,9 @@ class DiscoESArchive(object):
 
     @property
     def es_client(self):
+        """
+        Return authenticated ElasticSeach connection object
+        """
         if not self._es_client:
             session = Session()
             credentials = session.get_credentials()
@@ -172,6 +189,9 @@ class DiscoESArchive(object):
         return archivable_indices
 
     def _green_indices(self):
+        """
+        Return list of indexes that are in green state (healthy)
+        """
         index_health = self.es_client.cluster.health(level='indices')
         return [
             index
@@ -180,6 +200,10 @@ class DiscoESArchive(object):
         ]
 
     def _create_repository(self):
+        """
+        Creates a s3 type repository where archives can be stored
+        and retrieved.
+        """
         # Update S3 bucket based on config.
         self._update_s3_bucket(self.s3_bucket_name)
 
@@ -192,23 +216,35 @@ class DiscoESArchive(object):
             }
         }
 
-        logging.info("Creating ES snapshot repository: {0}".format(self.repository_name))
+        logging.info("Creating ES snapshot repository: %s", self.repository_name)
         try:
             self.es_client.snapshot.create_repository(self.repository_name, repository_config)
         except TransportError:
-            print(
-                "Could not create archive repository. "
-                "Make sure bucket {0} exists and IAM policy allows es to access bucket. "
-                "repository config:{1}"
-                .format(self.s3_bucket_name, repository_config)
-            )
-            raise
+            try:
+                self.es_client.snapshot.get_repository('s3')
+                # This can happen when repo is used to make snapshot but we
+                # attempt to re-create it.
+                logging.warning(
+                    "Error on creating ES snapshot respository %s, "
+                    "but one already exists, ingnoring",
+                    self.repository_name
+                )
+            except:
+                logging.error(
+                    "Could not create archive repository. "
+                    "Make sure bucket %s exists and IAM policy allows es to access bucket. "
+                    "repository config: %s",
+                    bucket_name,
+                    repository_config,
+                )
+                raise
 
     def _update_s3_bucket(self, bucket_name):
         # Auto create bucket if necessary
         buckets = self.s3_client.list_buckets()['Buckets']
         if bucket_name not in [bucket['Name'] for bucket in buckets]:
-            logging.info("Creating bucket {0}".format(bucket_name))
+            logging.info("Creating bucket %s", bucket_name)
+
             self.s3_client.create_bucket(
                 Bucket=bucket_name,
                 CreateBucketConfiguration={
@@ -292,26 +328,43 @@ class DiscoESArchive(object):
             return default
 
     def archive(self):
+        """
+        Archive enough indexes to bring down disk usage to specified threshold.
+        Archive means move to s3 and delete from es cluster.
+        """
         threshold = float(self.get_es_option("archive_threshold"))
         if threshold > 1.0:
             raise RuntimeError("ElasticSearch archive threshold cannot exceed 1")
 
         indices = self._archivable_indices(threshold)
-        if not indices:
-            return
-
         green_indices = self._green_indices()
         green_archivable = set(indices) & set(green_indices)
         ungreen_archivable = set(indices) - set(green_indices)
         if ungreen_archivable:
             logging.error(
                 "Skipping archiving of following unhealthy indexes: %s",
-                ",".join(ungreen_archivable)
+                ", ".join(ungreen_archivable)
             )
+        if not green_archivable:
+            logging.warning("No indexes to archive.")
+            return
 
         self._create_repository()
 
+        green_archivable = set([list(green_archivable)[11]])
+        snap_states = defaultdict(list)
+        snap_states['skipped'] = list(ungreen_archivable)
+
         for index in green_archivable:
+            if self.snapshot_state(index) != 'unknown':
+                logging.error(
+                    'Index archive with conflicting name %s exists, skipping archiving',
+                    index
+                )
+                # TODO optionally delete snapshot for overwriting? 
+                snap_states['skipped'].append(index)
+                continue
+
             logging.info("Archiving index: %s", index)
             self.es_client.snapshot.create(
                 self.repository_name,
@@ -323,4 +376,54 @@ class DiscoESArchive(object):
                     }
                 }
             )
-        #TODO wait for all indexes to complete snapshot and deactivate them on ES.
+            snap_state = self._wait_for_snapshot(index)
+            if snap_state == 'SUCCESS':
+                # TODO make deletion of index from cluster optional?
+                self.es_client.indices.delete(index)
+            else:
+                self.es_client.snapshot.delete('s3', index)
+            snap_states[snap_state] = index
+
+        return snap_states
+
+
+    def snapshots(self, snapshots=None):
+        """
+        List snapshots their state & etc.
+        """
+        snaps = self.es_client.snapshot.get(self.repository_name, snapshots or '_all')
+        return snaps['snapshots']
+
+    def snapshot_state(self, snapshot):
+        """
+        Return state of specified snapshot or 'unknown'.
+        """
+        try:
+            for snap in self.snapshots(snapshot):
+                if snap['snapshot'] == snapshot:
+                    return snap['state']
+        except NotFoundError:
+            pass
+        return 'unknown'
+
+    def _wait_for_snapshot(self, snapshot):
+        """
+        Wait for specified snapshots to complete snapshotting process.
+        """
+        max_time = time() + SNAPSHOT_WAIT_TIMEOUT
+        while True:
+            sleep(SNAPSHOT_POLL_INTERVAL)
+            snap_state = self.snapshot_state(snapshot)
+            if snap_state in ES_SNAPSHOT_FINAL_STATES:
+                return snap_state
+            if time() > max_time:
+                raise TimeoutError(
+                    "Timed out ({0}s) waiting for {1} to enter final state."
+                    .format(SNAPSHOT_WAIT_TIMEOUT, snapshot)
+                )
+
+    def restore(self, snapshot):
+        """
+        Bring back index from archive to ES cluster
+        """
+        self.es_client.snapshot.restore(self.repository_name, snapshot)
