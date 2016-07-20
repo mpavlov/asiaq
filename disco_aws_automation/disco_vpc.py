@@ -15,6 +15,7 @@ import boto3
 
 from netaddr import IPNetwork, IPSet
 
+from disco_aws_automation.disco_placement_group import DiscoPlacementGroup
 from disco_aws_automation.network_helper import calc_subnet_offset
 from . import normalize_path
 
@@ -70,6 +71,7 @@ class DiscoVPC(object):
         self.disco_vpc_peerings = DiscoVPCPeerings(vpc=self, boto3_ec2=self.boto3_ec2)
         self.elasticache = DiscoElastiCache(vpc=self)
         self.log_metrics = DiscoLogMetrics(environment=environment_name)
+        self.placement_group = DiscoPlacementGroup(environment_name=environment_name)
 
         if "_" in environment_name:  # Underscores break our alarm name parsing.
             raise VPCConfigError(
@@ -394,6 +396,7 @@ class DiscoVPC(object):
         self.log_metrics.delete_all_metrics()
         self.log_metrics.delete_all_log_groups()
         self._destroy_instances()
+        self.placement_group.delete_all()
         self.elb.destroy_all_elbs()
         self._destroy_rds()
         self.elasticache.delete_all_cache_clusters(wait=True)
