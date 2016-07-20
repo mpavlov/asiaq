@@ -1,6 +1,7 @@
 import re
 import logging
 import json
+import os
 from ConfigParser import NoOptionError
 
 import boto3
@@ -41,6 +42,7 @@ class DiscoESArchive(object):
         self._es_client = None
         self._region = None
         self._s3_client = None
+        self._s3_bucket_name = None
         self._disco_es = disco_es
         self._disco_iam = disco_iam
         self.index_prefix_pattern = index_prefix_pattern or r'.*'
@@ -104,6 +106,8 @@ class DiscoESArchive(object):
     @property
     def disco_iam(self):
         if not self._disco_iam:
+            # TODO: the environment argument for DiscoIAM is actually the account
+            # name, e.g. "dev" or "prod"
             self._disco_iam = DiscoIAM(environment=self.environment_name)
 
         return self._disco_iam
@@ -114,6 +118,15 @@ class DiscoESArchive(object):
             self._s3_client = boto3.client("s3")
 
         return self._s3_client
+
+    @property
+    def s3_bucket_name(self):
+        if not self._s3_bucket_name:
+            self._s3_bucket_name = "{0}.es-{1}-archive.{2}".format(
+                self.region, self.cluster_name,
+                self.environment_name)
+
+        return self._s3_bucket_name
 
     def _bytes_to_free(self, threshold):
         """
@@ -167,19 +180,18 @@ class DiscoESArchive(object):
         ]
 
     def _create_repository(self):
-        bucket_name = self._get_s3_bucket_name()
-
         # Update S3 bucket based on config.
-        self._update_s3_bucket(bucket_name)
+        self._update_s3_bucket(self.s3_bucket_name)
 
         repository_config = {
             "type": "s3",
             "settings": {
-                "bucket": bucket_name,
+                "bucket": self.s3_bucket_name,
                 "region": self.region,
                 "role_arn": self.role_arn,
             }
         }
+
         logging.info("Creating ES snapshot repository: {0}".format(self.repository_name))
         try:
             self.es_client.snapshot.create_repository(self.repository_name, repository_config)
@@ -188,35 +200,80 @@ class DiscoESArchive(object):
                 "Could not create archive repository. "
                 "Make sure bucket {0} exists and IAM policy allows es to access bucket. "
                 "repository config:{1}"
-                .format(bucket_name, repository_config)
+                .format(self.s3_bucket_name, repository_config)
             )
             raise
 
-    def _get_s3_bucket_name(self):
-        return "{0}.es-{1}-archive.{2}".format(self.region, self.cluster_name,
-                                               self.environment_name)
-
-    def _update_s3_bucket(self, name):
+    def _update_s3_bucket(self, bucket_name):
         # Auto create bucket if necessary
         buckets = self.s3_client.list_buckets()['Buckets']
-        if name not in [bucket['Name'] for bucket in buckets]:
-            logging.info("Creating bucket {0}".format(name))
+        if bucket_name not in [bucket['Name'] for bucket in buckets]:
+            logging.info("Creating bucket {0}".format(bucket_name))
             self.s3_client.create_bucket(
-                Bucket=name,
+                Bucket=bucket_name,
                 CreateBucketConfiguration={
                     'LocationConstraint': self.region})
 
-        lifecycle_policy = "{0}/{1}.lifecycle".format(
-            ES_ARCHIVE_LIFECYCLE_DIR,
-            self.get_es_option_default('s3_archive_lifecycle', 'default'))
+        s3_archive_policy_name = self.get_es_option_default(
+            's3_archive_policy', 'default')
 
-        with open(lifecycle_policy) as lifecycle_file:
-            lifecycle_config = json.load(lifecycle_file)
+        # Apply the lifecycle policy, if one exists
+        lifecycle_policy = self._load_policy_json(s3_archive_policy_name, 'lifecycle')
+        if lifecycle_policy:
+            logging.info("Applying S3 lifecycle policy ({0}) to bucket ({1}).".format(
+                s3_archive_policy_name, bucket_name))
+            self.s3_client.put_bucket_lifecycle_configuration(
+                Bucket=bucket_name, LifecycleConfiguration=lifecycle_policy)
 
-        logging.info("Setting lifecycle configuration: {0}".format(lifecycle_config))
-        self.s3_client.put_bucket_lifecycle_configuration(
-            Bucket=name, LifecycleConfiguration=lifecycle_config)
+        # Apply the bucket policy, if one exists
+        bucket_policy = self._load_policy_json(s3_archive_policy_name, 'iam')
+        if bucket_policy:
+            logging.info("Applying S3 bucket policy ({0}) to bucket ({1}).".format(
+                s3_archive_policy_name, bucket_name))
+            self.s3_client.put_bucket_policy(
+                Bucket=bucket_name, Policy=bucket_policy)
 
+        # Apply the bucket access policy, if one exists
+        bucket_access_policy = self._load_policy_json(s3_archive_policy_name, 'acp')
+        if bucket_access_policy:
+            logging.info("Applying S3 bucket access policy ({0}) to bucket ({1}).".format(
+                s3_archive_policy_name, bucket_name))
+            self.s3_client.put_bucket_acl(
+                Bucket=bucket_name, AccessControlPolicy=bucket_access_policy)
+
+        # Apply versioning configuration, if one exists
+        version_config = self._load_policy_json(s3_archive_policy_name, 'versioning')
+        if version_config:
+            logging.info("Applying S3 versioning config ({0}) to bucket ({1}).".format(
+                s3_archive_policy_name, bucket_name))
+            self.s3_client.put_bucket_versioning(
+                Bucket=bucket_name, VersioningConfiguration=version_config)
+
+        # Set the logging policy, if one exists
+        logging_policy = self._load_policy_json(s3_archive_policy_name, 'logging')
+        if logging_policy:
+            logging.info("Applying S3 logging policy ({0}) to bucket ({1}).".format(
+                s3_archive_policy_name, bucket_name))
+            logging.info("policy: {0}".format(logging_policy))
+            self.s3_client.put_bucket_logging(
+                Bucket=bucket_name, BucketLoggingStatus=logging_policy)
+
+
+    def _load_policy_json(self, policy_name, policy_type):
+        policy_file = "{0}/{1}.{2}".format(
+            ES_ARCHIVE_LIFECYCLE_DIR, policy_name, policy_type)
+
+        if os.path.isfile(policy_file):
+            with open(policy_file, 'r') as opened_file:
+                text = opened_file.read().replace('\n', '')
+                return json.loads(self._interpret_file(text))
+
+        return None
+
+    def _interpret_file(self, file_txt):
+        return file_txt.replace('$REGION', self.region) \
+                       .replace('$CLUSTER', self.cluster_name) \
+                       .replace('$BUCKET_NAME', self.s3_bucket_name)
 
     def get_es_option(self, option):
         """Returns appropriate configuration for the current environment"""
