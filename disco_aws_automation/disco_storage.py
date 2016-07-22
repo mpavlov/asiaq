@@ -121,7 +121,7 @@ class DiscoStorage(object):
     Wrapper class to handle all DiscoAWS storage functions
     """
 
-    def __init__(self, connection=None, environment_name=None):
+    def __init__(self, environment_name, connection=None):
         self.connection = connection if connection else boto.connect_ec2()
         self.environment_name = environment_name
 
