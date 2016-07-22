@@ -17,6 +17,7 @@ import boto
 
 from .resource_helper import wait_for_state, TimeoutError
 from .exceptions import VolumeError
+from .resource_helper import throttled_call
 
 TIME_BEFORE_SNAP_WARNING = 5
 BASE_AMI_SIZE_GB = 8  # Disk space per instance, in GB, excluding extra_space.
@@ -120,15 +121,16 @@ class DiscoStorage(object):
     Wrapper class to handle all DiscoAWS storage functions
     """
 
-    def __init__(self, connection=None):
+    def __init__(self, connection=None, environment_name=None):
         self.connection = connection if connection else boto.connect_ec2()
+        self.environment_name = environment_name
 
     def is_ebs_optimized(self, instance_type):
-        '''Returns true if the instance type is EBS Optimized'''
+        """Returns true if the instance type is EBS Optimized"""
         return instance_type in EBS_OPTIMIZED
 
     def get_ephemeral_disk_count(self, instance_type):
-        '''Returns number of ephemeral disks available for each instance type'''
+        """Returns number of ephemeral disks available for each instance type"""
         try:
             return EPHEMERAL_DISK_COUNT[instance_type]
         except KeyError:
@@ -137,12 +139,14 @@ class DiscoStorage(object):
             return 0
 
     def get_latest_snapshot(self, hostclass):
-        '''Returns latests snapshot that exists for a hostclass, or None if none exists.'''
-        snapshots = self.connection.get_all_snapshots(filters={'tag:hostclass': hostclass})
+        """Returns latests snapshot that exists for a hostclass, or None if none exists."""
+        snapshots = throttled_call(self.connection.get_all_snapshots,
+                                   filters={'tag:hostclass': hostclass,
+                                            'tag:env': self.environment_name})
         return max(snapshots, key=lambda snapshot: snapshot.start_time) if snapshots else None
 
     def wait_for_snapshot(self, snapshot):
-        '''Wait for a snapshot to become available'''
+        """Wait for a snapshot to become available"""
         try:
             wait_for_state(snapshot, 'completed', state_attr='status', timeout=TIME_BEFORE_SNAP_WARNING)
         except TimeoutError:
@@ -151,7 +155,7 @@ class DiscoStorage(object):
             logging.warning("... done.")
 
     def create_snapshot_bdm(self, snapshot, iops):
-        '''Create a Block Device Mapping for a Snapshot'''
+        """Create a Block Device Mapping for a Snapshot"""
         device = boto.ec2.blockdevicemapping.EBSBlockDeviceType(
             snapshot_id=snapshot.id, size=snapshot.volume_size, delete_on_termination=True)
         if iops:
@@ -167,7 +171,7 @@ class DiscoStorage(object):
                           iops=None,
                           ephemeral_disk_count=0,
                           map_snapshot=True):
-        '''Alter block device to destroy the volume on termination and add any extra space'''
+        """Alter block device to destroy the volume on termination and add any extra space"""
         # Pylint thinks this function has too many local variables
         # pylint: disable=R0914
 
@@ -177,7 +181,7 @@ class DiscoStorage(object):
         # TODO  Figure out how to stop this from happening
         disk_names = ['/dev/sd' + chr(ord('a') + i) for i in range(0, 26)]
         if ami_id:
-            ami = self.connection.get_image(ami_id)
+            ami = throttled_call(self.connection.get_image, ami_id)
             if not ami:
                 raise VolumeError("Cannot locate AMI to base the BDM of. Is it available to the account?")
             disk_names[0] = '/dev/sda' if (ami and ami.block_device_mapping and
@@ -237,14 +241,14 @@ class DiscoStorage(object):
         :param hostclass:  The hostclass that uses this snapshot
         :param size:  The size of the snapshot in GB
         """
-        zones = self.connection.get_all_zones()
+        zones = throttled_call(self.connection.get_all_zones)
         if not zones:
             raise VolumeError("No availability zones found.  Can't create temporary volume.")
         else:
             zone = zones[0]
 
             def _destroy_volume(volume, raise_error_on_failure=False):
-                if self.connection.delete_volume(volume_id=volume.id):
+                if throttled_call(self.connection.delete_volume, volume_id=volume.id):
                     logging.info("Destroyed temporary volume %s", volume.id)
                 elif raise_error_on_failure:
                     raise VolumeError("Couldn't destroy temporary volume %s", volume.id)
@@ -252,11 +256,12 @@ class DiscoStorage(object):
                     logging.error("Couldn't destroy temporary volume %s", volume.id)
 
             try:
-                volume = self.connection.create_volume(size=size, zone=zone)
+                volume = throttled_call(self.connection.create_volume, size=size, zone=zone)
                 logging.info("Created temporary volume %s in zone %s.", volume.id, zone.name)
                 wait_for_state(volume, 'available', state_attr='status')
                 snapshot = volume.create_snapshot()
                 snapshot.add_tag('hostclass', hostclass)
+                snapshot.add_tag('env', self.environment_name)
                 logging.info("Created snapshot %s from volume %s.", snapshot.id, volume.id)
             except Exception:
                 _destroy_volume(volume)
@@ -264,20 +269,31 @@ class DiscoStorage(object):
             else:
                 _destroy_volume(volume, raise_error_on_failure=True)
 
-    def get_snapshots(self, hostclasses):
+    def get_snapshots(self, hostclasses=None):
         """
         Lists all EBS snapshots associated with a hostclass, sorted by hostclass name and start_time
 
         :param hostclasses if not None, restrict results to specific hostclasses
         """
-        snapshots = self.connection.get_all_snapshots(filters={'tag-key': 'hostclass'})
+        snapshots = throttled_call(self.connection.get_all_snapshots,
+                                   filters={'tag-key': 'hostclass',
+                                            'tag:env': self.environment_name})
         if hostclasses:
             snapshots = [snap for snap in snapshots if snap.tags['hostclass'] in hostclasses]
         return sorted(snapshots, key=lambda snapshot: (snapshot.tags['hostclass'], snapshot.start_time))
 
     def delete_snapshot(self, snapshot_id):
-        '''Delete a snapshot by snapshot_id'''
-        if self.connection.delete_snapshot(snapshot_id=snapshot_id):
+        """Delete a snapshot by snapshot_id"""
+
+        snapshots = self.get_snapshots()
+        snapshot_ids = [snapshot.id for snapshot in snapshots]
+
+        if snapshot_id not in snapshot_ids:
+            logging.error("Snapshot ID %s does not exist in environment %s",
+                          snapshot_id, self.environment_name)
+            return
+
+        if throttled_call(self.connection.delete_snapshot, snapshot_id=snapshot_id):
             logging.info("Deleted snapshot %s.", snapshot_id)
         else:
             logging.error("Couldn't delete snapshot %s.")
@@ -291,7 +307,7 @@ class DiscoStorage(object):
         if keep_last_n <= 0:
             raise ValueError("You must keep at least one snapshot.")
         else:
-            snapshots = self.connection.get_all_snapshots(filters={'tag-key': 'hostclass'})
+            snapshots = self.get_snapshots()
             snapshots_dict = defaultdict(list)
             for snapshot in snapshots:
                 snapshots_dict[snapshot.tags['hostclass']].append(snapshot)

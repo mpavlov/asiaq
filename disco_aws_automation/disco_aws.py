@@ -81,7 +81,7 @@ class DiscoAWS(object):
     def disco_storage(self):
         """Lazily creates disco storage object"""
         if not self._disco_storage:
-            self._disco_storage = DiscoStorage(self.connection)
+            self._disco_storage = DiscoStorage(self.connection, environment_name=self.environment_name)
         return self._disco_storage
 
     @property
