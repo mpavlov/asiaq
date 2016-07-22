@@ -1,6 +1,7 @@
 from ConfigParser import NoOptionError
 from collections import defaultdict
 from time import time, sleep
+import datetime
 import json
 import logging
 import re
@@ -19,7 +20,7 @@ from requests_aws4auth import AWS4Auth
 from . import read_config, DiscoElasticsearch, DiscoIAM
 from .exceptions import TimeoutError
 from .disco_constants import (
-    ES_ARCHIVE_LIFECYCLE_DIR,
+    ES_ARCHIVE_POLICIES_DIR,
     ES_CONFIG_FILE
 )
 
@@ -181,8 +182,13 @@ class DiscoESArchive(object):
         return indices_to_delete
 
     def _archivable_indices(self):
-        """ Return list of all the indices other than latest """
-        return [index[0] for index in self._get_all_indices_and_sizes()[:-1]]
+        """ Return list of indices that are older than today's date """
+        # TODO: might want to consider timezone issue?
+        today = datetime.date.today().strftime('%Y.%m.%d')
+
+        return [index[0]
+                for index in self._get_all_indices_and_sizes()
+                if index[0][-10:] < today]
 
     def _get_all_indices_and_sizes(self):
         """
@@ -217,7 +223,8 @@ class DiscoESArchive(object):
         Creates a s3 type repository where archives can be stored
         and retrieved.
         """
-        # Update S3 bucket based on config.
+
+        # Make sure S3 bucket is available by updating it.
         self._update_s3_bucket(self.s3_bucket_name)
 
         repository_config = {
@@ -253,6 +260,7 @@ class DiscoESArchive(object):
                 raise
 
     def _update_s3_bucket(self, bucket_name):
+        """ Updates a bucket for ES archiving """
         # Auto create bucket if necessary
         buckets = self.s3_client.list_buckets()['Buckets']
         if bucket_name not in [bucket['Name'] for bucket in buckets]:
@@ -310,7 +318,7 @@ class DiscoESArchive(object):
 
     def _load_policy_json(self, policy_name, policy_type):
         policy_file = "{0}/{1}.{2}".format(
-            ES_ARCHIVE_LIFECYCLE_DIR, policy_name, policy_type)
+            ES_ARCHIVE_POLICIES_DIR, policy_name, policy_type)
 
         if os.path.isfile(policy_file):
             with open(policy_file, 'r') as opened_file:
@@ -457,8 +465,34 @@ class DiscoESArchive(object):
                     .format(SNAPSHOT_WAIT_TIMEOUT, snapshot)
                 )
 
-    def restore(self, snapshot):
+    def restore(self, begin_date, end_date, dry_run=False):
         """
-        Bring back index from archive to ES cluster
+        Bring back indices within the specified date range (inclusive) from archive to ES cluster
         """
-        self.es_client.snapshot.restore(self.repository_name, snapshot)
+        date_pattern = re.compile(r'^[\d]{4}(\.[\d]{2}){2}$')
+        if not re.match(date_pattern, begin_date):
+            raise RuntimeError("Invalid begin date (yyyy.mm.dd): {0}".format(begin_date))
+        if not re.match(date_pattern, end_date):
+            raise RuntimeError("Invalid end date (yyyy.mm.dd): {0}".format(end_date))
+
+        snapshots = [snap['snapshot']
+                     for snap in self.snapshots()
+                     if snap['snapshot'][-10:] >= begin_date and
+                        snap['snapshot'][-10:] <= end_date]
+        logging.debug("Snapshots within the specified date range: %s", snapshots)
+        if not snapshots:
+            logging.info("No snapshots within date range are found.")
+            return
+
+        existing_indices = self._archivable_indices()
+        logging.debug("Existing indices in the cluster that are older than today's date: %s",
+                      existing_indices)
+        snapshots = set(snapshots) - set(existing_indices)
+        if not snapshots:
+            logging.info("All snapshots within date range are already present as indices.")
+            return
+
+        for snap in snapshots:
+            logging.info("Restoring snapshot: %s", snap)
+            if not dry_run:
+                self.es_client.snapshot.restore(self.repository_name, snap)

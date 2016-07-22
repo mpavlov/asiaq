@@ -25,4 +25,4 @@ NETWORKS = {"intranet": "Inter host",
 VPC_CONFIG_FILE = "disco_vpc.ini"
 ES_CONFIG_FILE = "disco_elasticsearch.ini"
 
-ES_ARCHIVE_LIFECYCLE_DIR = os.getenv("ASIAQ_CONFIG", ".") + "/iam/s3/es_archive"
+ES_ARCHIVE_POLICIES_DIR = os.getenv("ASIAQ_CONFIG", ".") + "/iam/s3/es_archive"
