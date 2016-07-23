@@ -285,10 +285,9 @@ class DiscoStorage(object):
     def delete_snapshot(self, snapshot_id):
         """Delete a snapshot by snapshot_id"""
 
-        snapshots = self.get_snapshots()
-        snapshot_ids = [snapshot.id for snapshot in snapshots]
-
-        if snapshot_id not in snapshot_ids:
+        snapshots = self.connection.get_all_snapshots(snapshot_ids=[snapshot_id],
+                                                      filters={'tag:env': self.environment_name})
+        if not snapshots:
             logging.error("Snapshot ID %s does not exist in environment %s",
                           snapshot_id, self.environment_name)
             return
