@@ -33,7 +33,8 @@ MOCK_AWS_CONFIG_DEFINITION = {
 MOCK_ES_CONFIG_DEFINITION = {
     "foo:logs": {
         "archive_threshold": ".9",
-        "s3_archive_policy": "default"}}
+        "archive_index_prefix_pattern": ".*",
+        "archive_repository": REPOSITORY_NAME}}
 
 
 def _create_mock_disco_es():
@@ -133,8 +134,6 @@ class DiscoESArchiveTests(TestCase):
                                           cluster_name=CLUSTER_NAME,
                                           config_aws=config_aws,
                                           config_es=config_es,
-                                          index_prefix_pattern=None,
-                                          repository_name=REPOSITORY_NAME,
                                           disco_es=self._disco_es,
                                           disco_iam=_create_mock_disco_iam())
         self._es_archive._region = REGION
@@ -183,7 +182,7 @@ class DiscoESArchiveTests(TestCase):
         self._es_archive._es_client.snapshot.create.assert_has_calls(expected_create_calls)
 
     def test_archive_creating_s3_bucket(self):
-        """Verify that S3 bucket is created during ES archiving"""
+        """Verify that error is raised if S3 bucket is not available"""
         # Setting up S3 client
         self._es_archive._s3_client = MagicMock()
         self._es_archive._s3_client.list_buckets.return_value = {
@@ -191,13 +190,8 @@ class DiscoESArchiveTests(TestCase):
         }
 
         # Calling archive for testing
-        self._es_archive.archive()
-
-        # Begins verifications
-        self._es_archive._s3_client.create_bucket.assert_called_once_with(
-            Bucket=BUCKET_NAME,
-            CreateBucketConfiguration={
-                'LocationConstraint': REGION})
+        with self.assertRaises(RuntimeError):
+            self._es_archive.archive()
 
     def test_groom(self):
         """Verify that ES groom operation works"""
