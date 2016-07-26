@@ -57,15 +57,15 @@ def get_parser():
                                 "and no changes would be made to the cluster if this is set to True.")
 
     parser_groom = subparsers.add_parser("groom",
-                                          help="Delete enough indices from the cluster to bring down "
-                                          "disk usage to the archive threshold.")
+                                         help="Delete enough indices from the cluster to bring down "
+                                         "disk usage to the archive threshold.")
     parser_groom.set_defaults(mode="groom")
     parser_groom.add_argument("--cluster", dest="cluster", type=str, required=True,
                               help="Name of the cluster to be archived.")
     parser_groom.add_argument('--dry-run', dest='dry_run', action='store_const',
-                               const=True, default=False,
-                               help="Whether to test run the groom process. No indices in the cluster "
-                               "would be deleted if this is set to True.")
+                              const=True, default=False,
+                              help="Whether to test run the groom process. No indices in the cluster "
+                              "would be deleted if this is set to True.")
 
     parser_restore = subparsers.add_parser("restore",
                                            help="Restore the indices within the specified date range "
@@ -74,11 +74,11 @@ def get_parser():
     parser_restore.add_argument("--cluster", dest="cluster", type=str, required=True,
                                 help="Name of the cluster to be archived.")
     parser_restore.add_argument("--begin", dest="begin_date", type=str, required=True,
-                                help="Begin date (yyyy.mm.dd) of the date range (inclusive) within which the indices "
-                                "are restored.")
+                                help="Begin date (yyyy.mm.dd) of the date range (inclusive) within which "
+                                "the indices are restored.")
     parser_restore.add_argument("--end", dest="end_date", type=str, required=True,
-                                help="End date (yyyy.mm.dd) of the date range (inclusive) within which the indices "
-                                "are restored.")
+                                help="End date (yyyy.mm.dd) of the date range (inclusive) within which the "
+                                "indices are restored.")
     parser_restore.add_argument('--dry-run', dest='dry_run', action='store_const',
                                 const=True, default=False,
                                 help="Indicates whether to test run the restore process.")
@@ -126,7 +126,7 @@ def run():
             prompt += "Are you sure you want to delete {} ElasticSearch domains? (y/N)".format(scope)
             if not interactive_shell or is_truthy(raw_input(prompt)):
                 disco_es.delete(delete_all=args.delete_all)
-    elif args.mode in ['archive', 'groom', 'restore'] :
+    elif args.mode in ['archive', 'groom', 'restore']:
         disco_es_archive = DiscoESArchive(env, args.cluster)
         if args.mode == 'archive':
             snap_states = disco_es_archive.archive(dry_run=args.dry_run)
@@ -135,7 +135,6 @@ def run():
             disco_es_archive.groom(dry_run=args.dry_run)
         else:
             disco_es_archive.restore(args.begin_date, args.end_date, args.dry_run)
-
 
 
 if __name__ == "__main__":

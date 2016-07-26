@@ -1,3 +1,7 @@
+"""
+Manage archiving of ES clusters
+"""
+
 from ConfigParser import NoOptionError
 from collections import defaultdict
 from time import time, sleep
@@ -25,12 +29,15 @@ from .disco_constants import (
 )
 
 ES_SNAPSHOT_FINAL_STATES = ['SUCCESS', 'FAILED']
-SNAPSHOT_WAIT_TIMEOUT = 60*60
+SNAPSHOT_WAIT_TIMEOUT = 60 * 60
 SNAPSHOT_POLL_INTERVAL = 60
 ES_ARCHIVE_ROLE = "es_archive"
 
 
 class DiscoESArchive(object):
+    """
+    Implements archiving, grooming and restoring of ES clusters
+    """
     def __init__(self, environment_name, cluster_name, config_aws=None,
                  config_es=None,
                  index_prefix_pattern=None, repository_name=None, disco_es=None,
@@ -94,7 +101,7 @@ class DiscoESArchive(object):
     @property
     def es_client(self):
         """
-        Return authenticated ElasticSeach connection object
+        Return authenticated ElasticSearch connection object
         """
         if not self._es_client:
             session = Session()
@@ -116,6 +123,9 @@ class DiscoESArchive(object):
 
     @property
     def disco_es(self):
+        """
+        Returns a DiscoElasticsearch object
+        """
         if not self._disco_es:
             self._disco_es = DiscoElasticsearch(self.environment_name)
 
@@ -123,6 +133,9 @@ class DiscoESArchive(object):
 
     @property
     def disco_iam(self):
+        """
+        Returns a DiscoIAM object
+        """
         if not self._disco_iam:
             # TODO: the environment argument for DiscoIAM is actually the account
             # name, e.g. "dev" or "prod"
@@ -132,6 +145,9 @@ class DiscoESArchive(object):
 
     @property
     def s3_client(self):
+        """
+        Returns a boto3 S3 client object
+        """
         if not self._s3_client:
             self._s3_client = boto3.client("s3")
 
@@ -139,6 +155,9 @@ class DiscoESArchive(object):
 
     @property
     def s3_bucket_name(self):
+        """
+        Returns name of the S3 bucket that is used for archiving
+        """
         if not self._s3_bucket_name:
             self._s3_bucket_name = "{0}.es-{1}-archive.{2}".format(
                 self.region, self.cluster_name,
@@ -157,7 +176,7 @@ class DiscoESArchive(object):
         total_bytes = cluster_stats["nodes"]["fs"]["total_in_bytes"]
         free_bytes = cluster_stats["nodes"]["fs"]['free_in_bytes']
         need_bytes = total_bytes * (1 - threshold)
-        logging.debug("disk utilization : %i%%", (total_bytes-free_bytes)*101/total_bytes)
+        logging.debug("disk utilization : %i%%", (total_bytes - free_bytes) * 100 / total_bytes)
         return need_bytes - free_bytes
 
     def _indices_to_delete(self, threshold):
@@ -201,12 +220,14 @@ class DiscoESArchive(object):
         )
         index_sizes = [
             (index, stats['indices'][index]['total']['store']['size_in_bytes'])
-            for index in sorted(stats['indices'], key=lambda k: k[-10:])
+            for index in sorted(stats['indices'].keys(), key=lambda k: k[-10:])
             if re.match(dated_index_pattern, index)
         ]
 
         return index_sizes
 
+    # Some methods in elasticsearch use annotations to process keyword arguments
+    # pylint: disable=unexpected-keyword-arg
     def _green_indices(self):
         """
         Return list of indexes that are in green state (healthy)
@@ -254,7 +275,7 @@ class DiscoESArchive(object):
                     "Could not create archive repository. "
                     "Make sure bucket %s exists and IAM policy allows es to access bucket. "
                     "repository config: %s",
-                    bucket_name,
+                    self.s3_bucket_name,
                     repository_config,
                 )
                 raise
@@ -277,44 +298,42 @@ class DiscoESArchive(object):
         # Apply the lifecycle policy, if one exists
         lifecycle_policy = self._load_policy_json(s3_archive_policy_name, 'lifecycle')
         if lifecycle_policy:
-            logging.info("Applying S3 lifecycle policy ({0}) to bucket ({1}).".format(
-                s3_archive_policy_name, bucket_name))
+            logging.info("Applying S3 lifecycle policy (%s) to bucket (%s).",
+                         s3_archive_policy_name, bucket_name)
             self.s3_client.put_bucket_lifecycle_configuration(
                 Bucket=bucket_name, LifecycleConfiguration=lifecycle_policy)
 
         # Apply the bucket policy, if one exists
         bucket_policy = self._load_policy_json(s3_archive_policy_name, 'iam')
         if bucket_policy:
-            logging.info("Applying S3 bucket policy ({0}) to bucket ({1}).".format(
-                s3_archive_policy_name, bucket_name))
+            logging.info("Applying S3 bucket policy (%s) to bucket (%s).",
+                         s3_archive_policy_name, bucket_name)
             self.s3_client.put_bucket_policy(
                 Bucket=bucket_name, Policy=bucket_policy)
 
         # Apply the bucket access policy, if one exists
         bucket_access_policy = self._load_policy_json(s3_archive_policy_name, 'acp')
         if bucket_access_policy:
-            logging.info("Applying S3 bucket access policy ({0}) to bucket ({1}).".format(
-                s3_archive_policy_name, bucket_name))
+            logging.info("Applying S3 bucket access policy (%s) to bucket (%s).",
+                         s3_archive_policy_name, bucket_name)
             self.s3_client.put_bucket_acl(
                 Bucket=bucket_name, AccessControlPolicy=bucket_access_policy)
 
         # Apply versioning configuration, if one exists
         version_config = self._load_policy_json(s3_archive_policy_name, 'versioning')
         if version_config:
-            logging.info("Applying S3 versioning config ({0}) to bucket ({1}).".format(
-                s3_archive_policy_name, bucket_name))
+            logging.info("Applying S3 versioning config (%s) to bucket (%s).",
+                         s3_archive_policy_name, bucket_name)
             self.s3_client.put_bucket_versioning(
                 Bucket=bucket_name, VersioningConfiguration=version_config)
 
         # Set the logging policy, if one exists
         logging_policy = self._load_policy_json(s3_archive_policy_name, 'logging')
         if logging_policy:
-            logging.info("Applying S3 logging policy ({0}) to bucket ({1}).".format(
-                s3_archive_policy_name, bucket_name))
-            logging.info("policy: {0}".format(logging_policy))
+            logging.info("Applying S3 logging policy (%s) to bucket (%s).",
+                         s3_archive_policy_name, bucket_name)
             self.s3_client.put_bucket_logging(
                 Bucket=bucket_name, BucketLoggingStatus=logging_policy)
-
 
     def _load_policy_json(self, policy_name, policy_type):
         policy_file = "{0}/{1}.{2}".format(
@@ -378,7 +397,8 @@ class DiscoESArchive(object):
                     "Deleting the falied snapshot for index (%s) so that it can be archived again.",
                     index)
                 if not dry_run:
-                    self.es_client.snapshot.delete('s3', index)
+                    self.es_client.snapshot.delete(repository=self.repository_name,
+                                                   snapshot=index)
             elif snap_state != 'unknown':
                 logging.info(
                     'Index (%s) was already archived.',
@@ -390,9 +410,9 @@ class DiscoESArchive(object):
             logging.info("Archiving index: %s", index)
             if not dry_run:
                 self.es_client.snapshot.create(
-                    self.repository_name,
-                    index,
-                    {
+                    repository=self.repository_name,
+                    snapshot=index,
+                    body={
                         "indices": index,
                         "settings": {
                             "role_arn": self.role_arn
@@ -402,7 +422,7 @@ class DiscoESArchive(object):
                 snap_state = self._wait_for_snapshot(index)
 
                 if snap_state != 'SUCCESS':
-                    self.es_client.snapshot.delete('s3', index)
+                    self.es_client.snapshot.delete(self.repository_name, index)
 
                 snap_states[snap_state].append(index)
             else:
@@ -426,7 +446,7 @@ class DiscoESArchive(object):
                 logging.info("Deleting index (%s) from cluster (%s).",
                              index, self.cluster_name)
                 if not dry_run:
-                    self.es_client.indices.delete(index)
+                    self.es_client.indices.delete(index=index)
         else:
             logging.info("No need to delete any indices.")
 
@@ -454,16 +474,19 @@ class DiscoESArchive(object):
         Wait for specified snapshots to complete snapshotting process.
         """
         max_time = time() + SNAPSHOT_WAIT_TIMEOUT
-        while True:
+
+        snap_state = self.snapshot_state(snapshot)
+
+        while snap_state not in ES_SNAPSHOT_FINAL_STATES:
             sleep(SNAPSHOT_POLL_INTERVAL)
-            snap_state = self.snapshot_state(snapshot)
-            if snap_state in ES_SNAPSHOT_FINAL_STATES:
-                return snap_state
             if time() > max_time:
                 raise TimeoutError(
                     "Timed out ({0}s) waiting for {1} to enter final state."
                     .format(SNAPSHOT_WAIT_TIMEOUT, snapshot)
                 )
+            snap_state = self.snapshot_state(snapshot)
+
+        return snap_state
 
     def restore(self, begin_date, end_date, dry_run=False):
         """
@@ -475,11 +498,20 @@ class DiscoESArchive(object):
         if not re.match(date_pattern, end_date):
             raise RuntimeError("Invalid end date (yyyy.mm.dd): {0}".format(end_date))
 
-        snapshots = [snap['snapshot']
-                     for snap in self.snapshots()
-                     if snap['snapshot'][-10:] >= begin_date and
-                        snap['snapshot'][-10:] <= end_date]
+        snapshots = []
+        failed_snapshots = []
+        for snap in self.snapshots():
+            if snap['snapshot'][-10:] >= begin_date and snap['snapshot'][-10:] <= end_date:
+                if snap['state'] == 'SUCCESS':
+                    snapshots.append(snap['snapshot'])
+                else:
+                    failed_snapshots.append(snap['snapshot'])
+
         logging.debug("Snapshots within the specified date range: %s", snapshots)
+        if failed_snapshots:
+            logging.warning("Failed snapshots were found within the specified date range: %s",
+                            failed_snapshots)
+
         if not snapshots:
             logging.info("No snapshots within date range are found.")
             return
@@ -495,4 +527,5 @@ class DiscoESArchive(object):
         for snap in snapshots:
             logging.info("Restoring snapshot: %s", snap)
             if not dry_run:
-                self.es_client.snapshot.restore(self.repository_name, snap)
+                self.es_client.snapshot.restore(repository=self.repository_name,
+                                                snapshot=snap)

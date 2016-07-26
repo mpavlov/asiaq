@@ -602,6 +602,9 @@ class DiscoIAM(object):
         return deleted
 
     def get_role_arn(self, policy_name):
+        """
+        Returns the ARN of the role associated with the policy
+        """
         role_prefix = self.option("role_prefix")
         role_name = self._create_role_name(role_prefix, policy_name, [])
 
