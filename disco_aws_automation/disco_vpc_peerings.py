@@ -51,7 +51,13 @@ class DiscoVPCPeerings(object):
 
         for peering in DiscoVPCPeerings.list_peerings(self.disco_vpc.get_vpc_id()):
 
-            peer_vpc = self._find_peer_vpc(self._get_peer_vpc_id(peering))
+            peer_vpc_id = self._get_peer_vpc_id(peering)
+            peer_vpc = self._find_peer_vpc(peer_vpc_id)
+            if not peer_vpc:
+                logging.warning("Failed to find the peer VPC (%s) associated with peering (%s). "
+                                "If the VPC no longer exists, please delete the peering manually.",
+                                peer_vpc_id, peering['VpcPeeringConnectionId'])
+                continue
 
             vpc_peering_route_tables = self.boto3_ec2.describe_route_tables(
                 Filters=create_filters(
@@ -69,12 +75,12 @@ class DiscoVPCPeerings(object):
 
                     for route in route_table['Routes']:
                         if route.get('VpcPeeringConnectionId') == peering['VpcPeeringConnectionId']:
-                            dest_network = peer_vpc.environment_name + ':' + \
-                                peer_vpc.environment_type + '/' + \
-                                [network.name for network in peer_vpc.networks.values()
-                                 if str(network.network_cidr) == route['DestinationCidrBlock']][0]
+                            for network in peer_vpc.networks.values():
+                                if str(network.network_cidr) == route['DestinationCidrBlock']:
+                                    dest_network = peer_vpc.environment_name + ':' + \
+                                        peer_vpc.environment_type + '/' + network.name
 
-                            current_peerings.add(source_network + ' ' + dest_network)
+                                    current_peerings.add(source_network + ' ' + dest_network)
 
         return current_peerings
 
@@ -87,8 +93,8 @@ class DiscoVPCPeerings(object):
     def _find_peer_vpc(self, peer_vpc_id):
         try:
             peer_vpc = self.boto3_ec2.describe_vpcs(VpcIds=[peer_vpc_id])['Vpcs'][0]
-        except IndexError:
-            raise RuntimeError("Failed to retrieve VPC with vpc_id: {0}".format(peer_vpc_id))
+        except:
+            return None
 
         try:
             vpc_tags_dict = tag2dict(peer_vpc['Tags'])
