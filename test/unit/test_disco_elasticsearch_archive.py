@@ -13,7 +13,8 @@ ENVIRONMENT = "foo"
 CLUSTER_NAME = "logs"
 REPOSITORY_NAME = "s3"
 REGION = "us-west-2"
-ES_ARCHIVE_ROLE_ARN = "arn:aws:iam::640972706174:role/disco_es_archive"
+ES_ARCHIVE_ROLE = "es_archive"
+ES_ARCHIVE_ROLE_ARN = "arn:aws:iam::640972706174:role/es_archive"
 BUCKET_NAME = "{0}.es-{1}-archive.{2}".format(REGION, CLUSTER_NAME, ENVIRONMENT)
 MOCK_POLICY_TEXT = 'mock policy text'
 
@@ -34,7 +35,8 @@ MOCK_ES_CONFIG_DEFINITION = {
     "foo:logs": {
         "archive_threshold": ".9",
         "archive_index_prefix_pattern": ".*",
-        "archive_repository": REPOSITORY_NAME}}
+        "archive_repository": REPOSITORY_NAME,
+        "archive_role": ES_ARCHIVE_ROLE}}
 
 
 def _create_mock_disco_es():
@@ -162,8 +164,6 @@ class DiscoESArchiveTests(TestCase):
                          set(['foo-2016.06.04']))
         self.assertEqual(set(snap_stats['SUCCESS']),
                          set(['foo-2016.06.03', 'foo-2016.06.05']))
-
-        self._es_archive._s3_client.create_bucket.assert_not_called()
 
         self._es_archive._es_client.snapshot.create_repository.assert_called_once_with(
             REPOSITORY_NAME, REPOSITORY_CONFIG)

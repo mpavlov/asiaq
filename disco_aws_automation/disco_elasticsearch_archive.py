@@ -2,7 +2,6 @@
 Manage archiving of ES clusters
 """
 
-from ConfigParser import NoOptionError
 from collections import defaultdict
 from time import time, sleep
 import datetime
@@ -27,7 +26,6 @@ from .disco_constants import ES_CONFIG_FILE
 ES_SNAPSHOT_FINAL_STATES = ['SUCCESS', 'FAILED']
 SNAPSHOT_WAIT_TIMEOUT = 60 * 60
 SNAPSHOT_POLL_INTERVAL = 60
-ES_ARCHIVE_ROLE = "es_archive"
 
 
 class DiscoESArchive(object):
@@ -46,9 +44,8 @@ class DiscoESArchive(object):
             self.environment_name = self.config_aws.get("disco_aws", "default_environment")
         self.cluster_name = cluster_name
 
-        self._index_prefix_pattern = self.get_es_option_default('archive_index_prefix_pattern',
-                                                                r'.*')
-        self._repository_name = self.get_es_option_default('archive_repository', 's3')
+        self._index_prefix_pattern = self.get_es_option('archive_index_prefix_pattern')
+        self._repository_name = self.get_es_option('archive_repository')
 
         self._host = None
         self._es_client = None
@@ -88,9 +85,10 @@ class DiscoESArchive(object):
         """
         Return aws role_arn
         """
-        arn = self.disco_iam.get_role_arn(ES_ARCHIVE_ROLE)
+        es_archive_role = self.get_es_option('archive_role')
+        arn = self.disco_iam.get_role_arn(es_archive_role)
         if not arn:
-            raise RuntimeError("Unable to find ARN for role: {}".format(ES_ARCHIVE_ROLE))
+            raise RuntimeError("Unable to find ARN for role: {0}".format(es_archive_role))
 
         return arn
 
@@ -109,10 +107,8 @@ class DiscoESArchive(object):
                 'es'
             )
 
-            use_ssl = is_truthy(self.get_es_option('api_use_ssl',
-                                                   'disco_es'))
-            verify_certs = is_truthy(self.get_es_option('api_verify_certs',
-                                                        'disco_es'))
+            use_ssl = is_truthy(self.get_es_option('api_use_ssl'))
+            verify_certs = is_truthy(self.get_es_option('api_verify_certs'))
             self._es_client = Elasticsearch(
                 [self.host],
                 http_auth=aws_auth,
@@ -293,22 +289,19 @@ class DiscoESArchive(object):
                 )
                 raise
 
-    def get_es_option(self, option, section=None):
+    def get_es_option(self, option):
         """Returns appropriate configuration for the current environment"""
-        if not section:
-            section = "{}:{}".format(self.environment_name, self.cluster_name)
+        section = "{}:{}".format(self.environment_name, self.cluster_name)
 
         if self.config_es.has_option(section, option):
             return self.config_es.get(section, option)
+        elif self.config_es.has_option('defaults', option):
+            # Get option from defaults section if it's not found in the cluster's section
+            return self.config_es.get('defaults', option)
 
-        raise NoOptionError(option, section)
-
-    def get_es_option_default(self, option, default=None, section=None):
-        """Returns appropriate configuration for the current environment"""
-        try:
-            return self.get_es_option(option, section)
-        except NoOptionError:
-            return default
+        raise RuntimeError("Could not find option, %s, in either the %s and the defaults sections "
+                           "of the Disco ElasticSearch config.",
+                           option, section)
 
     def archive(self, dry_run=False):
         """

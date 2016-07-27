@@ -382,9 +382,13 @@ class DiscoIAM(object):
             json_data = json.load(tr_file)
             return json.dumps(json_data, indent=4)  # indentation is important
 
-    def _create_role_name(self, role_prefix, policy, naked_roles):
+    def _create_role_name(self, role_prefix, policy, naked_roles=None):
+        if not naked_roles:
+            naked_roles = self.option_list("naked_roles")
+
         if policy in naked_roles:
             return policy
+
         parts = []
         if role_prefix:
             parts.append(role_prefix)
@@ -606,7 +610,7 @@ class DiscoIAM(object):
         Returns the ARN of the role associated with the policy
         """
         role_prefix = self.option("role_prefix")
-        role_name = self._create_role_name(role_prefix, policy_name, [])
+        role_name = self._create_role_name(role_prefix, policy_name)
 
         role = self.boto3_iam.get_role(RoleName=role_name).get("Role")
 
