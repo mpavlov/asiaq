@@ -308,6 +308,10 @@ class DiscoESArchive(object):
         Archive all the indices, other than the latest one, that have not already been archived.
         Archiving an index doesn't include deleting it from the cluster.
         """
+        # Initialize snapshot states for return
+        snap_states = defaultdict(list)
+        snap_states['SUCCESS'] = []
+
         indices = self._archivable_indices()
         green_indices = self._green_indices()
         green_archivable = set(indices) & set(green_indices)
@@ -319,11 +323,10 @@ class DiscoESArchive(object):
             )
         if not green_archivable:
             logging.warning("No indices to archive.")
-            return
+            return snap_states
 
         self._create_repository()
 
-        snap_states = defaultdict(list)
         snap_states['skipped'] = list(ungreen_archivable)
 
         for index in green_archivable:

@@ -52,6 +52,18 @@ MOCK_ES_CONFIG_DEFINITION = {
         "volume_type": "standard",
         "volume_size": "10",
         "snapshot_start_hour": "5"
+    },
+    "defaults": {
+        "instance_type": "m3.medium.elasticsearch",
+        "instance_count": "1",
+        "dedicated_master": "False",
+        "zone_awareness": "False",
+        "ebs_enabled": "False",
+        "volume_type": "standard",
+        "volume_size": "10",
+        "iops": "1000",
+        "snapshot_start_hour": "5",
+        "allowed_source_ips": ""
     }
 }
 
