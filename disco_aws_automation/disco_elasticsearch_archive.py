@@ -62,13 +62,16 @@ class DiscoESArchive(object):
         """
         if not self._host:
             es_domains = self.disco_es.list()
+
             try:
                 host = [es_domain["route_53_endpoint"]
                         for es_domain in es_domains
                         if es_domain.get("internal_name") == self.cluster_name][0]
             except IndexError:
                 raise RuntimeError("Unable to find ES cluster: {}".format(self.cluster_name))
-            self._host = {'host': host, 'port': 80}
+
+            use_ssl = is_truthy(self.get_es_option('api_use_ssl'))
+            self._host = {'host': host, 'port': 443 if use_ssl else 80}
         return self._host
 
     @property
@@ -107,13 +110,11 @@ class DiscoESArchive(object):
                 'es'
             )
 
-            use_ssl = is_truthy(self.get_es_option('api_use_ssl'))
-            verify_certs = is_truthy(self.get_es_option('api_verify_certs'))
             self._es_client = Elasticsearch(
                 [self.host],
                 http_auth=aws_auth,
-                use_ssl=use_ssl,
-                verify_certs=verify_certs,
+                use_ssl=is_truthy(self.get_es_option('api_use_ssl')),
+                verify_certs=is_truthy(self.get_es_option('api_verify_certs')),
                 connection_class=RequestsHttpConnection,
             )
         return self._es_client

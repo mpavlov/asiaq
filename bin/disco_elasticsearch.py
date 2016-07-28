@@ -66,7 +66,7 @@ def get_parser():
                                            "from S3 to the cluster.")
     parser_restore.set_defaults(mode="restore")
     parser_restore.add_argument("--cluster", dest="cluster", type=str, required=True,
-                                help="Name of the cluster to be archived.")
+                                help="Name of the cluster to be restored to.")
     parser_restore.add_argument("--begin", dest="begin_date", type=str, required=True,
                                 help="Begin date (yyyy.mm.dd) of the date range (inclusive) within which "
                                 "the indices are restored.")
