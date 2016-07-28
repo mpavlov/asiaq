@@ -83,7 +83,7 @@ def _create_mock_es_client(indices, indices_health, snapshots, total_bytes):
                               for snap in snapshots.keys()
                               if snap in snapshot_names]}
 
-    def _mock_snapshot_create(repository, snapshot, body):
+    def _mock_snapshot_create(repository, snapshot, body, wait_for_completion):
         snapshots[snapshot] = {'state': 'SUCCESS'}
 
     es_client.cluster = MagicMock()
@@ -170,15 +170,16 @@ class DiscoESArchiveTests(TestCase):
         self._es_archive._es_client.snapshot.delete.assert_called_once_with(
             repository=REPOSITORY_NAME, snapshot='foo-2016.06.03')
 
-        expected_create_calls = []
-        expected_create_calls.append(call(repository=REPOSITORY_NAME,
-                                          snapshot='foo-2016.06.03',
-                                          body={"indices": 'foo-2016.06.03',
-                                                "settings": {"role_arn": ES_ARCHIVE_ROLE_ARN}}))
-        expected_create_calls.append(call(repository=REPOSITORY_NAME,
-                                          snapshot='foo-2016.06.05',
-                                          body={"indices": 'foo-2016.06.05',
-                                                "settings": {"role_arn": ES_ARCHIVE_ROLE_ARN}}))
+        expected_create_calls = [call(repository=REPOSITORY_NAME,
+                                      snapshot='foo-2016.06.03',
+                                      body={"indices": 'foo-2016.06.03',
+                                            "settings": {"role_arn": ES_ARCHIVE_ROLE_ARN}},
+                                      wait_for_completion=True),
+                                 call(repository=REPOSITORY_NAME,
+                                      snapshot='foo-2016.06.05',
+                                      body={"indices": 'foo-2016.06.05',
+                                            "settings": {"role_arn": ES_ARCHIVE_ROLE_ARN}},
+                                      wait_for_completion=True)]
         self._es_archive._es_client.snapshot.create.assert_has_calls(expected_create_calls)
 
     def test_archive_creating_s3_bucket(self):

@@ -22,10 +22,12 @@ from . import read_config, DiscoElasticsearch, DiscoIAM
 from .disco_aws_util import is_truthy
 from .exceptions import TimeoutError
 from .disco_constants import ES_CONFIG_FILE
+from .resource_helper import keep_trying
 
 ES_SNAPSHOT_FINAL_STATES = ['SUCCESS', 'FAILED']
-SNAPSHOT_WAIT_TIMEOUT = 60 * 60
+SNAPSHOT_WAIT_TIMEOUT = 60 * 20
 SNAPSHOT_POLL_INTERVAL = 60
+OPS_TIMEOUT = 60 * 5
 
 
 class DiscoESArchive(object):
@@ -114,6 +116,7 @@ class DiscoESArchive(object):
                 [self.host],
                 http_auth=aws_auth,
                 use_ssl=is_truthy(self.get_es_option('api_use_ssl')),
+                timeout=OPS_TIMEOUT,  # without this, requests would timeout after 10 seconds
                 verify_certs=is_truthy(self.get_es_option('api_verify_certs')),
                 connection_class=RequestsHttpConnection,
             )
@@ -135,9 +138,7 @@ class DiscoESArchive(object):
         Returns a DiscoIAM object
         """
         if not self._disco_iam:
-            # TODO: the environment argument for DiscoIAM is actually the account
-            # name, e.g. "dev" or "prod"
-            self._disco_iam = DiscoIAM(environment=self.environment_name)
+            self._disco_iam = DiscoIAM()
 
         return self._disco_iam
 
@@ -349,16 +350,23 @@ class DiscoESArchive(object):
 
             logging.info("Archiving index: %s", index)
             if not dry_run:
-                self.es_client.snapshot.create(
-                    repository=self._repository_name,
-                    snapshot=index,
-                    body={
-                        "indices": index,
-                        "settings": {
-                            "role_arn": self.role_arn
-                        }
-                    }
-                )
+                try:
+                    self.es_client.snapshot.create(
+                        repository=self._repository_name,
+                        snapshot=index,
+                        body={
+                            "indices": index,
+                            "settings": {
+                                "role_arn": self.role_arn
+                            }
+                        },
+                        wait_for_completion=True
+                    )
+                except TransportError:
+                    # This happens when the snapshot is taking a while to complete. Based on
+                    # observations, it's about 60 seconds.
+                    pass
+
                 snap_state = self._wait_for_snapshot(index)
 
                 if snap_state != 'SUCCESS':
@@ -415,16 +423,20 @@ class DiscoESArchive(object):
         """
         max_time = time() + SNAPSHOT_WAIT_TIMEOUT
 
-        snap_state = self.snapshot_state(snapshot)
+        # Keep trying because sometimes TransportError could be thrown if request is taking too long
+        snap_state = keep_trying(SNAPSHOT_WAIT_TIMEOUT, self.snapshot_state, snapshot)
 
         while snap_state not in ES_SNAPSHOT_FINAL_STATES:
+            logging.info("Snapshot (%s) has not reached final states. Going to wait for %s seconds.",
+                         snapshot, SNAPSHOT_POLL_INTERVAL)
             sleep(SNAPSHOT_POLL_INTERVAL)
-            if time() > max_time:
+            now = time()
+            if now > max_time:
                 raise TimeoutError(
                     "Timed out ({0}s) waiting for {1} to enter final state."
-                    .format(SNAPSHOT_WAIT_TIMEOUT, snapshot)
+                    .format(max_time - now, snapshot)
                 )
-            snap_state = self.snapshot_state(snapshot)
+            snap_state = keep_trying(SNAPSHOT_WAIT_TIMEOUT, self.snapshot_state, snapshot)
 
         return snap_state
 
