@@ -73,14 +73,17 @@ class DiscoVPCPeerings(object):
                         self.disco_vpc.environment_type + '/' + \
                         subnet_name_parts[1]
 
-                    for route in route_table['Routes']:
-                        if route.get('VpcPeeringConnectionId') == peering['VpcPeeringConnectionId']:
-                            for network in peer_vpc.networks.values():
-                                if str(network.network_cidr) == route['DestinationCidrBlock']:
-                                    dest_network = peer_vpc.environment_name + ':' + \
-                                        peer_vpc.environment_type + '/' + network.name
+                    route_cidrs = [route['DestinationCidrBlock']
+                                   for route in route_table['Routes']
+                                   if route.get('VpcPeeringConnectionId') ==
+                                   peering['VpcPeeringConnectionId']]
 
-                                    current_peerings.add(source_network + ' ' + dest_network)
+                    for network in peer_vpc.networks.values():
+                        if str(network.network_cidr) in route_cidrs:
+                            dest_network = peer_vpc.environment_name + ':' + \
+                                peer_vpc.environment_type + '/' + network.name
+
+                            current_peerings.add(source_network + ' ' + dest_network)
 
         return current_peerings
 
@@ -93,7 +96,7 @@ class DiscoVPCPeerings(object):
     def _find_peer_vpc(self, peer_vpc_id):
         try:
             peer_vpc = self.boto3_ec2.describe_vpcs(VpcIds=[peer_vpc_id])['Vpcs'][0]
-        except:
+        except Exception:
             return None
 
         try:
