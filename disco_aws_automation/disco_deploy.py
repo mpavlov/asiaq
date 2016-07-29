@@ -441,7 +441,12 @@ class DiscoDeploy(object):
 
         try:
             smoke_tests = self.wait_for_smoketests(ami.id, new_group_config["desired_size"] or 1)
-            integration_tests = not run_tests or self.run_integration_tests(ami, wait_for_elb=uses_elb)
+            if smoke_tests and run_tests:
+                # If smoke tests passed and we should run integration tests, run them
+                integration_tests = self.run_integration_tests(ami, wait_for_elb=uses_elb)
+            elif not run_tests:
+                # Otherwise, if the tests should not be run, simply default them to passed
+                integration_tests = True
             if smoke_tests and integration_tests:
                 # If testing passed, mark AMI as tested
                 self._promote_ami(ami, "tested")

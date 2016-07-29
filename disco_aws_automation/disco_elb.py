@@ -202,7 +202,7 @@ class DiscoELB(object):
 
             for listener in listeners:
                 # Only try to lookup a cert if we are using a secure protocol for the ELB
-                if listener['Protocol'] in ["HTTPS", "SSL"]:
+                if listener['Protocol'].upper() in ["HTTPS", "SSL"]:
                     listener['SSLCertificateId'] = self.get_certificate_arn(cname) or ''
 
             elb_args = {
