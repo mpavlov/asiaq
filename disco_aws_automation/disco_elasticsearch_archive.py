@@ -30,6 +30,8 @@ SNAPSHOT_POLL_INTERVAL = 60
 OPS_TIMEOUT = 60 * 5
 
 
+# Some methods in elasticsearch use annotations to process keyword arguments
+# pylint: disable=unexpected-keyword-arg
 class DiscoESArchive(object):
     """
     Implements archiving, grooming and restoring of ES clusters
@@ -164,39 +166,55 @@ class DiscoESArchive(object):
 
         return self._s3_bucket_name
 
-    def _bytes_to_free(self, threshold):
+    def _bytes_to_free(self, cluster_stats, threshold):
         """
         Number of bytes disk space threshold is exceeded by. In other
         words, number of bytes of data that needs to be deleted to drop
         below threshold.
         threshold range 0-1
         """
-        cluster_stats = self.es_client.cluster.stats()
         total_bytes = cluster_stats["nodes"]["fs"]["total_in_bytes"]
         free_bytes = cluster_stats["nodes"]["fs"]['free_in_bytes']
         need_bytes = total_bytes * (1 - threshold)
         logging.debug("disk utilization : %i%%", (total_bytes - free_bytes) * 100 / total_bytes)
         return need_bytes - free_bytes
 
-    def _indices_to_delete(self, threshold):
+    def _shards_to_delete(self, cluster_stats, max_shards):
         """
-        Return list of indices that have already been archived, so that when they are deleted,
-        disk space would get below the threshold. Oldest first.
+        Return number of shards to delete in order to keep the number of shards in the
+        cluster under max_shards.
         """
-        bytes_to_free = self._bytes_to_free(threshold)
+        return cluster_stats['indices']['shards']['total'] - max_shards
+
+    def _indices_to_delete(self, threshold, max_shards):
+        """
+        Return list of indices that can be deleted so that used disk space would get
+        below the threshold and the number of shards would be under max_shards.
+        Oldest first.
+        """
+        cluster_stats = self.es_client.cluster.stats()
+
+        bytes_to_free = self._bytes_to_free(cluster_stats, threshold)
+        shards_to_delete = self._shards_to_delete(cluster_stats, max_shards)
+
         logging.debug("Need to free %i bytes.", bytes_to_free)
-        if bytes_to_free <= 0:
+        logging.debug("Need to delete %i shards.", shards_to_delete)
+        if bytes_to_free <= 0 and shards_to_delete <= 0:
             return []
 
-        index_sizes = self._get_all_indices_and_sizes()
+        index_stats = self._get_all_indices_stats()
         indices_to_delete = []
         freed_size = 0
-        for index, size in index_sizes:
-            if self.snapshot_state(index) == 'SUCCESS':
-                indices_to_delete.append(index)
-                freed_size += size
-                if freed_size >= bytes_to_free:
-                    break
+        deleted_shards = 0
+        for index_stat in index_stats:
+            if freed_size >= bytes_to_free and deleted_shards >= shards_to_delete:
+                break
+
+            if self.snapshot_state(index_stat['index']) == 'SUCCESS':
+                indices_to_delete.append(index_stat['index'])
+                freed_size += index_stat['size']
+                deleted_shards += index_stat['shards']
+
         return indices_to_delete
 
     def _archivable_indices(self):
@@ -207,34 +225,39 @@ class DiscoESArchive(object):
         yesterday = datetime.date.today() - datetime.timedelta(days=1)
         yesterday_str = yesterday.strftime('%Y.%m.%d')
 
-        return [index[0]
-                for index in self._get_all_indices_and_sizes()
-                if index[0][-10:] < yesterday_str]
+        return [index['index']
+                for index in self._get_all_indices_stats()
+                if index['index'][-10:] < yesterday_str]
 
     def _all_index_names(self):
         """ Return list of all indices """
-        return [index[0]
-                for index in self._get_all_indices_and_sizes()]
+        return [index['index']
+                for index in self._get_all_indices_stats()]
 
-    def _get_all_indices_and_sizes(self):
+    def _get_all_indices_stats(self):
         """
-        Return list of all the indices and their sizes sorted by the date from
-        oldest to latest
+        Return list of all the indices, their sizes and their numbers of shards
+        sorted by the date from oldest to latest
         """
-        stats = self.es_client.indices.stats()
+        cat_stats = self.es_client.cat.indices(bytes='b', h='index,store.size,pri,rep')
+        indices_stats = []
+        for stats_line in cat_stats.split('\n'):
+            if stats_line:
+                stats = stats_line.split()
+                indices_stats.append({'index': str(stats[0]),
+                                      'size': int(stats[1]),
+                                      'shards': int(stats[2]) * (int(stats[3]) + 1)})
+
         dated_index_pattern = re.compile(
             self._index_prefix_pattern + r'-[\d]{4}(\.[\d]{2}){2}$'
         )
-        index_sizes = [
-            (index, stats['indices'][index]['total']['store']['size_in_bytes'])
-            for index in sorted(stats['indices'].keys(), key=lambda k: k[-10:])
-            if re.match(dated_index_pattern, index)
-        ]
 
-        return index_sizes
+        indices_stats = [index_stats
+                         for index_stats in sorted(indices_stats, key=lambda k: k['index'][-10:])
+                         if re.match(dated_index_pattern, index_stats['index'])]
 
-    # Some methods in elasticsearch use annotations to process keyword arguments
-    # pylint: disable=unexpected-keyword-arg
+        return indices_stats
+
     def _green_indices(self):
         """
         Return list of indexes that are in green state (healthy)
@@ -381,13 +404,21 @@ class DiscoESArchive(object):
 
     def groom(self, dry_run=False):
         """
-        Delete enough indices from the cluster to bring down disk usage to the archive threshold.
+        Delete enough indices from the cluster such that used disk space would get below
+        the threshold and the number of shards would be under the specified max number
+        of shards
         """
         threshold = float(self.get_es_option("archive_threshold"))
-        if threshold > 1.0:
-            raise RuntimeError("ElasticSearch archive threshold cannot exceed 1")
-        logging.info("Using threshold: %s", threshold)
-        indices_to_delete = self._indices_to_delete(threshold)
+        if threshold > 1.0 or threshold <= .0:
+            raise RuntimeError("ElasticSearch archive threshold must be between 0 and 1.0.")
+
+        max_shards = int(self.get_es_option("archive_max_shards"))
+        if max_shards <= 0:
+            raise RuntimeError("ElasticSearch max shards must be greater than 0.")
+
+        logging.info("Using archive threshold: %s, and max shards: %s",
+                     threshold, max_shards)
+        indices_to_delete = self._indices_to_delete(threshold, max_shards)
 
         if indices_to_delete:
             for index in indices_to_delete:

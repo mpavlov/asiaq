@@ -17,6 +17,7 @@ ES_ARCHIVE_ROLE = "es_archive"
 ES_ARCHIVE_ROLE_ARN = "arn:aws:iam::640972706174:role/es_archive"
 BUCKET_NAME = "{0}.es-{1}-archive.{2}".format(REGION, CLUSTER_NAME, ENVIRONMENT)
 MOCK_POLICY_TEXT = 'mock policy text'
+TOTAL_SIZE = 6000
 
 REPOSITORY_CONFIG = {
     "type": REPOSITORY_NAME,
@@ -34,6 +35,7 @@ MOCK_AWS_CONFIG_DEFINITION = {
 MOCK_ES_CONFIG_DEFINITION = {
     "foo:logs": {
         "archive_threshold": ".9",
+        "archive_max_shards": "60",
         "archive_index_prefix_pattern": ".*",
         "archive_repository": REPOSITORY_NAME,
         "archive_role": ES_ARCHIVE_ROLE}}
@@ -58,20 +60,34 @@ def _create_mock_disco_iam():
 def _create_mock_es_client(indices, indices_health, snapshots, total_bytes):
     es_client = MagicMock()
     es_client.indices = MagicMock()
-    es_client.indices.stats.return_value = {
-        'indices': indices
-    }
+
+    def _mock_cat_indices(**args):
+        if args != {'h': 'index,store.size,pri,rep', 'bytes': 'b'}:
+            raise RuntimeError("Invalid arguments: {0}. This method mocks the indices method of "
+                               "elasticsearch.client.CatClient and only returns the name, size "
+                               "(in bytes), primary shards and replication factor of the "
+                               "indices.".format(args))
+
+        stats_str = ""
+        for index in indices:
+            stats_str += index['index'] + " " + str(index['size']) + " " + \
+                str(index['pri']) + " " + str(index['rep']) + "\n"
+
+        return stats_str
 
     def _mock_indices_health(**args):
         return {'indices': indices_health}
 
     def _mock_cluster_stats():
         bytes_used = 0
-        for index in indices.values():
-            bytes_used += index['total']['store']['size_in_bytes']
+        shards = 0
+        for index in indices:
+            bytes_used += index['size']
+            shards += index['pri'] * (index['rep'] + 1)
 
         return {"nodes": {"fs": {"total_in_bytes": total_bytes,
-                                 "free_in_bytes": total_bytes - bytes_used}}}
+                                 "free_in_bytes": total_bytes - bytes_used}},
+                "indices": {"shards": {"total": shards}}}
 
     def _mock_snapshot_get(repository, snapshot):
         if snapshot == "_all":
@@ -85,6 +101,9 @@ def _create_mock_es_client(indices, indices_health, snapshots, total_bytes):
 
     def _mock_snapshot_create(repository, snapshot, body, wait_for_completion):
         snapshots[snapshot] = {'state': 'SUCCESS'}
+
+    es_client.cat = MagicMock()
+    es_client.cat.indices.side_effect = _mock_cat_indices
 
     es_client.cluster = MagicMock()
     es_client.cluster.health.side_effect = _mock_indices_health
@@ -104,15 +123,17 @@ class DiscoESArchiveTests(TestCase):
         config_aws = get_mock_config(MOCK_AWS_CONFIG_DEFINITION)
         config_es = get_mock_config(MOCK_ES_CONFIG_DEFINITION)
 
+        # Config back end objects
         today = datetime.date.today().strftime('%Y.%m.%d')
-        self._indices = {
-            'foo-2016.06.01': {'total': {'store': {'size_in_bytes': 1000}}},
-            'foo-2016.06.02': {'total': {'store': {'size_in_bytes': 1000}}},
-            'foo-2016.06.03': {'total': {'store': {'size_in_bytes': 1000}}},
-            'foo-2016.06.04': {'total': {'store': {'size_in_bytes': 1000}}},
-            'foo-2016.06.05': {'total': {'store': {'size_in_bytes': 1000}}},
-            'foo-' + today: {'total': {'store': {'size_in_bytes': 401}}}
-        }
+        self._indices = [
+            {'index': 'foo-2016.06.01', 'size': 1000, 'pri': 5, 'rep': 1},
+            {'index': 'foo-2016.06.02', 'size': 1000, 'pri': 5, 'rep': 1},
+            {'index': 'foo-2016.06.03', 'size': 1000, 'pri': 5, 'rep': 1},
+            {'index': 'foo-2016.06.04', 'size': 1000, 'pri': 5, 'rep': 1},
+            {'index': 'foo-2016.06.05', 'size': 1000, 'pri': 5, 'rep': 1},
+            {'index': 'foo-' + today, 'size': 401, 'pri': 5, 'rep': 1}
+            # Current used size is 5401, one more than the 0.9 * 6000 (threshold * TOTAL_SIZE)
+        ]
         self._indices_health = {
             'foo-2016.06.01': {'status': 'green'},
             'foo-2016.06.02': {'status': 'green'},
@@ -140,7 +161,7 @@ class DiscoESArchiveTests(TestCase):
                                           disco_iam=_create_mock_disco_iam())
         self._es_archive._region = REGION
         self._es_archive._es_client = _create_mock_es_client(
-            self._indices, self._indices_health, self._snapshots, 6000)
+            self._indices, self._indices_health, self._snapshots, TOTAL_SIZE)
 
         # Mocking out loading policy json files
         self._es_archive._load_policy_json = MagicMock()
@@ -196,20 +217,35 @@ class DiscoESArchiveTests(TestCase):
 
     def test_groom(self):
         """Verify that ES groom operation works"""
+        # Calling groom for testing
         self._es_archive.groom()
 
         self._es_archive.es_client.indices.delete.assert_called_once_with(index='foo-2016.06.01')
 
-    def test_groom_no_index_to_delete(self):
-        """Verify that groom operation works"""
-        self._indices['foo-2016.06.01']['total']['store']['size_in_bytes'] -= 1
+    def test_groom_no_delete(self):
+        """Verify no delete due to used space below threshold"""
+        # Cause used space to drop below threshold
+        self._indices[0]['size'] = 999
 
+        # Calling groom for testing
         self._es_archive.groom()
 
         self._es_archive.es_client.indices.delete.assert_not_called()
 
+    def test_groom_max_shards_exceeded(self):
+        """Verify that delete occurs because max number of shards is exceeded"""
+        # Cause max shards to be exceeded
+        self._indices[0]['size'] = 999
+        self._indices[0]['pri'] = 6
+
+        # Calling groom for testing
+        self._es_archive.groom()
+
+        self._es_archive.es_client.indices.delete.assert_called_once_with(index='foo-2016.06.01')
+
     def test_restore(self):
         """Verify that ES resotre operation works"""
+        # Calling restore for testing
         self._es_archive.restore('2016.06.01', '2016.06.07')
 
         expected_restore_calls = [
@@ -220,6 +256,7 @@ class DiscoESArchiveTests(TestCase):
 
     def test_restore_date_query(self):
         """Verify that date range query works correctly in ES resotre operation"""
+        # Calling restore for testing
         self._es_archive.restore('2016.06.01', '2016.06.06')
 
         self._es_archive.es_client.snapshot.restore.assert_called_once_with(
