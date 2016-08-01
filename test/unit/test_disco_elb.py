@@ -57,7 +57,7 @@ class DiscoELBTests(TestCase):
         return self.disco_elb.get_or_create_elb(
             hostclass=hostclass or TEST_HOSTCLASS,
             security_groups=['sec-1'],
-            subnets=['sub-1'],
+            subnets=[],
             hosted_zone_name=TEST_DOMAIN_NAME,
             health_check_url="/" if instance_protocol.upper() in ('HTTP', 'HTTPS') else "",
             instance_protocol=instance_protocol,
@@ -115,7 +115,7 @@ class DiscoELBTests(TestCase):
                 'InstanceProtocol': 'HTTP',
                 'InstancePort': 80
             }],
-            Subnets=['sub-1'],
+            Subnets=[],
             SecurityGroups=['sec-1'],
             Scheme='internal',
             Tags=[{
@@ -139,7 +139,7 @@ class DiscoELBTests(TestCase):
                 'InstanceProtocol': 'HTTP',
                 'InstancePort': 80
             }],
-            Subnets=['sub-1'],
+            Subnets=[],
             SecurityGroups=['sec-1'],
             Scheme='internal',
             Tags=[{
@@ -161,7 +161,7 @@ class DiscoELBTests(TestCase):
                 'InstanceProtocol': 'HTTP',
                 'InstancePort': 80
             }],
-            Subnets=['sub-1'],
+            Subnets=[],
             SecurityGroups=['sec-1'],
             Tags=[{
                 "Key": "elb_name",
@@ -183,7 +183,7 @@ class DiscoELBTests(TestCase):
                 'InstancePort': 80,
                 'SSLCertificateId': TEST_CERTIFICATE_ARN_ACM
             }],
-            Subnets=['sub-1'],
+            Subnets=[],
             SecurityGroups=['sec-1'],
             Scheme='internal',
             Tags=[{
@@ -206,7 +206,7 @@ class DiscoELBTests(TestCase):
                 'InstanceProtocol': 'TCP',
                 'InstancePort': 25
             }],
-            Subnets=['sub-1'],
+            Subnets=[],
             SecurityGroups=['sec-1'],
             Scheme='internal',
             Tags=[{
@@ -235,7 +235,7 @@ class DiscoELBTests(TestCase):
                 'InstancePort': 80,
                 'SSLCertificateId': TEST_CERTIFICATE_ARN_ACM
             }],
-            Subnets=['sub-1'],
+            Subnets=[],
             SecurityGroups=['sec-1'],
             Scheme='internal',
             Tags=[{
