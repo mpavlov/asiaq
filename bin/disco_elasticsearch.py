@@ -55,7 +55,8 @@ def get_parser():
     parser_archive.add_argument('--groom', dest='groom', action='store_const',
                                 const=True, default=False,
                                 help="When set, the archive command would delete enough indices from the "
-                                "cluster to bring down disk usage to the archive threshold.")
+                                "cluster such that disk usage is below the archive threshold and the number "
+                                "of shards is below the maximum shards allowed.")
     parser_archive.add_argument('--dry-run', dest='dry_run', action='store_const',
                                 const=True, default=False,
                                 help="Whether to test run the archive process. No indices would be archived "
