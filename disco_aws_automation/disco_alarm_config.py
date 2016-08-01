@@ -199,7 +199,7 @@ class DiscoAlarmsConfig(object):
         else:
             self.config = read_config(DEFAULT_CONFIG_FILE)
         self.environment = environment
-        self.elasticsearch = elasticsearch or None  # laziliy intialized
+        self.elasticsearch = elasticsearch or None
         self._autoscale = autoscale or None  # laziliy intialized
         self._defaults = None
 
