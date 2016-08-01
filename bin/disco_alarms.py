@@ -6,14 +6,14 @@ Usage:
     disco_alarms.py [--debug] [--dry-run] [--env ENV] update_notifications [--delete]
     disco_alarms.py [--debug] [--env ENV] update_metrics [--delete] --hostclass HOSTCLASS
     disco_alarms.py [--debug] [--env ENV] list [--hostclass HOSTCLASS]
-    disco_alarms.py [--debug] [--env ENV] delete_environment_alarms
+    disco_alarms.py [--debug] --env ENV delete
     disco_alarms.py (-h | --help)
 
 Commands:
-     update_notifications         Updates SNS topics and subscriptions
-     update_metrics               Updates CloudWatch metrics, triggers, and SNS links
-     list                         List alarms
-     delete_environment_alarms    Deletes all environment alarms
+     update_notifications   Updates SNS topics and subscriptions
+     update_metrics         Updates CloudWatch metrics, triggers, and SNS links
+     list                   List alarms
+     delete                 Deletes all environment alarms
 
 Options:
      -h --help              Show this screen
