@@ -55,9 +55,9 @@ class DiscoAlarmTests(TestCase):
         alarms = self.alarm.cloudwatch.describe_alarms()
         return len(alarms)
 
-    def _make_alarm(self, hostclass="hcfoo"):
+    def _make_alarm(self, hostclass="hcfoo", namespace="nsfoo"):
         options = {
-            "namespace": "nsfoo",
+            "namespace": namespace,
             "metric_name": "metric{0}".format(
                 randint(100000, 999999),
             ),
@@ -72,6 +72,9 @@ class DiscoAlarmTests(TestCase):
             "team": "america",
             "autoscaling_group_name": "{}_{}_{}".format(hostclass, ENVIRONMENT, randint(100000, 999999))
         }
+        if namespace == 'AWS/ES':
+            options['es_domain_name'] = ELASTICSEARCH_DOMAIN_NAME
+            options['es_client_id'] = str(ELASTICSEARCH_CLIENT_ID)
         return DiscoAlarmConfig(options)
 
     def test_upsert_alarm(self):
@@ -103,6 +106,30 @@ class DiscoAlarmTests(TestCase):
 
         self.alarm.delete_environment_alarms(ENVIRONMENT)
         self.assertEqual(0, self._alarm_count())
+
+    def test_no_delete_es_alarms(self):
+        """
+        ES alarms don't get deleted with environment
+        """
+        self.alarm._alarm_configs = DiscoAlarmsConfig(
+            ENVIRONMENT,
+            autoscale=self.autoscale,
+            elasticsearch=self.elasticsearch
+        )
+        number_of_alarms = 2
+        self.assertEqual(0, self._alarm_count())
+        alarms = [
+            self._make_alarm()
+            for _ in range(0, number_of_alarms)
+        ]
+        alarms[0] = self._make_alarm(namespace='AWS/ES')
+        self.alarm.alarm_configs.get_alarms = MagicMock(return_value=alarms)
+        logging.debug("alarms: %s", alarms)
+        self.alarm.create_alarms(alarms)
+        self.assertEqual(number_of_alarms, self._alarm_count())
+
+        self.alarm.delete_environment_alarms(ENVIRONMENT)
+        self.assertEqual(1, self._alarm_count())
 
     def test_delete_by_hostclass(self):
         """
