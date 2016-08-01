@@ -158,14 +158,19 @@ class DiscoMetaNetworkTests(TestCase):
         self.meta_network.create()
 
         mock_peering_conn_id = 'peering_conn_id'
-        mock_cidr = '10.101.0.0/16'
+        mock_cidr1 = '10.101.0.0/16'
+        self.meta_network.create_peering_route(mock_peering_conn_id, mock_cidr1)
 
-        self.meta_network.create_peering_route(mock_peering_conn_id, mock_cidr)
+        mock_cidr2 = '10.102.0.0/16'
+        self.meta_network.create_peering_route(mock_peering_conn_id, mock_cidr2)
 
-        self.mock_vpc_conn.create_route.\
-            assert_called_once_with(destination_cidr_block=mock_cidr,
-                                    route_table_id=MOCK_ROUTE_TABLE.id,
-                                    vpc_peering_connection_id=mock_peering_conn_id)
+        expected_calls = [call(destination_cidr_block=mock_cidr1,
+                               route_table_id=MOCK_ROUTE_TABLE.id,
+                               vpc_peering_connection_id=mock_peering_conn_id),
+                          call(destination_cidr_block=mock_cidr2,
+                               route_table_id=MOCK_ROUTE_TABLE.id,
+                               vpc_peering_connection_id=mock_peering_conn_id)]
+        self.mock_vpc_conn.create_route.assert_has_calls(expected_calls)
 
     @patch('disco_aws_automation.disco_subnet.DiscoSubnet.__init__', return_value=None)
     def test_create_peering__with_existing_route(self, mock_subnet_init):

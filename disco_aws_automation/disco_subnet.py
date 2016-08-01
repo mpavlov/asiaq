@@ -121,38 +121,33 @@ class DiscoSubnet(object):
 
     def create_peering_routes(self, peering_conn_id, cidr):
         """ create/update a route between the peering connection and the current subnet. """
-        peering_routes_for_peering = [
+        # Create route to the peering connection
+        params = {
+            'RouteTableId': self.route_table['RouteTableId'],
+            'DestinationCidrBlock': cidr,
+            'VpcPeeringConnectionId': peering_conn_id
+        }
+
+        # VpcEndpoints dont have DestinationCidrBlock, skip them!
+        peering_routes_for_cidr = [
             _ for _ in self.route_table['Routes']
-            if _.get('VpcPeeringConnectionId') == peering_conn_id
+            if 'DestinationCidrBlock' in _ and _['DestinationCidrBlock'] == cidr
         ]
-        if not peering_routes_for_peering:
-            # Create route to the peering connection
-            params = {
-                'RouteTableId': self.route_table['RouteTableId'],
-                'DestinationCidrBlock': cidr,
-                'VpcPeeringConnectionId': peering_conn_id
-            }
 
-            # VpcEndpoints dont have DestinationCidrBlock, skip them!
-            peering_routes_for_cidr = [
-                _ for _ in self.route_table['Routes']
-                if 'DestinationCidrBlock' in _ and _['DestinationCidrBlock'] == cidr
-            ]
+        if not peering_routes_for_cidr:
+            logging.info(
+                'Create route for (route_table: %s, dest_cidr: %s, connection: %s)',
+                params['RouteTableId'], params['DestinationCidrBlock'],
+                params['VpcPeeringConnectionId'])
+            self.boto3_ec2.create_route(**params)
+        else:
+            logging.info(
+                'Update route for (route_table: %s, dest_cidr: %s, connection: %s)',
+                params['RouteTableId'], params['DestinationCidrBlock'],
+                params['VpcPeeringConnectionId'])
+            self.boto3_ec2.replace_route(**params)
 
-            if not peering_routes_for_cidr:
-                logging.info(
-                    'Create route for (route_table: %s, dest_cidr: %s, connection: %s)',
-                    params['RouteTableId'], params['DestinationCidrBlock'],
-                    params['VpcPeeringConnectionId'])
-                self.boto3_ec2.create_route(**params)
-            else:
-                logging.info(
-                    'Update route for (route_table: %s, dest_cidr: %s, connection: %s)',
-                    params['RouteTableId'], params['DestinationCidrBlock'],
-                    params['VpcPeeringConnectionId'])
-                self.boto3_ec2.replace_route(**params)
-
-            self._refresh_route_table()
+        self._refresh_route_table()
 
     def delete_route(self, destination_cidr_block):
         """ Delete the route to the destination CIDR block from the route table """
