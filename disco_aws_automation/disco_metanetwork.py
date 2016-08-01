@@ -542,29 +542,24 @@ class DiscoMetaNetwork(object):
         If a centralized route table is used, add the route there. If not, add the route
         to all the subnets. """
         if self.centralized_route_table:
-            peering_routes_for_peering = [
+            peering_routes_for_cidr = [
                 _ for _ in self.centralized_route_table.routes
-                if _.vpc_peering_connection_id == peering_conn_id
+                if _.destination_cidr_block == cidr
             ]
-            if not peering_routes_for_peering:
-                peering_routes_for_cidr = [
-                    _ for _ in self.centralized_route_table.routes
-                    if _.destination_cidr_block == cidr
-                ]
-                if not peering_routes_for_cidr:
-                    logging.info(
-                        'Create routes for (route_table: %s, dest_cidr: %s, connection: %s)',
-                        self.centralized_route_table.id, cidr, peering_conn_id)
-                    self._connection.create_route(route_table_id=self.centralized_route_table.id,
-                                                  destination_cidr_block=cidr,
-                                                  vpc_peering_connection_id=peering_conn_id)
-                else:
-                    logging.info(
-                        'Update routes for (route_table: %s, dest_cidr: %s, connection: %s)',
-                        self.centralized_route_table.id, cidr, peering_conn_id)
-                    self._connection.replace_route(route_table_id=self.centralized_route_table.id,
-                                                   destination_cidr_block=cidr,
-                                                   vpc_peering_connection_id=peering_conn_id)
+            if not peering_routes_for_cidr:
+                logging.info(
+                    'Create routes for (route_table: %s, dest_cidr: %s, connection: %s)',
+                    self.centralized_route_table.id, cidr, peering_conn_id)
+                self._connection.create_route(route_table_id=self.centralized_route_table.id,
+                                              destination_cidr_block=cidr,
+                                              vpc_peering_connection_id=peering_conn_id)
+            else:
+                logging.info(
+                    'Update routes for (route_table: %s, dest_cidr: %s, connection: %s)',
+                    self.centralized_route_table.id, cidr, peering_conn_id)
+                self._connection.replace_route(route_table_id=self.centralized_route_table.id,
+                                               destination_cidr_block=cidr,
+                                               vpc_peering_connection_id=peering_conn_id)
         else:
             # No centralized route table here, so add a route to each subnet
             for disco_subnet in self.disco_subnets.values():

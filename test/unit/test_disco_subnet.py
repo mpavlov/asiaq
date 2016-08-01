@@ -271,19 +271,25 @@ class DiscoSubnetTests(TestCase):
     def test_create_new_peering_route(self):
         """ Verify that a peering route is properly created """
         new_peering_conn_id = 'new_peering_conn_id'
-        new_cidr = '33.33.33.33/24'
+        new_cidr1 = '33.33.33.33/24'
+        self.subnet.create_peering_routes(new_peering_conn_id, new_cidr1)
 
-        self.subnet.create_peering_routes(new_peering_conn_id, new_cidr)
+        new_cidr2 = '33.33.33.44/24'
+        self.subnet.create_peering_routes(new_peering_conn_id, new_cidr2)
 
-        self.mock_ec2_conn.create_route.assert_called_once_with(DestinationCidrBlock=new_cidr,
-                                                                RouteTableId=MOCK_ROUTE_TABLE_ID,
-                                                                VpcPeeringConnectionId=new_peering_conn_id)
+        expected_calls = [call(DestinationCidrBlock=new_cidr1,
+                               RouteTableId=MOCK_ROUTE_TABLE_ID,
+                               VpcPeeringConnectionId=new_peering_conn_id),
+                          call(DestinationCidrBlock=new_cidr2,
+                               RouteTableId=MOCK_ROUTE_TABLE_ID,
+                               VpcPeeringConnectionId=new_peering_conn_id)]
+        self.mock_ec2_conn.create_route.assert_has_calls(expected_calls)
 
         # Make sure route table is updated
-        route_to_nat = [route for route in self.subnet.route_table['Routes']
-                        if route['DestinationCidrBlock'] == new_cidr and
+        added_routes = [route for route in self.subnet.route_table['Routes']
+                        if route['DestinationCidrBlock'] in [new_cidr1, new_cidr2] and
                         route['VpcPeeringConnectionId'] == new_peering_conn_id]
-        self.assertTrue(route_to_nat)
+        self.assertEqual(len(added_routes), 2)
 
     def test_replace_peering_route(self):
         """ Verify that an existing peering route is properly replaced by a new one """
@@ -296,10 +302,10 @@ class DiscoSubnetTests(TestCase):
                                                                  VpcPeeringConnectionId=new_peering_conn_id)
 
         # Make sure route table is updated
-        route_to_nat = [route for route in self.subnet.route_table['Routes']
+        update_route = [route for route in self.subnet.route_table['Routes']
                         if route['DestinationCidrBlock'] == MOCK_REPLACE_CIDR and
                         route['VpcPeeringConnectionId'] == new_peering_conn_id]
-        self.assertTrue(route_to_nat)
+        self.assertTrue(update_route)
 
     def test_add_route_to_gateway(self):
         """ Verify that a new route can be created """
