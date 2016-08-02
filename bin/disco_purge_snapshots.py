@@ -28,7 +28,6 @@ Options:
 from __future__ import print_function
 import re
 from datetime import datetime
-import logging
 import sys
 
 import boto
@@ -122,7 +121,10 @@ def purge_snapshots(options):
                 snaps_to_purge.append(snap)
                 continue
 
-        logging.debug("skipping snapshot: %s description: %s tags: %s", snap.id, snap.description, snap.tags)
+        print(
+            "skipping snapshot: {0} description: {1} tags: {2}"
+            .format(snap.id, snap.description, snap.tags)
+        )
 
     if options.get('--keep-num'):
         snaps_to_purge = remove_kept_snapshots(snaps_to_purge, int(options.get('--keep-num')), snapshot_dict)
@@ -133,7 +135,7 @@ def purge_snapshots(options):
                 snap.delete()
             except EC2ResponseError:
                 failed_to_purge.append(snap)
-                logging.error("Failed to purge snapshot: %s", snap.id)
+                print("Failed to purge snapshot: {0}".format(snap.id))
 
     return (snaps_to_purge, failed_to_purge)
 

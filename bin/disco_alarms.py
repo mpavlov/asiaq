@@ -28,7 +28,6 @@ Options:
 """
 from __future__ import print_function
 import sys
-import logging
 
 from docopt import docopt
 
@@ -71,7 +70,7 @@ def run():
     elif args["delete_environment_alarms"]:
         disco_alarm.delete_environment_alarms(env)
     else:
-        logging.error("No command specified. See --help")
+        print("No command specified. See --help")
         sys.exit(1)
 
 if __name__ == "__main__":

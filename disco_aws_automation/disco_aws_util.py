@@ -9,6 +9,8 @@ from boto.exception import EC2ResponseError
 
 from .disco_constants import YES_LIST
 
+logger = logging.getLogger(__name__)
+
 
 class EasyExit(Exception):
     """
@@ -60,7 +62,7 @@ def run_gracefully(main_function):
     try:
         main_function()
     except EasyExit as msg:
-        logging.error(str(msg))
+        logger.error(str(msg))
         sys.exit(1)
     except KeyboardInterrupt:
         # swallow the exception unless we turned on debugging, in which case
@@ -69,7 +71,7 @@ def run_gracefully(main_function):
             raise
         sys.exit(1)
     except EC2ResponseError as err:
-        logging.error("EC2 Error response: %s", err.message)
+        logger.error("EC2 Error response: %s", err.message)
         if logging.getLogger().isEnabledFor(logging.DEBUG):
             raise
         sys.exit(1)

@@ -24,6 +24,8 @@ from .disco_vpc_sg_rules import DiscoVPCSecurityGroupRules
 from .exceptions import TimeoutError, RDSEnvironmentError
 from .resource_helper import keep_trying, tag2dict
 
+logger = logging.getLogger(__name__)
+
 DEFAULT_CONFIG_FILE_RDS = "disco_rds.ini"
 RDS_STATE_POLL_INTERVAL = 30  # seconds
 RDS_DELETE_TIMEOUT = 1800  # seconds. From observation, it takes about 15-20 mins to delete an RDS instance
@@ -59,7 +61,7 @@ class RDS(threading.Thread):
         """
         Configure alarms for this RDS instance. The alarms are configured in disco_alarms.ini
         """
-        logging.debug("Configuring Cloudwatch alarms ")
+        logger.debug("Configuring Cloudwatch alarms ")
         DiscoAlarm(self.vpc_name).create_alarms(database_name)
 
     def _get_instance_address(self, instance_identifier):
@@ -75,7 +77,7 @@ class RDS(threading.Thread):
         """
         start_time = time.time()
         instance_endpoint = keep_trying(RDS_STARTUP_TIMEOUT, self._get_instance_address, instance_identifier)
-        logging.info("Waited %s seconds for RDS to get an address", time.time() - start_time)
+        logger.info("Waited %s seconds for RDS to get an address", time.time() - start_time)
         disco_route53 = DiscoRoute53()
         instance_record_name = '{0}.{1}.'.format(instance_identifier, self.domain_name)
 
@@ -188,10 +190,10 @@ class RDS(threading.Thread):
             if instance_params['Engine'] == 'postgres':
                 instance_params = RDS.delete_keys(instance_params, ["CharacterSetName"])
 
-            logging.info("Creating new RDS cluster %s", instance_identifier)
+            logger.info("Creating new RDS cluster %s", instance_identifier)
             self.client.create_db_instance(**instance_params)
         else:
-            logging.info("Restoring RDS cluster from snapshot: %s", snapshot["DBSnapshotIdentifier"])
+            logger.info("Restoring RDS cluster from snapshot: %s", snapshot["DBSnapshotIdentifier"])
             params = RDS.delete_keys(instance_params, [
                 "AllocatedStorage", "CharacterSetName", "DBParameterGroupName", "StorageEncrypted",
                 "EngineVersion", "MasterUsername", "MasterUserPassword", "VpcSecurityGroupIds",
@@ -205,12 +207,12 @@ class RDS(threading.Thread):
         Modify settings for a DB instance. You can change one or more database configuration parameters
         by specifying these parameters and the new values in the request.
         """
-        logging.info("Updating RDS cluster %s", instance_params["DBInstanceIdentifier"])
+        logger.info("Updating RDS cluster %s", instance_params["DBInstanceIdentifier"])
         params = RDS.delete_keys(instance_params, [
             "Engine", "LicenseModel", "DBSubnetGroupName", "PubliclyAccessible",
             "MasterUsername", "Port", "CharacterSetName", "StorageEncrypted"])
         self.client.modify_db_instance(ApplyImmediately=apply_immediately, **params)
-        logging.info("Rebooting cluster to apply Param group %s", instance_params["DBInstanceIdentifier"])
+        logger.info("Rebooting cluster to apply Param group %s", instance_params["DBInstanceIdentifier"])
         keep_trying(RDS_STATE_POLL_INTERVAL,
                     self.client.reboot_db_instance,
                     DBInstanceIdentifier=instance_params["DBInstanceIdentifier"],
@@ -227,7 +229,7 @@ class RDS(threading.Thread):
         try:
             self.client.delete_db_subnet_group(DBSubnetGroupName=db_subnet_group_name)
         except Exception as err:
-            logging.debug("Not deleting subnet group '%s': %s", db_subnet_group_name, repr(err))
+            logger.debug("Not deleting subnet group '%s': %s", db_subnet_group_name, repr(err))
 
         db_subnet_group_description = 'Subnet Group for VPC {0}'.format(self.vpc_name)
 
@@ -344,7 +346,7 @@ class RDS(threading.Thread):
         try:
             self.client.delete_db_parameter_group(DBParameterGroupName=db_parameter_group_name)
         except Exception as err:
-            logging.debug("Not deleting DB parameter group '%s': %s", db_parameter_group_name, repr(err))
+            logger.debug("Not deleting DB parameter group '%s': %s", db_parameter_group_name, repr(err))
 
         # DB Parameter Group Name must be created first, using RDS defaults
         self.create_db_parameter_group(db_parameter_group_name, db_parameter_group_family)
@@ -359,11 +361,11 @@ class RDS(threading.Thread):
             custom_config.read(custom_param_file)
             try:
                 custom_db_params = custom_config.items(env_name)
-                logging.info("Updating RDS db_parameter_group %s (family: %s, #params: %s)",
-                             db_parameter_group_name, db_parameter_group_family, len(custom_db_params))
+                logger.info("Updating RDS db_parameter_group %s (family: %s, #params: %s)",
+                            db_parameter_group_name, db_parameter_group_family, len(custom_db_params))
                 self.modify_db_parameter_group(db_parameter_group_name, custom_db_params)
             except NoSectionError:
-                logging.info("Using Default RDS param")
+                logger.info("Using Default RDS param")
 
     def update_cluster(self):
         """
@@ -380,7 +382,7 @@ class RDS(threading.Thread):
             group_name = instance_params["DBParameterGroupName"]
             group_family = self.get_db_parameter_group_family(
                 instance_params["Engine"], instance_params["EngineVersion"])
-            logging.debug("creating parameter group %s with family %s", group_name, group_family)
+            logger.debug("creating parameter group %s with family %s", group_name, group_family)
             self.recreate_db_parameter_group(self.vpc_name, self.database_name, group_name, group_family)
             self.create_db_instance(instance_params)
 
@@ -416,7 +418,7 @@ class RDS(threading.Thread):
         group_name = instance_params["DBParameterGroupName"]
         group_family = RDS.get_db_parameter_group_family(
             instance_params["Engine"], instance_params["EngineVersion"])
-        logging.debug("creating parameter group %s with family %s", group_name, group_family)
+        logger.debug("creating parameter group %s with family %s", group_name, group_family)
 
         # create a parameter group using the parameters of the source db
         self.recreate_db_parameter_group(source_vpc, source_db, group_name, group_family)
@@ -489,7 +491,7 @@ class DiscoRDS(object):
         vpc_prefix = self.vpc_name + '-'
         sections = [section for section in self.config_rds.sections()
                     if section.startswith(vpc_prefix)]
-        logging.debug("The following RDS clusters will be updated: %s", ", ".join(sections))
+        logger.debug("The following RDS clusters will be updated: %s", ", ".join(sections))
         rds_security_group_id = self.get_rds_security_group_id()
         subnet_ids = self.get_subnet_ids()
         rds_list = []
@@ -561,7 +563,7 @@ class DiscoRDS(object):
                     "Timed out waiting for RDS clusters to finish deleting after {}s.".format(time_passed))
 
             if instances != instances_waiting_for:
-                logging.info("Waiting for deletion of RDS clusters: %s", ", ".join(instances))
+                logger.info("Waiting for deletion of RDS clusters: %s", ", ".join(instances))
                 instances_waiting_for = instances
 
             time.sleep(RDS_STATE_POLL_INTERVAL)
@@ -569,7 +571,7 @@ class DiscoRDS(object):
 
     def delete_db_instance(self, instance_identifier, skip_final_snapshot=False):
         """ Delete an RDS instance/cluster. Final snapshot is automatically taken. """
-        logging.info("Deleting RDS cluster %s", instance_identifier)
+        logger.info("Deleting RDS cluster %s", instance_identifier)
 
         if skip_final_snapshot:
             allocated_storage = self.client.describe_db_instances(DBInstanceIdentifier=instance_identifier)[
@@ -635,7 +637,7 @@ class DiscoRDS(object):
             snapshot_age = (today - snap_create_date).days
             if snapshot_age > days:
                 snapshot_id = snapshot['DBSnapshotIdentifier']
-                logging.info("Deleting Snapshot %s since its older than %d", snapshot_id, days)
+                logger.info("Deleting Snapshot %s since its older than %d", snapshot_id, days)
                 self.client.delete_db_snapshot(DBSnapshotIdentifier=snapshot_id)
 
     def _get_db_instance(self, instance_identifier):

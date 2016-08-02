@@ -20,6 +20,8 @@ from .disco_aws_util import is_truthy, size_as_minimum_int_or_none, size_as_maxi
 from .disco_constants import (DEFAULT_CONFIG_SECTION, DEPLOYMENT_STRATEGY_BLUE_GREEN,
                               DEPLOYMENT_STRATEGY_CLASSIC)
 
+logger = logging.getLogger(__name__)
+
 
 def snap_to_range(val, mini, maxi):
     '''Returns a value snapped into [mini, maxi]'''
@@ -189,16 +191,16 @@ class DiscoDeploy(object):
         try:
             self._disco_aws.wait_for_autoscaling(ami_id, min_count)
         except TimeoutError:
-            logging.info("autoscaling timed out")
+            logger.info("autoscaling timed out")
             return False
 
         try:
             self._disco_aws.smoketest(self._disco_aws.instances_from_amis([ami_id]))
         except TimeoutError:
-            logging.info("smoketest timed out")
+            logger.info("smoketest timed out")
             return False
         except SmokeTestError:
-            logging.info("smoketest instance was terminated")
+            logger.info("smoketest instance was terminated")
             return False
 
         return True
@@ -223,7 +225,7 @@ class DiscoDeploy(object):
             if all(promote_conditions):
                 self._disco_bake.promote_ami_to_production(ami)
         except:
-            logging.exception("promotion failed")
+            logger.exception("promotion failed")
 
     def handle_nodeploy_ami(self, ami, pipeline_dict=None, dry_run=False, old_group=None):
         '''Promotes a non-deployable host and updates the autoscaling group to use it next time
@@ -240,8 +242,10 @@ class DiscoDeploy(object):
         if not pipeline_dict:
             pipeline_dict = {"hostclass": hostclass}
 
-        logging.info("Smoke testing non-deploy Hostclass %s AMI %s with %s deployment strategy",
-                     hostclass, ami.id, DEPLOYMENT_STRATEGY_CLASSIC)
+        logger.info(
+            "Smoke testing non-deploy Hostclass %s AMI %s with %s deployment strategy",
+            hostclass, ami.id, DEPLOYMENT_STRATEGY_CLASSIC
+        )
 
         if dry_run:
             return
@@ -304,7 +308,7 @@ class DiscoDeploy(object):
                 images.extend(self._disco_bake.get_amis(image_ids=[ami_id]))
             except EC2ResponseError as err:
                 if err.code == "InvalidAMIID.NotFound":
-                    logging.warning("Unable to find old AMI %s, it was probably deleted", ami_id)
+                    logger.warning("Unable to find old AMI %s, it was probably deleted", ami_id)
                 else:
                     raise
         return max(images, key=self._disco_bake.get_ami_creation_time).id if len(images) else None
@@ -332,7 +336,7 @@ class DiscoDeploy(object):
         '''
         hostclass = DiscoBake.ami_hostclass(ami)
 
-        logging.info(
+        logger.info(
             "testing deployable hostclass %s AMI %s with %s deployment strategy",
             hostclass,
             ami.id,
@@ -378,7 +382,7 @@ class DiscoDeploy(object):
             else:
                 self._promote_ami(ami, "failed")
         except (MaintenanceModeError, IntegrationTestError):
-            logging.exception("Failed to run integration test")
+            logger.exception("Failed to run integration test")
 
         # Revert to old configuration
         post_hostclass_dict["smoke_test"] = "no"
@@ -389,7 +393,7 @@ class DiscoDeploy(object):
         if old_ami_id:
             post_hostclass_dict["ami"] = old_ami_id
         else:
-            logging.error("Unable to rollback to old AMI. Autoscaling group will use new AMI on next event!")
+            logger.error("Unable to rollback to old AMI. Autoscaling group will use new AMI on next event!")
 
         self._disco_aws.terminate(self._get_new_instances(ami.id), use_autoscaling=True)
         self._disco_aws.spinup([post_hostclass_dict])
@@ -408,9 +412,9 @@ class DiscoDeploy(object):
         Also creates a separate testing ELB that is used for the purposes of integration tests.
         '''
         hostclass = DiscoBake.ami_hostclass(ami)
-        logging.info("testing %s hostclass %s AMI %s with %s deployment strategy",
-                     "deployable" if deployable else "non-deployable", hostclass, ami.id,
-                     DEPLOYMENT_STRATEGY_BLUE_GREEN)
+        logger.info("testing %s hostclass %s AMI %s with %s deployment strategy",
+                    "deployable" if deployable else "non-deployable", hostclass, ami.id,
+                    DEPLOYMENT_STRATEGY_BLUE_GREEN)
 
         if dry_run:
             return True
@@ -432,11 +436,11 @@ class DiscoDeploy(object):
             # Spinup our new autoscaling group in testing mode, making one even if one already exists.
             self._disco_aws.spinup([new_group_config], create_if_exists=True, testing=True)
         except TooManyAutoscalingGroups:
-            logging.exception("Too many autoscaling groups exist. Unable to determine which ASG to delete,"
-                              "so refusing to do anything. Manual cleanup probably required.")
+            logger.exception("Too many autoscaling groups exist. Unable to determine which ASG to delete,"
+                             "so refusing to do anything. Manual cleanup probably required.")
             return False
         except Exception:
-            logging.exception("Spinning up a new autoscaling group failed")
+            logger.exception("Spinning up a new autoscaling group failed")
 
             # Try to grab the new group. If it exists, we get a group. If not, we get a `None`.
             new_group = self._disco_autoscale.get_existing_group(hostclass=hostclass,
@@ -449,7 +453,7 @@ class DiscoDeploy(object):
             # If we did get a new group and its not the same as the old group (or no old group exists), let's
             # tear down the new testing group and its ELB if it exists.
             if new_group and (not old_group or old_group_is_not_new_group):
-                logging.info('Destroying the testing group')
+                logger.info('Destroying the testing group')
                 # Destroy the testing ASG
                 self._disco_autoscale.delete_groups(group_name=new_group.name, force=True)
                 if uses_elb:
@@ -481,7 +485,7 @@ class DiscoDeploy(object):
                 group_instances = self._disco_aws.instances(instance_ids=group_instance_ids)
                 # If we are actually deploying and are able to leave testing mode
                 if deployable and self._set_testing_mode(hostclass, group_instances, False):
-                    logging.info("Successfully left testing mode for group %s", new_group.name)
+                    logger.info("Successfully left testing mode for group %s", new_group.name)
                     # Update ASG to exit testing mode and attach to the normal ELB if applicable.
                     self._disco_aws.spinup([new_group_config], group_name=new_group.name)
 
@@ -491,7 +495,7 @@ class DiscoDeploy(object):
                             self._disco_elb.wait_for_instance_health_state(hostclass=hostclass,
                                                                            instance_ids=group_instance_ids)
                         except TimeoutError:
-                            logging.exception("Waiting for health of instances attached to ELB timed out")
+                            logger.exception("Waiting for health of instances attached to ELB timed out")
                             # Destroy the testing ASG
                             self._disco_autoscale.delete_groups(group_name=new_group.name, force=True)
                             if uses_elb:
@@ -520,7 +524,7 @@ class DiscoDeploy(object):
                     else:
                         reason = "{} is not deployable".format(hostclass)
 
-                    logging.error("%s, destroying new autoscaling group", reason)
+                    logger.error("%s, destroying new autoscaling group", reason)
 
                     # Destroy the testing ASG
                     self._disco_autoscale.delete_groups(group_name=new_group.name, force=True)
@@ -540,7 +544,7 @@ class DiscoDeploy(object):
             else:
                 self._promote_ami(ami, "failed")
         except (MaintenanceModeError, IntegrationTestError):
-            logging.exception("Failed to run integration test")
+            logger.exception("Failed to run integration test")
 
         # Destroy the testing ASG
         self._disco_autoscale.delete_groups(group_name=new_group.name, force=True)
@@ -675,10 +679,10 @@ class DiscoDeploy(object):
             try:
                 self._disco_elb.wait_for_instance_health_state(hostclass=hostclass, testing=True)
             except TimeoutError:
-                logging.exception("Waiting for health of instances attached to testing ELB timed out")
+                logger.exception("Waiting for health of instances attached to testing ELB timed out")
                 return False
 
-        logging.info("running integration test %s on %s", test_name, test_hostclass)
+        logger.info("running integration test %s on %s", test_name, test_hostclass)
         exit_code, stdout = self._test_aws.remotecmd(
             self.get_host(test_hostclass), [test_command, test_name],
             user=test_user, nothrow=True)
@@ -687,7 +691,7 @@ class DiscoDeploy(object):
 
     def test_ami(self, ami, dry_run, deployment_strategy=None):
         '''Handles testing and promoting a new AMI for a hostclass'''
-        logging.info("testing %s %s", ami.id, ami.name)
+        logger.info("testing %s %s", ami.id, ami.name)
         hostclass = DiscoBake.ami_hostclass(ami)
         pipeline_hostclass_dict = self._hostclasses.get(hostclass)
         group = self._disco_autoscale.get_existing_group(hostclass)
@@ -746,7 +750,7 @@ class DiscoDeploy(object):
 
     def update_ami(self, ami, dry_run, deployment_strategy=None):
         '''Handles updating a hostclass to the latest tested AMI'''
-        logging.info("updating %s %s", ami.id, ami.name)
+        logger.info("updating %s %s", ami.id, ami.name)
         hostclass = DiscoBake.ami_hostclass(ami)
         pipeline_dict = self._hostclasses.get(hostclass)
         if not pipeline_dict:
@@ -794,7 +798,7 @@ class DiscoDeploy(object):
         if len(amis):
             self.test_ami(random.choice(amis), dry_run, deployment_strategy)
         else:
-            logging.info("No 'untested' AMIs found.")
+            logger.info("No 'untested' AMIs found.")
 
     def update(self, dry_run=False, deployment_strategy=None):
         '''Updates a single autoscaling group with a newer AMI'''
@@ -802,7 +806,7 @@ class DiscoDeploy(object):
         if len(amis):
             self.update_ami(random.choice(amis), dry_run, deployment_strategy)
         else:
-            logging.info("No new 'tested' AMIs found.")
+            logger.info("No new 'tested' AMIs found.")
 
     def hostclass_option(self, hostclass, key):
         '''
