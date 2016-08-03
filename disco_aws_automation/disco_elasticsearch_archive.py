@@ -111,7 +111,8 @@ class DiscoESArchive(object):
                 credentials.access_key,
                 credentials.secret_key,
                 self.region,
-                'es'
+                'es',
+                session_token=credentials.token
             )
 
             self._es_client = Elasticsearch(
