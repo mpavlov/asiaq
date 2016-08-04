@@ -667,6 +667,8 @@ class DiscoDeploy(object):
         amis = self.get_test_amis()
         if len(amis):
             self.test_ami(random.choice(amis), dry_run, deployment_strategy)
+        else:
+            logging.info("No 'untested' AMI found.")
 
     def update(self, dry_run=False, deployment_strategy=None):
         '''Updates a single autoscaling group with a newer AMI'''
