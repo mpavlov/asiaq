@@ -676,7 +676,7 @@ class DiscoDeploy(object):
         if len(amis):
             self.update_ami(random.choice(amis), dry_run, deployment_strategy)
         else:
-            logging.info("No updated AMIs found.")
+            logging.info("No new 'tested' AMIs found.")
 
     def hostclass_option(self, hostclass, key):
         '''
