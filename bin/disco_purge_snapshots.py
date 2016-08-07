@@ -15,12 +15,13 @@ Usage:
     disco_purge_snapshots.py [options]
 
 Options:
-    -h --help       Show this screen.
-    --debug         Log in debug level.
-    --stray-ami     Purge only snapshots created by CreateImage
-    --no-metadata   Purge only snapshots with no tags
-    --old           Purge only old snapshots (100 days)
-    --dry-run       Only print what will be done
+    -h --help          Show this screen.
+    --debug            Log in debug level.
+    --stray-ami        Purge only snapshots created by CreateImage
+    --no-metadata      Purge only snapshots with no tags
+    --old              Purge only old snapshots (100 days)
+    --keep NUM_TO_KEEP Keep at least this number of snapshots per hostclass per environment
+    --dry-run          Only print what will be done
 """
 
 from __future__ import print_function
@@ -77,6 +78,7 @@ def purge_snapshots(options):
 
     snaps_to_purge = []
     failed_to_purge = []
+    snapshot_dict = {}
 
     for snap in ec2_conn.get_all_snapshots(owner='self'):
         # Filter snaps which look like they are created with CreateImage
@@ -93,6 +95,13 @@ def purge_snapshots(options):
             snaps_to_purge.append(snap)
             continue
 
+        # build a dict of hostclass+environment to a list of snapshots
+        # use this dict for the --keep option to know how many snapshots are there for each hostclass
+        if snap.tags and snap.tags.get('hostclass') and snap.tags.get('env'):
+            key_name = snap.tags.get('hostclass') + '_' + snap.tags.get('env')
+            hostclass_snapshots = snapshot_dict.setdefault(key_name, [])
+            hostclass_snapshots.append(snap)
+
         if options["--old"]:
             snap_date = iso8601.parse_date(snap.start_time)
             snap_days_old = (now - snap_date).days
@@ -104,6 +113,9 @@ def purge_snapshots(options):
 
         logging.debug("skipping snapshot: %s description: %s tags: %s", snap.id, snap.description, snap.tags)
 
+    if options.get('--keep'):
+        snaps_to_purge = remove_kept_snapshots(snaps_to_purge, int(options.get('--keep')), snapshot_dict)
+
     if not options["--dry-run"]:
         for snap in snaps_to_purge:
             try:
@@ -113,6 +125,33 @@ def purge_snapshots(options):
                 logging.error("Failed to purge snapshot: %s", snap.id)
 
     return (snaps_to_purge, failed_to_purge)
+
+
+def remove_kept_snapshots(snaps_to_purge, keep_count, snapshot_dict):
+    """
+    Return a new list of snapshots to purge after making sure at least "keep_count"
+    snapshots are kept for each hostclass in each environment
+    """
+    if keep_count < 1:
+        raise ValueError("The number of snapshots to keep must be greater than 1 when specifying --keep")
+    snaps_to_keep = []
+    for hostclass_snapshots in snapshot_dict.values():
+        keep_for_hostclass = sorted(hostclass_snapshots,
+                                    key=lambda snap: iso8601.parse_date(snap.start_time))[-keep_count:]
+        snaps_to_keep.extend(keep_for_hostclass)
+
+        snap_ids = ', '.join([snap.id for snap in keep_for_hostclass])
+        hostclass = keep_for_hostclass[0].tags['hostclass']
+        env = keep_for_hostclass[0].tags['env']
+
+        logging.debug(
+            "Keeping last %s snapshots (%s) for hostclass %s in environment %s",
+            keep_count, snap_ids, hostclass, env
+        )
+
+    # remove the snapshots we plan to keep from purge list
+    return [snap for snap in snaps_to_purge if snap not in snaps_to_keep]
+
 
 if __name__ == "__main__":
     run_gracefully(run)
