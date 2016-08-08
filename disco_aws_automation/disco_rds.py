@@ -103,6 +103,8 @@ class DiscoRDS(object):
         engine_family = db_engine.split('-')[0]
         default_license = DEFAULT_LICENSE.get(engine_family)
         default_port = DEFAULT_PORT.get(engine_family)
+        preferred_backup_window = self.config_with_default(section, 'preferred_backup_window', None)
+        preferred_maintenance_window = self.config_with_default(section, 'preferred_maintenance_window', None)
 
         instance_params = {
             'AllocatedStorage': self.config_integer(section, 'allocated_storage'),
@@ -122,7 +124,16 @@ class DiscoRDS(object):
             'Port': self.config_integer(section, 'port', default_port),
             'PubliclyAccessible': self.config_truthy(section, 'publicly_accessible', 'False'),
             'VpcSecurityGroupIds': [self.get_rds_security_group_id()],
-            'StorageEncrypted': self.config_truthy(section, 'storage_encrypted')}
+            'StorageEncrypted': self.config_truthy(section, 'storage_encrypted'),
+            'BackupRetentionPeriod': self.config_integer(section, 'backup_retention_period', 1)
+        }
+
+        # If custom windows were set, use them. If windows are not specified, we will use the AWS defaults
+        # instead.
+        if preferred_backup_window:
+            instance_params['PreferredBackupWindow'] = preferred_backup_window
+        if preferred_maintenance_window:
+            instance_params['PreferredMaintenanceWindow'] = preferred_maintenance_window
 
         return instance_params
 
@@ -250,7 +261,8 @@ class DiscoRDS(object):
         """Returns a copy of the given dict, with the given keys deleted"""
         copy = dictionary.copy()
         for key in keys:
-            del copy[key]
+            if key in copy:
+                del copy[key]
         return copy
 
     def create_db_instance(self, instance_params, custom_snapshot=None):
@@ -273,7 +285,8 @@ class DiscoRDS(object):
             logging.info("Restoring RDS cluster from snapshot: %s", snapshot["DBSnapshotIdentifier"])
             params = self.delete_keys(instance_params, [
                 "AllocatedStorage", "CharacterSetName", "DBParameterGroupName", "StorageEncrypted",
-                "EngineVersion", "MasterUsername", "MasterUserPassword", "VpcSecurityGroupIds"])
+                "EngineVersion", "MasterUsername", "MasterUserPassword", "VpcSecurityGroupIds",
+                "BackupRetentionPeriod", "PreferredMaintenanceWindow", "PreferredBackupWindow"])
             params["DBSnapshotIdentifier"] = snapshot["DBSnapshotIdentifier"]
             self.client.restore_db_instance_from_db_snapshot(**params)
             keep_trying(RDS_RESTORE_TIMEOUT, self.modify_db_instance, instance_params)

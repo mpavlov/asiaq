@@ -2031,6 +2031,7 @@ editing the `disco_rds.ini` config file and running `disco_rds.py`. Route53 CNAM
 ### Configuration
 The following configuration is available for RDS. A section is needed for each RDS instance in every VPC. The section names are formatted as `[VPC Name]-[Database Name]`
 
+```ini
     [ci-foodb]
     allocated_storage=100
     db_instance_class=db.m4.2xlarge
@@ -2041,6 +2042,11 @@ The following configuration is available for RDS. A section is needed for each R
     port=1521
     storage_encrypted=True
     multi_az=True
+    backup_retention_period=1
+    preferred_backup_window=05:04-05:34
+    preferred_maintenance_window=sat:06:00-sat:06:30
+```
+
 Options:
 
 -   `allocated_storage` Database size in GB
@@ -2052,6 +2058,11 @@ Options:
 -   `port` [Default 5432 for Postgres, 1521 for Oracle]
 -   `storage_encrypted` [Default True]
 -   `multi_az` [Default True]
+-   `backup_retention_period` How many days should daily backups be retained? Setting to 0 disables automatic backups. [Default 1, Range >=0, <=35]
+-   `preferred_backup_window` A window for daily backups. Format is hh24:mi-hh24:mi, timezone is UTC, window must be at least 30 minutes long, and the selected window must not conflict with the maintenance window.
+-   `preferred_maintenance_window` A window for weekly maintenance. Format is ddd:hh24:mi-ddd:hh24:mi, timezone is UTC, window must be at least 30 minutes long, and the selected window must not conflict with the backup window.
+
+Default backup and maintenance windows are taken from the time wedge given in the [AWS docs](http://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.BackingUpAndRestoringAmazonRDSInstances.html)
 
 ### Commands for managing RDS
 List RDS instances for an environment. Optionally display database URL.
