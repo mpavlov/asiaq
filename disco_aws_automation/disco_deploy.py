@@ -421,15 +421,20 @@ class DiscoDeploy(object):
         new_group_config["smoke_test"] = "no"
         new_group_config["ami"] = ami.id
 
-        # If there is an already existing ASG, use its sizing. Otherwise, use the pipeline's sizing.
+        # If there is an already existing ASG, use its sizing. Otherwise, use the pipeline's sizing or a
+        # reasonable default.
         if old_group:
-            new_group_config["desired_size"] = old_group.desired_capacity or pipeline_dict["desired_size"]
-            new_group_config["max_size"] = old_group.max_size or pipeline_dict["max_size"]
-            new_group_config["min_size"] = old_group.min_size or pipeline_dict["min_size"]
+            desired_size = old_group.desired_capacity
+            max_size = old_group.max_size
+            min_size = old_group.min_size
         else:
-            new_group_config["desired_size"] = 1
-            new_group_config["max_size"] = 1
-            new_group_config["min_size"] = 1
+            desired_size = pipeline_dict.get("desired_size", 1)
+            min_size = pipeline_dict.get("min_size", desired_size)
+            max_size = pipeline_dict.get("max_size", desired_size)
+
+        new_group_config["desired_size"] = desired_size
+        new_group_config["min_size"] = min_size
+        new_group_config["max_size"] = max_size
 
         # Spinup our new autoscaling group in testing mode, making one even if one already exists.
         self._disco_aws.spinup([new_group_config], create_if_exists=True, testing=True)

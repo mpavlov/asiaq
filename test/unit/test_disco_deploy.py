@@ -25,8 +25,8 @@ MOCK_PIPELINE_DEFINITION = [
     },
     {
         'hostclass': 'mhcbluegreen',
-        'min_size': 1,
-        'desired_size': 1,
+        'min_size': 2,
+        'desired_size': 2,
         'integration_test': 'blue_green_service',
         'deployable': 'yes'
     },
@@ -442,11 +442,11 @@ class DiscoDeployTests(TestCase):
         self.assertTrue(self._ci_deploy.test_ami(ami, dry_run=False))
         self._disco_bake.promote_ami.assert_called_once_with(ami, 'tested')
         self._disco_aws.spinup.assert_has_calls(
-            [call([{'ami': 'ami-12345678', 'sequence': 1, 'deployable': 'yes', 'max_size': 1,
-                    'min_size': 1, 'integration_test': "blue_green_service", 'desired_size': 1,
+            [call([{'ami': 'ami-12345678', 'sequence': 1, 'deployable': 'yes', 'max_size': 2,
+                    'min_size': 2, 'integration_test': "blue_green_service", 'desired_size': 2,
                     'smoke_test': 'no', 'hostclass': 'mhcbluegreen'}], testing=True, create_if_exists=True),
              call([{'ami': 'ami-12345678', 'sequence': 1, 'deployable': 'yes',
-                    'min_size': 1, 'desired_size': 1, 'max_size': 1,
+                    'min_size': 2, 'desired_size': 2, 'max_size': 2,
                     'integration_test': "blue_green_service", 'smoke_test': 'no',
                     'hostclass': 'mhcbluegreen'}], group_name=new_group.name)])
         self._disco_autoscale.delete_groups.assert_not_called()
