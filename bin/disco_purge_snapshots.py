@@ -84,11 +84,17 @@ def purge_snapshots(options):
     snapshot_dict = {}
 
     for snap in ec2_conn.get_all_snapshots(owner='self'):
-        # Filter snaps which look like they are created with CreateImage
-        if options["--stray-ami"] and snap_pattern.search(snap.description):
+        if snap_pattern.search(snap.description):
+            # snapshots for existing AMIs can't be deleted
+            # get the AMI id from the description if there is one
             image_id = ami_pattern.search(snap.description).group(0)
-            # Delete Snaps for which ami no longer exists
-            if image_id not in images_by_id:
+
+            # skip snapshots that are in use by AMIs
+            if image_id in images_by_id:
+                continue
+
+            # if the snapshot is not in use by an AMI but has an AMI id then its a stray snapshot
+            elif options["--stray-ami"]:
                 print("Deleting stray ami snapshot: {0}".format(snap.id))
                 snaps_to_purge.append(snap)
                 continue
