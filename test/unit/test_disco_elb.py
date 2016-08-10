@@ -119,11 +119,7 @@ class DiscoELBTests(TestCase):
             }],
             Subnets=[],
             SecurityGroups=['sec-1'],
-            Scheme='internal',
-            Tags=[{
-                "Key": "elb_name",
-                "Value": DiscoELB.get_elb_name('unittestenv', 'mhcunit')
-            }])
+            Scheme='internal')
 
     @mock_elb
     def test_get_elb_internal_no_tls(self):
@@ -143,11 +139,7 @@ class DiscoELBTests(TestCase):
             }],
             Subnets=[],
             SecurityGroups=['sec-1'],
-            Scheme='internal',
-            Tags=[{
-                "Key": "elb_name",
-                "Value": DiscoELB.get_elb_name('unittestenv', 'mhcunit')
-            }])
+            Scheme='internal')
 
     @mock_elb
     def test_get_elb_external(self):
@@ -164,11 +156,7 @@ class DiscoELBTests(TestCase):
                 'InstancePort': 80
             }],
             Subnets=[],
-            SecurityGroups=['sec-1'],
-            Tags=[{
-                "Key": "elb_name",
-                "Value": DiscoELB.get_elb_name('unittestenv', 'mhcunit')
-            }])
+            SecurityGroups=['sec-1'])
 
     @mock_elb
     def test_get_elb_with_tls(self):
@@ -187,11 +175,7 @@ class DiscoELBTests(TestCase):
             }],
             Subnets=[],
             SecurityGroups=['sec-1'],
-            Scheme='internal',
-            Tags=[{
-                "Key": "elb_name",
-                "Value": DiscoELB.get_elb_name('unittestenv', 'mhcunit')
-            }])
+            Scheme='internal')
 
     @mock_elb
     def test_get_elb_with_tcp(self):
@@ -210,11 +194,7 @@ class DiscoELBTests(TestCase):
             }],
             Subnets=[],
             SecurityGroups=['sec-1'],
-            Scheme='internal',
-            Tags=[{
-                "Key": "elb_name",
-                "Value": DiscoELB.get_elb_name('unittestenv', 'mhcunit')
-            }])
+            Scheme='internal')
 
     @mock_elb
     def test_get_elb_with_multiple_ports(self):
@@ -239,11 +219,7 @@ class DiscoELBTests(TestCase):
             }],
             Subnets=[],
             SecurityGroups=['sec-1'],
-            Scheme='internal',
-            Tags=[{
-                "Key": "elb_name",
-                "Value": DiscoELB.get_elb_name('unittestenv', 'mhcunit')
-            }])
+            Scheme='internal')
 
     @mock_elb
     def test_get_elb_mismatched_ports_protocols(self):
