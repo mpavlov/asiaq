@@ -351,7 +351,7 @@ class DiscoAWSTests(TestCase):
             tags={
                 'environment': 'unittestenv',
                 'hostclass': 'mhcelb',
-                'testing': '0'
+                'is_testing': '0'
             }
         )
 

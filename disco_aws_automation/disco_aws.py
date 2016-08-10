@@ -324,7 +324,7 @@ class DiscoAWS(object):
                 testing=testing,
                 tags={
                     "hostclass": hostclass,
-                    "testing": "1" if testing else "0",
+                    "is_testing": "1" if testing else "0",
                     "environment": self.environment_name
                 })
 
