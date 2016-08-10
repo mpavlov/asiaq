@@ -233,6 +233,8 @@ class RDS(threading.Thread):
         engine_family = db_engine.split('-')[0]
         default_license = DEFAULT_LICENSE.get(engine_family)
         default_port = DEFAULT_PORT.get(engine_family)
+        preferred_backup_window = self.config_with_default(section, 'preferred_backup_window', None)
+        preferred_maintenance_window = self.config_with_default(section, 'preferred_maintenance_window', None)
 
         instance_params = {
             'AllocatedStorage': self.config_integer(self.config_rds, section, 'allocated_storage'),
@@ -252,7 +254,16 @@ class RDS(threading.Thread):
             'Port': self.config_integer(self.config_rds, section, 'port', default_port),
             'PubliclyAccessible': self.config_truthy(self.config_rds, section, 'publicly_accessible', 'False'),
             'VpcSecurityGroupIds': [self.rds_security_group_id],
-            'StorageEncrypted': self.config_truthy(self.config_rds, section, 'storage_encrypted')}
+            'StorageEncrypted': self.config_truthy(self.config_rds, section, 'storage_encrypted'),
+            'BackupRetentionPeriod': self.config_integer(self.config_rds, section, 'backup_retention_period', 1)
+        }
+
+        # If custom windows were set, use them. If windows are not specified, we will use the AWS defaults
+        # instead.
+        if preferred_backup_window:
+            instance_params['PreferredBackupWindow'] = preferred_backup_window
+        if preferred_maintenance_window:
+            instance_params['PreferredMaintenanceWindow'] = preferred_maintenance_window
 
         return instance_params
 
