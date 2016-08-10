@@ -1293,7 +1293,7 @@ offset and absolute IP address. The latter is straight forward:
 
     [myhostclass]
     ...
-    private_ip=10.0.0.5
+    ip_address=10.0.0.5
     ...
 
 But setting absolute IPs can very quickly become bothersome. If you have
@@ -1304,7 +1304,7 @@ that a host should take the 5th ip from the beginning of the metanetwork range:
 
     [myhostclass]
     ...
-    private_ip=+5
+    ip_address=+5
     ...
 
 With this configuration host will be assigned private ip 10.0.0.5 in a
@@ -1985,18 +1985,23 @@ Here is an explanation of the various options.
 ```ini
 # elasticsearch settings (sample config)
 [ENVIRONMENT_NAME:ELASTICSEARCH_NAME]
-instance_type=            # Instances ending in .elasticsearch (required) (string)
-instance_count=           # Total instances number (required) (int)
-dedicated_master=         # Dedicate cluster master (boolean)
-dedicated_master_type=    # Instances ending in .elasticsearch (string)
-dedicated_master_count=   # Number of master instances (3 recommended for Prod) (int)
-zone_awareness=           # Use multi-AZ (if enabled min 2 nodes required) (boolean)
-ebs_enabled=              # Enable EBS-base storage (boolean)
-volume_type=              # (standard | gp2 | io1)
-volume_size=              # Min: 10(G)
-iops=                     # only for io1 volume type - Min:1000, Max:4000 (int)
-snapshot_start_hour=      # Hour at which to take an automated snapshot Ex: '5' for 5am UTC (int)
-allowed_source_ips=       # A space separated list of IPs that allowed to interact with the ElasticSearch domain. (string)
+instance_type=                  # Instances ending in .elasticsearch (required) (string)
+instance_count=                 # Total instances number (required) (int)
+dedicated_master=               # Dedicate cluster master (boolean)
+dedicated_master_type=          # Instances ending in .elasticsearch (string)
+dedicated_master_count=         # Number of master instances (3 recommended for Prod) (int)
+zone_awareness=                 # Use multi-AZ (if enabled min 2 nodes required) (boolean)
+ebs_enabled=                    # Enable EBS-base storage (boolean)
+volume_type=                    # (standard | gp2 | io1)
+volume_size=                    # Min: 10(G)
+iops=                           # only for io1 volume type - Min:1000, Max:4000 (int)
+snapshot_start_hour=            # Hour at which to take an automated snapshot Ex: '5' for 5am UTC (int)
+allowed_source_ips=             # A space separated list of IPs that allowed to interact with the ElasticSearch domain. (string)
+archive_threshold=              # A fraction number representing the percentage of used space in the cluster that the archival's grooming operation should allow. (float)
+archive_max_shards=             # The maximum number of shards allowed by the grooming operation. (int)
+archive_role=                   # Name of the assumed role used by the archival process (string)
+archive_index_prefix_pattern=   # Regex pattern used to match with the Elasticsearch indices that are included in the archival process. This pattern only tries to match the naming part of the indices before the date string. (string)
+archive_repository=             # Name of the repository used to store the index snapshots (string)
 ```
 
 Additionally, access to the Elasticsearch endpoint is restricted based on IP address via Access Policy. Instances in a VPC need to ship logs to Elasticsearch via a proxy server. This proxy server's IP is read from `disco_aws.ini`. The important options are `proxy_hostclass` in the `disco_aws` section as well as the `eip` in the hostclass section referenced from the `proxy_hostclass` option.
@@ -2026,6 +2031,7 @@ editing the `disco_rds.ini` config file and running `disco_rds.py`. Route53 CNAM
 ### Configuration
 The following configuration is available for RDS. A section is needed for each RDS instance in every VPC. The section names are formatted as `[VPC Name]-[Database Name]`
 
+```ini
     [ci-foodb]
     allocated_storage=100
     db_instance_class=db.m4.2xlarge
@@ -2036,6 +2042,11 @@ The following configuration is available for RDS. A section is needed for each R
     port=1521
     storage_encrypted=True
     multi_az=True
+    backup_retention_period=1
+    preferred_backup_window=05:04-05:34
+    preferred_maintenance_window=sat:06:00-sat:06:30
+```
+
 Options:
 
 -   `allocated_storage` Database size in GB
@@ -2047,6 +2058,11 @@ Options:
 -   `port` [Default 5432 for Postgres, 1521 for Oracle]
 -   `storage_encrypted` [Default True]
 -   `multi_az` [Default True]
+-   `backup_retention_period` How many days should daily backups be retained? Setting to 0 disables automatic backups. [Default 1, Range >=0, <=35]
+-   `preferred_backup_window` A window for daily backups. Format is hh24:mi-hh24:mi, timezone is UTC, window must be at least 30 minutes long, and the selected window must not conflict with the maintenance window.
+-   `preferred_maintenance_window` A window for weekly maintenance. Format is ddd:hh24:mi-ddd:hh24:mi, timezone is UTC, window must be at least 30 minutes long, and the selected window must not conflict with the backup window.
+
+Default backup and maintenance windows are taken from the time wedge given in the [AWS docs](http://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.BackingUpAndRestoringAmazonRDSInstances.html)
 
 ### Commands for managing RDS
 List RDS instances for an environment. Optionally display database URL.

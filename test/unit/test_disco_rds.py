@@ -13,6 +13,8 @@ TEST_ENV_NAME = 'unittestenv'
 TEST_VPC_ID = 'vpc-56e10e3d'  # the hard coded VPC Id that moto will always return
 
 MOCK_SG_GROUP_ID = 'mock_sg_group_id'
+MOCK_BACKUP_WINDOW = '04:30-05:00'
+MOCK_MAINTENANCE_WINDOW = 'mon:05:04-mon:05:34'
 
 
 def _get_vpc_mock():
@@ -36,11 +38,17 @@ def _get_bucket_mock():
             return 'database_name_key'
         elif key_name == 'rds/unittestenv-db-id/master_user_password':
             return 'database-id-key'
+        elif key_name == 'rds/db-name-with-windows/master_user_password':
+            return 'database_name_key'
         else:
             raise KeyError("Key not found")
 
     def _key_exists_mock(key_name):
-        return key_name in ['rds/db-name/master_user_password', 'rds/unittestenv-db-id/master_user_password']
+        return key_name in [
+            'rds/db-name/master_user_password',
+            'rds/unittestenv-db-id/master_user_password',
+            'rds/db-name-with-windows/master_user_password'
+        ]
 
     bucket = MagicMock()
     bucket.get_key.side_effect = _get_key_mock
@@ -74,7 +82,15 @@ class DiscoRDSTests(unittest.TestCase):
                     'db_instance_class': 'db.m4.2xlarge',
                     'engine_version': '12.1.0.2.v2',
                     'master_username': 'foo'
-
+                },
+                'some-env-db-name-with-windows': {
+                    'engine': 'oracle',
+                    'allocated_storage': '100',
+                    'db_instance_class': 'db.m4.2xlarge',
+                    'engine_version': '12.1.0.2.v2',
+                    'master_username': 'foo',
+                    'preferred_backup_window': MOCK_BACKUP_WINDOW,
+                    'preferred_maintenance_window': MOCK_MAINTENANCE_WINDOW
                 }
             })
             self.rds.domain_name = 'example.com'
@@ -160,3 +176,24 @@ class DiscoRDSTests(unittest.TestCase):
         sg_group_id = self.rds.get_rds_security_group_id()
 
         self.assertEqual(MOCK_SG_GROUP_ID, sg_group_id)
+
+    # pylint: disable=unused-argument
+    @patch('disco_aws_automation.disco_rds.DiscoS3Bucket', return_value=_get_bucket_mock())
+    def test_params_with_no_windows(self, bucket_mock):
+        """ Verify that if no windows are provided, none are given """
+        params = self.rds.get_instance_parameters('some-env', 'db-name')
+
+        self.assertNotIn('PreferredBackupWindow', params)
+        self.assertNotIn('PreferredMaintenanceWindow', params)
+
+    # pylint: disable=unused-argument
+    @patch('disco_aws_automation.disco_rds.DiscoS3Bucket', return_value=_get_bucket_mock())
+    def test_params_with_windows(self, bucket_mock):
+        """ Verify that if windows are provided, they are given """
+        params = self.rds.get_instance_parameters('some-env', 'db-name-with-windows')
+
+        self.assertIn('PreferredBackupWindow', params)
+        self.assertIn('PreferredMaintenanceWindow', params)
+
+        self.assertEqual(MOCK_BACKUP_WINDOW, params['PreferredBackupWindow'])
+        self.assertEqual(MOCK_MAINTENANCE_WINDOW, params['PreferredMaintenanceWindow'])

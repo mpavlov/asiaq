@@ -421,15 +421,20 @@ class DiscoDeploy(object):
         new_group_config["smoke_test"] = "no"
         new_group_config["ami"] = ami.id
 
-        # If there is an already existing ASG, use its sizing. Otherwise, use the pipeline's sizing.
+        # If there is an already existing ASG, use its sizing. Otherwise, use the pipeline's sizing or a
+        # reasonable default.
         if old_group:
-            new_group_config["desired_size"] = old_group.desired_capacity or pipeline_dict["desired_size"]
-            new_group_config["max_size"] = old_group.max_size or pipeline_dict["max_size"]
-            new_group_config["min_size"] = old_group.min_size or pipeline_dict["min_size"]
+            desired_size = old_group.desired_capacity
+            max_size = old_group.max_size
+            min_size = old_group.min_size
         else:
-            new_group_config["desired_size"] = 1
-            new_group_config["max_size"] = 1
-            new_group_config["min_size"] = 1
+            desired_size = pipeline_dict.get("desired_size", 1)
+            min_size = pipeline_dict.get("min_size", desired_size)
+            max_size = pipeline_dict.get("max_size", desired_size)
+
+        new_group_config["desired_size"] = desired_size
+        new_group_config["min_size"] = min_size
+        new_group_config["max_size"] = max_size
 
         # Spinup our new autoscaling group in testing mode, making one even if one already exists.
         self._disco_aws.spinup([new_group_config], create_if_exists=True, testing=True)
@@ -441,7 +446,12 @@ class DiscoDeploy(object):
 
         try:
             smoke_tests = self.wait_for_smoketests(ami.id, new_group_config["desired_size"] or 1)
-            integration_tests = not run_tests or self.run_integration_tests(ami, wait_for_elb=uses_elb)
+            if smoke_tests and run_tests:
+                # If smoke tests passed and we should run integration tests, run them
+                integration_tests = self.run_integration_tests(ami, wait_for_elb=uses_elb)
+            elif not run_tests:
+                # Otherwise, if the tests should not be run, simply default them to passed
+                integration_tests = True
             if smoke_tests and integration_tests:
                 # If testing passed, mark AMI as tested
                 self._promote_ami(ami, "tested")
@@ -662,12 +672,16 @@ class DiscoDeploy(object):
         amis = self.get_test_amis()
         if len(amis):
             self.test_ami(random.choice(amis), dry_run, deployment_strategy)
+        else:
+            logging.info("No 'untested' AMIs found.")
 
     def update(self, dry_run=False, deployment_strategy=None):
         '''Updates a single autoscaling group with a newer AMI'''
         amis = self.get_update_amis()
         if len(amis):
             self.update_ami(random.choice(amis), dry_run, deployment_strategy)
+        else:
+            logging.info("No new 'tested' AMIs found.")
 
     def hostclass_option(self, hostclass, key):
         '''

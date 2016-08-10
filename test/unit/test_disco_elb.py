@@ -10,6 +10,20 @@ TEST_VPC_ID = 'vpc-56e10e3d'  # the hard coded VPC Id that moto will always retu
 TEST_DOMAIN_NAME = 'test.example.com'
 TEST_CERTIFICATE_ARN_ACM = "arn:aws:acm::123:blah"
 TEST_CERTIFICATE_ARN_IAM = "arn:aws:acm::123:blah"
+# With these constants, you could do some significant testing of setting and clearing stickiness policies,
+# were it not for the fact that moto's ELB support is insufficient for the task.
+MOCK_POLICY_NAME = "mock-sticky-policy"
+MOCK_APP_STICKY_POLICY = {
+    u'PolicyAttributeDescriptions': [{u'AttributeName': 'CookieName', u'AttributeValue': 'JSESSIONID'}],
+    u'PolicyName': MOCK_POLICY_NAME,
+    u'PolicyTypeName': 'AppCookieStickinessPolicyType'
+}
+
+MOCK_ELB_STICKY_POLICY = {
+    u'PolicyAttributeDescriptions': [{u'AttributeName': 'CookieExpirationPeriod', u'AttributeValue': '0'}],
+    u'PolicyName': MOCK_POLICY_NAME,
+    u'PolicyTypeName': 'LBCookieStickinessPolicyType'
+}
 
 
 def _get_vpc_mock():
@@ -35,11 +49,15 @@ class DiscoELBTests(TestCase):
                     instance_protocol='HTTP', instance_port=80,
                     elb_protocols='HTTP', elb_ports='80',
                     idle_timeout=None, connection_draining_timeout=None,
-                    sticky_app_cookie=None):
+                    sticky_app_cookie=None, existing_cookie_policy=None):
+        sticky_policies = [existing_cookie_policy] if existing_cookie_policy else []
+        mock_describe = MagicMock(return_value={'PolicyDescriptions': sticky_policies})
+        self.disco_elb.elb_client.describe_load_balancer_policies = mock_describe
+
         return self.disco_elb.get_or_create_elb(
             hostclass=hostclass or TEST_HOSTCLASS,
             security_groups=['sec-1'],
-            subnets=['sub-1'],
+            subnets=[],
             hosted_zone_name=TEST_DOMAIN_NAME,
             health_check_url="/" if instance_protocol.upper() in ('HTTP', 'HTTPS') else "",
             instance_protocol=instance_protocol,
@@ -97,7 +115,7 @@ class DiscoELBTests(TestCase):
                 'InstanceProtocol': 'HTTP',
                 'InstancePort': 80
             }],
-            Subnets=['sub-1'],
+            Subnets=[],
             SecurityGroups=['sec-1'],
             Scheme='internal',
             Tags=[{
@@ -121,7 +139,7 @@ class DiscoELBTests(TestCase):
                 'InstanceProtocol': 'HTTP',
                 'InstancePort': 80
             }],
-            Subnets=['sub-1'],
+            Subnets=[],
             SecurityGroups=['sec-1'],
             Scheme='internal',
             Tags=[{
@@ -143,7 +161,7 @@ class DiscoELBTests(TestCase):
                 'InstanceProtocol': 'HTTP',
                 'InstancePort': 80
             }],
-            Subnets=['sub-1'],
+            Subnets=[],
             SecurityGroups=['sec-1'],
             Tags=[{
                 "Key": "elb_name",
@@ -165,7 +183,7 @@ class DiscoELBTests(TestCase):
                 'InstancePort': 80,
                 'SSLCertificateId': TEST_CERTIFICATE_ARN_ACM
             }],
-            Subnets=['sub-1'],
+            Subnets=[],
             SecurityGroups=['sec-1'],
             Scheme='internal',
             Tags=[{
@@ -188,7 +206,7 @@ class DiscoELBTests(TestCase):
                 'InstanceProtocol': 'TCP',
                 'InstancePort': 25
             }],
-            Subnets=['sub-1'],
+            Subnets=[],
             SecurityGroups=['sec-1'],
             Scheme='internal',
             Tags=[{
@@ -217,7 +235,7 @@ class DiscoELBTests(TestCase):
                 'InstancePort': 80,
                 'SSLCertificateId': TEST_CERTIFICATE_ARN_ACM
             }],
-            Subnets=['sub-1'],
+            Subnets=[],
             SecurityGroups=['sec-1'],
             Scheme='internal',
             Tags=[{
