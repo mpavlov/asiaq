@@ -46,7 +46,7 @@ def get_parser():
     parser_delete = subparsers.add_parser(
         'delete', help='Delete a set of snapshots')
     parser_delete_group = parser_delete.add_mutually_exclusive_group(required=True)
-    parser_delete.set_defaults(mode='cdelete')
+    parser_delete.set_defaults(mode='delete')
     parser_delete_group.add_argument('--snapshot', dest='snapshots', default=[], action='append', type=str)
 
     parser_take = subparsers.add_parser(
