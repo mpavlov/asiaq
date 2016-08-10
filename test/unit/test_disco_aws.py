@@ -324,8 +324,7 @@ class DiscoAWSTests(TestCase):
             "eip": None,
             "domain_name": "example.com",
             "elb": "yes",
-            "elb_health_check_url": "/foo",
-            'product_line': 'unittest'
+            "elb_health_check_url": "/foo"
         }
         return get_mock_config(config)
 
