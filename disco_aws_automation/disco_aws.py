@@ -283,7 +283,7 @@ class DiscoAWS(object):
 
     # Pylint thinks that we have too many local variables, but we needs them.
     # pylint:  disable=too-many-locals
-    def update_elb(self, hostclass, update_autoscaling=True, testing=False, owner=''):
+    def update_elb(self, hostclass, update_autoscaling=True, testing=False):
         '''Creates, Updates and Delete an ELB for a hostclass depending on current configuration'''
         if not is_truthy(self.hostclass_option_default(hostclass, "elb", "False")):
             if self.elb.get_elb(hostclass):
@@ -322,12 +322,11 @@ class DiscoAWS(object):
                                                                               "elb_connection_draining",
                                                                               300)),
                 testing=testing,
-                tags={"hostclass": hostclass,
-                      "testing": "1" if testing else "0",
-                      "owner": owner,
-                      "environment": self.environment_name,
-                      "productline": self.hostclass_option_default(hostclass, "product_line", "")}
-            )
+                tags={
+                    "hostclass": hostclass,
+                    "testing": "1" if testing else "0",
+                    "environment": self.environment_name
+                })
 
         if update_autoscaling:
             self.autoscale.update_elb([elb['LoadBalancerName']] if elb else [], hostclass=hostclass)
@@ -401,7 +400,7 @@ class DiscoAWS(object):
 
         self.create_floating_interfaces(meta_network, hostclass)
 
-        elb = self.update_elb(hostclass, update_autoscaling=False, testing=testing, owner=user_data["owner"])
+        elb = self.update_elb(hostclass, update_autoscaling=False, testing=testing)
 
         chaos = is_truthy(chaos or self.hostclass_option_default(hostclass, "chaos", "True"))
 

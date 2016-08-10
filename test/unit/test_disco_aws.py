@@ -12,7 +12,6 @@ from moto import mock_elb
 from disco_aws_automation import DiscoAWS
 from disco_aws_automation.exceptions import TimeoutError, SmokeTestError
 
-from test.helpers.matchers import MatchAnything
 from test.helpers.patch_disco_aws import (patch_disco_aws,
                                           get_default_config_dict,
                                           get_mock_config,
@@ -350,9 +349,7 @@ class DiscoAWSTests(TestCase):
             sticky_app_cookie=None, subnets=['s-1234abcd', 's-1234abcd', 's-1234abcd'],
             connection_draining_timeout=300, idle_timeout=300, testing=False,
             tags={
-                'owner': MatchAnything(),
                 'environment': 'unittestenv',
-                'productline': 'unittest',
                 'hostclass': 'mhcelb',
                 'testing': '0'
             }
