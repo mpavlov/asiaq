@@ -105,6 +105,10 @@ class DiscoRDS(object):
         default_port = DEFAULT_PORT.get(engine_family)
         preferred_backup_window = self.config_with_default(section, 'preferred_backup_window', None)
         preferred_maintenance_window = self.config_with_default(section, 'preferred_maintenance_window', None)
+        tags = [
+            {'Key': 'environment', 'Value': env_name},
+            {'Key': 'db-name', 'Value': database_name}
+        ]
 
         instance_params = {
             'AllocatedStorage': self.config_integer(section, 'allocated_storage'),
@@ -125,7 +129,8 @@ class DiscoRDS(object):
             'PubliclyAccessible': self.config_truthy(section, 'publicly_accessible', 'False'),
             'VpcSecurityGroupIds': [self.get_rds_security_group_id()],
             'StorageEncrypted': self.config_truthy(section, 'storage_encrypted'),
-            'BackupRetentionPeriod': self.config_integer(section, 'backup_retention_period', 1)
+            'BackupRetentionPeriod': self.config_integer(section, 'backup_retention_period', 1),
+            'Tags': tags
         }
 
         # If custom windows were set, use them. If windows are not specified, we will use the AWS defaults

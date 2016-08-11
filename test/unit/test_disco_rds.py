@@ -154,7 +154,12 @@ class DiscoRDSTests(unittest.TestCase):
             LicenseModel='bring-your-own-license',
             MultiAZ=True,
             Port=1521,
-            PubliclyAccessible=False)
+            PubliclyAccessible=False,
+            Tags=[
+                {'Key': 'environment', 'Value': 'some-env'},
+                {'Key': 'db-name', 'Value': 'db-name'}
+            ]
+        )
 
         self.rds.client.create_db_parameter_group.assert_called_once_with(
             DBParameterGroupName='unittestenv-db-name',
