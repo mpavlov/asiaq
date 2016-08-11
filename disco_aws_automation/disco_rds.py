@@ -43,12 +43,12 @@ DEFAULT_PORT = {
 class RDS(threading.Thread):
     """Class for spinning up a single rds instance"""
 
-    def __init__(self, env_name, database_name, rds_security_group_id, subnets_ids, domain_name):
+    def __init__(self, env_name, database_identifier, rds_security_group_id, subnets_ids, domain_name):
         """Initialize class"""
         threading.Thread.__init__(self)
-        self.threadID = database_name
+        self.threadID = database_identifier
         self.vpc_name = env_name
-        self.database_name = database_name
+        self.database_name = RDS.get_database_name(env_name, database_identifier)
         self.config_aws = read_config()
         self.config_rds = read_config(config_file=DEFAULT_CONFIG_FILE_RDS)
         self.rds_security_group_id = rds_security_group_id
@@ -84,11 +84,17 @@ class RDS(threading.Thread):
         disco_route53.create_record(self.domain_name, instance_record_name, 'CNAME', instance_endpoint)
 
     @staticmethod
+    def get_database_name(env_name, instance_identifier):
+        identifier_prefix = len(env_name + '-')
+        return instance_identifier[identifier_prefix:]
+
+    @staticmethod
     def delete_keys(dictionary, keys):
         """Returns a copy of the given dict, with the given keys deleted"""
         copy = dictionary.copy()
         for key in keys:
-            del copy[key]
+            if key in copy:
+                del copy[key]
         return copy
 
     @staticmethod
@@ -185,7 +191,8 @@ class RDS(threading.Thread):
             logging.info("Restoring RDS cluster from snapshot: %s", snapshot["DBSnapshotIdentifier"])
             params = RDS.delete_keys(instance_params, [
                 "AllocatedStorage", "CharacterSetName", "DBParameterGroupName", "StorageEncrypted",
-                "EngineVersion", "MasterUsername", "MasterUserPassword", "VpcSecurityGroupIds"])
+                "EngineVersion", "MasterUsername", "MasterUserPassword", "VpcSecurityGroupIds",
+                "BackupRetentionPeriod", "PreferredMaintenanceWindow", "PreferredBackupWindow"])
             params["DBSnapshotIdentifier"] = snapshot["DBSnapshotIdentifier"]
             self.client.restore_db_instance_from_db_snapshot(**params)
             keep_trying(RDS_RESTORE_TIMEOUT, self.modify_db_instance, instance_params)
@@ -233,8 +240,10 @@ class RDS(threading.Thread):
         engine_family = db_engine.split('-')[0]
         default_license = DEFAULT_LICENSE.get(engine_family)
         default_port = DEFAULT_PORT.get(engine_family)
-        preferred_backup_window = self.config_with_default(section, 'preferred_backup_window', None)
-        preferred_maintenance_window = self.config_with_default(section, 'preferred_maintenance_window', None)
+        preferred_backup_window = self.config_with_default(self.config_rds, section, 'preferred_backup_window', None)
+        preferred_maintenance_window = self.config_with_default(self.config_rds, section,
+                                                                'preferred_maintenance_window',
+                                                                None)
 
         instance_params = {
             'AllocatedStorage': self.config_integer(self.config_rds, section, 'allocated_storage'),
@@ -609,7 +618,7 @@ class DiscoRDS(object):
             # the section names are database identifiers
             database_identifier = section
             rds = RDS(self.vpc_name,
-                      RDS.get_database_name(self.vpc_name, database_identifier),
+                      database_identifier,
                       rds_security_group_id,
                       subnets_ids,
                       self.domain_name)
@@ -939,7 +948,7 @@ class DiscoRDS(object):
         rds_security_group_id = self.get_rds_security_group_id()
         subnets_ids = self.get_subnet_ids()
         rds = RDS(self.vpc_name,
-                  RDS.get_database_name(self.vpc_name, clone_db_identifier),
+                  clone_db_identifier,
                   rds_security_group_id,
                   subnets_ids, self.domain_name)
 
