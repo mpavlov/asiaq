@@ -128,7 +128,8 @@ class DiscoStorageTests(TestCase):
             Size=100,
             AvailabilityZone='fake-zone-1'
         )
-        client.attach_volume(VolumeId=volume['VolumeId'],
+        client.attach_volume(
+            VolumeId=volume['VolumeId'],
             InstanceId=instance.instance_id,
             Device='/dev/sdb'
         )
@@ -138,4 +139,5 @@ class DiscoStorageTests(TestCase):
         snapshots = self.storage.get_snapshots('mhcmock')
         self.assertEquals(len(snapshots), 1)
         self.assertEquals(snapshots[0].id, snapshot_id)
+        self.assertEquals(snapshots[0].volume_size, 100)
         self.assertEquals(snapshots[0].tags, {'env': 'unittestenv', 'hostclass': 'mhcmock'})
