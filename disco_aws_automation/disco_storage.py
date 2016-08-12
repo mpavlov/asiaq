@@ -325,14 +325,13 @@ class DiscoStorage(object):
             instance = self.connection.get_all_instances(
                 instance_ids=[volume.attach_data.instance_id])[0].instances[0]
 
-            hostclass = instance.tags['hostclass']
-            environment = instance.tags['environment']
+            tags = {'hostclass': instance.tags['hostclass'],
+                    'env': instance.tags['environment']}
         else:
             raise RuntimeError("The volume specified is not attched to an instance. "
                                "Snapshotting that is not supported.")
 
         snapshot = throttled_call(volume.create_snapshot)
-        throttled_call(snapshot.add_tag, key='hostclass', value=hostclass)
-        throttled_call(snapshot.add_tag, key='env', value=environment)
+        throttled_call(snapshot.add_tags, tags=tags)
 
         return snapshot.id
