@@ -101,7 +101,7 @@ def run():
     elif args.mode == "capture":
         if args.volume_id:
             snapshot_id = aws.disco_storage.take_snapshot(args.volume_id)
-            print(snapshot_id)
+            logging.info("Successfully created snapshot: %s", snapshot_id)
         else:
             instances = instances_from_args(aws, args)
             if not instances:
