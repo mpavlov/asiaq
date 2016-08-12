@@ -318,7 +318,7 @@ class DiscoStorage(object):
                     self.delete_snapshot(snapshot.id)
 
     def take_snapshot(self, volume_id):
-        """Takes a snapshot of an existing volume"""
+        """Takes a snapshot of an attached volume"""
         volume = self.connection.get_all_volumes(volume_ids=[volume_id])[0]
 
         if volume.attach_data and volume.attach_data.instance_id:

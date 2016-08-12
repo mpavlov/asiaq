@@ -112,7 +112,7 @@ class DiscoStorageTests(TestCase):
 
     @mock_ec2
     def test_take_snapshot(self):
-        """Test taking a snapshot of an existing volume"""
+        """Test taking a snapshot of an attached volume"""
         client = boto3.client('ec2')
         ec2 = boto3.resource('ec2')
         instance = ec2.create_instances(ImageId='mock_image_id',
