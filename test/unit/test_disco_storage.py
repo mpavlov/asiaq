@@ -109,3 +109,33 @@ class DiscoStorageTests(TestCase):
         snapshots = self.storage.get_snapshots('mhcfoo')
 
         self.assertEquals(250, snapshots[0].volume_size)
+
+    @mock_ec2
+    def test_take_snapshot(self):
+        """Test taking a snapshot of an existing volume"""
+        client = boto3.client('ec2')
+        ec2 = boto3.resource('ec2')
+        instance = ec2.create_instances(ImageId='mock_image_id',
+                                        MinCount=1,
+                                        MaxCount=1)[0]
+        client.create_tags(Resources=[instance.instance_id],
+                           Tags=[{'Key': 'environment',
+                                  'Value': 'unittestenv'},
+                                 {'Key': 'hostclass',
+                                  'Value': 'mhcmock'}])
+
+        volume = client.create_volume(
+            Size=100,
+            AvailabilityZone='fake-zone-1'
+        )
+        client.attach_volume(VolumeId=volume['VolumeId'],
+            InstanceId=instance.instance_id,
+            Device='/dev/sdb'
+        )
+
+        snapshot_id = self.storage.take_snapshot(volume_id=volume['VolumeId'])
+
+        snapshots = self.storage.get_snapshots('mhcmock')
+        self.assertEquals(len(snapshots), 1)
+        self.assertEquals(snapshots[0].id, snapshot_id)
+        self.assertEquals(snapshots[0].tags, {'env': 'unittestenv', 'hostclass': 'mhcmock'})
