@@ -436,8 +436,30 @@ class DiscoDeploy(object):
         new_group_config["min_size"] = min_size
         new_group_config["max_size"] = max_size
 
-        # Spinup our new autoscaling group in testing mode, making one even if one already exists.
-        self._disco_aws.spinup([new_group_config], create_if_exists=True, testing=True)
+        try:
+            # Spinup our new autoscaling group in testing mode, making one even if one already exists.
+            self._disco_aws.spinup([new_group_config], create_if_exists=True, testing=True)
+        except Exception:
+            logging.exception("Spinning up a new autoscaling group failed")
+
+            # Try to grab the new group. If it exists, we get a group. If not, we get a `None`.
+            new_group = self._disco_autoscale.get_existing_group(hostclass=hostclass,
+                                                                 throw_on_two_groups=False)
+
+            # It's possible that we might have ended up grabbing the old group instead of the new group we
+            # just made. So check that the group we just got isn't the same as the group that already exists.
+            old_group_is_not_new_group = new_group and old_group and old_group.name != new_group.name
+
+            # If we did get a new group and its not the same as the old group (or no old group exists), let's
+            # tear down the new testing group and its ELB if it exists.
+            if new_group and (not old_group or old_group_is_not_new_group):
+                logging.info('Destroying the testing group')
+                # Destroy the testing ASG
+                self._disco_autoscale.delete_groups(group_name=new_group.name, force=True)
+                if uses_elb:
+                    # Destroy the testing ELB
+                    self._disco_elb.delete_elb(hostclass, testing=True)
+            return False
 
         new_group = self._disco_autoscale.get_existing_group(hostclass=hostclass, throw_on_two_groups=False)
 

@@ -651,6 +651,82 @@ class DiscoDeployTests(TestCase):
                     'hostclass': 'mhcfoo'}], group_name=old_group.name)])
         self._disco_autoscale.delete_groups.assert_called_once_with(group_name=new_group.name, force=True)
 
+    def test_bg_with_spinup_error_and_og(self):
+        '''Blue/green can handle an an exception when spinning up the new ASG with old group'''
+        ami = MagicMock()
+        ami.name = "mhcfoo 2"
+        ami.id = "ami-12345678"
+        self._ci_deploy.wait_for_smoketests = MagicMock(return_value=True)
+        self._ci_deploy.run_integration_tests = MagicMock(return_value=True)
+        self._disco_aws.spinup.side_effect = Exception
+        old_group = self.mock_group("mhcfoo")
+        new_group = self.mock_group("mhcfoo")
+        self._disco_autoscale.get_existing_group.side_effect = [old_group, new_group]
+        self.assertFalse(self._ci_deploy.test_ami(ami, deployment_strategy='blue_green', dry_run=False))
+        self._disco_bake.promote_ami.assert_not_called()
+        self._disco_elb.wait_for_instance_health_state.assert_not_called()
+        self._disco_aws.spinup.assert_called_once_with(
+            [{'ami': 'ami-12345678', 'sequence': 1, 'deployable': 'no', 'min_size': 1,
+              'integration_test': None, 'desired_size': 1, 'max_size': 1, 'smoke_test': 'no',
+              'hostclass': 'mhcfoo'}], testing=True, create_if_exists=True)
+        self._disco_autoscale.delete_groups.assert_called_once_with(group_name=new_group.name, force=True)
+
+    def test_bg_with_spinup_error_and_no_og(self):
+        '''Blue/green can handle an an exception when spinning up the new ASG with no old group'''
+        ami = MagicMock()
+        ami.name = "mhcfoo 2"
+        ami.id = "ami-12345678"
+        self._ci_deploy.wait_for_smoketests = MagicMock(return_value=True)
+        self._ci_deploy.run_integration_tests = MagicMock(return_value=True)
+        self._disco_aws.spinup.side_effect = Exception
+        new_group = self.mock_group("mhcfoo")
+        self._disco_autoscale.get_existing_group.side_effect = [None, new_group]
+        self.assertFalse(self._ci_deploy.test_ami(ami, deployment_strategy='blue_green', dry_run=False))
+        self._disco_bake.promote_ami.assert_not_called()
+        self._disco_elb.wait_for_instance_health_state.assert_not_called()
+        self._disco_aws.spinup.assert_called_once_with(
+            [{'ami': 'ami-12345678', 'sequence': 1, 'deployable': 'no', 'min_size': 1,
+              'integration_test': None, 'desired_size': 1, 'max_size': 1, 'smoke_test': 'no',
+              'hostclass': 'mhcfoo'}], testing=True, create_if_exists=True)
+        self._disco_autoscale.delete_groups.assert_called_once_with(group_name=new_group.name, force=True)
+
+    def test_bg_with_spinup_error_and_no_groups(self):
+        '''Blue/green can handle an an exception when spinning up the new ASG with no groups'''
+        ami = MagicMock()
+        ami.name = "mhcfoo 2"
+        ami.id = "ami-12345678"
+        self._ci_deploy.wait_for_smoketests = MagicMock(return_value=True)
+        self._ci_deploy.run_integration_tests = MagicMock(return_value=True)
+        self._disco_aws.spinup.side_effect = Exception
+        self._disco_autoscale.get_existing_group.side_effect = [None, None]
+        self.assertFalse(self._ci_deploy.test_ami(ami, deployment_strategy='blue_green', dry_run=False))
+        self._disco_bake.promote_ami.assert_not_called()
+        self._disco_elb.wait_for_instance_health_state.assert_not_called()
+        self._disco_aws.spinup.assert_called_once_with(
+            [{'ami': 'ami-12345678', 'sequence': 1, 'deployable': 'no', 'min_size': 1,
+              'integration_test': None, 'desired_size': 1, 'max_size': 1, 'smoke_test': 'no',
+              'hostclass': 'mhcfoo'}], testing=True, create_if_exists=True)
+        self._disco_autoscale.delete_groups.assert_not_called()
+
+    def test_bg_with_error_and_og_and_no_ng(self):
+        '''Blue/green can handle an an exception when spinning up the new ASG w/ old group and no new group'''
+        ami = MagicMock()
+        ami.name = "mhcfoo 2"
+        ami.id = "ami-12345678"
+        self._ci_deploy.wait_for_smoketests = MagicMock(return_value=True)
+        self._ci_deploy.run_integration_tests = MagicMock(return_value=True)
+        self._disco_aws.spinup.side_effect = Exception
+        old_group = self.mock_group("mhcfoo")
+        self._disco_autoscale.get_existing_group.side_effect = [old_group, None]
+        self.assertFalse(self._ci_deploy.test_ami(ami, deployment_strategy='blue_green', dry_run=False))
+        self._disco_bake.promote_ami.assert_not_called()
+        self._disco_elb.wait_for_instance_health_state.assert_not_called()
+        self._disco_aws.spinup.assert_called_once_with(
+            [{'ami': 'ami-12345678', 'sequence': 1, 'deployable': 'no', 'min_size': 1,
+              'integration_test': None, 'desired_size': 1, 'max_size': 1, 'smoke_test': 'no',
+              'hostclass': 'mhcfoo'}], testing=True, create_if_exists=True)
+        self._disco_autoscale.delete_groups.assert_not_called()
+
     def test_integration_tests_with_elb(self):
         '''Integration tests should wait for ELB'''
         ami = MagicMock()
