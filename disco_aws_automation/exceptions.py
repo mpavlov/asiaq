@@ -135,3 +135,8 @@ class EIPConfigError(RuntimeError):
 class RouteCreationError(RuntimeError):
     """Error trying to create a route"""
     pass
+
+
+class TooManyAutoscalingGroups(RuntimeError):
+    """Error trying to create more than the expected number of autoscaling groups"""
+    pass

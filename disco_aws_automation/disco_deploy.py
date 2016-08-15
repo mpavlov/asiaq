@@ -9,7 +9,13 @@ from ConfigParser import NoOptionError, NoSectionError
 from boto.exception import EC2ResponseError
 
 from . import DiscoBake, read_config
-from .exceptions import TimeoutError, MaintenanceModeError, IntegrationTestError, SmokeTestError
+from .exceptions import (
+    TimeoutError,
+    MaintenanceModeError,
+    IntegrationTestError,
+    SmokeTestError,
+    TooManyAutoscalingGroups
+)
 from .disco_aws_util import is_truthy, size_as_minimum_int_or_none, size_as_maximum_int_or_none
 from .disco_constants import (DEFAULT_CONFIG_SECTION, DEPLOYMENT_STRATEGY_BLUE_GREEN,
                               DEPLOYMENT_STRATEGY_CLASSIC)
@@ -391,9 +397,9 @@ class DiscoDeploy(object):
         self._disco_aws.terminate(self._get_new_instances(ami.id), use_autoscaling=True)
         self._disco_aws.spinup([post_hostclass_dict])
 
-    # Disable too many local variables, branches, and statements because this method handles blue/green from
-    # end to end.
-    # pylint: disable=too-many-locals,too-many-branches,too-many-statements
+    # This method handles blue/green from end to end, so it has a lot of logic in it. We should at some point
+    # look at breaking it up a bit and/or the feasibility of that.
+    # pylint: disable=too-many-locals,too-many-branches,too-many-statements,too-many-return-statements
     def handle_blue_green_ami(self, pipeline_dict, ami, old_group,
                               deployable=False, run_tests=False, dry_run=False):
         '''
@@ -439,6 +445,10 @@ class DiscoDeploy(object):
         try:
             # Spinup our new autoscaling group in testing mode, making one even if one already exists.
             self._disco_aws.spinup([new_group_config], create_if_exists=True, testing=True)
+        except TooManyAutoscalingGroups:
+            logging.exception("Too many autoscaling groups exist. Unable to determine which ASG to delete,"
+                              "so refusing to do anything. Manual cleanup probably required.")
+            return False
         except Exception:
             logging.exception("Spinning up a new autoscaling group failed")
 

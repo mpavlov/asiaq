@@ -9,7 +9,12 @@ import boto.ec2.instance
 from mock import MagicMock, create_autospec, call
 
 from disco_aws_automation import DiscoDeploy, DiscoAWS, DiscoAutoscale, DiscoBake, DiscoELB
-from disco_aws_automation.exceptions import TimeoutError, MaintenanceModeError, IntegrationTestError
+from disco_aws_automation.exceptions import (
+    TimeoutError,
+    MaintenanceModeError,
+    IntegrationTestError,
+    TooManyAutoscalingGroups
+)
 from test.helpers.patch_disco_aws import get_mock_config
 
 # Don't limit number of tests
@@ -716,6 +721,25 @@ class DiscoDeployTests(TestCase):
         self._ci_deploy.wait_for_smoketests = MagicMock(return_value=True)
         self._ci_deploy.run_integration_tests = MagicMock(return_value=True)
         self._disco_aws.spinup.side_effect = Exception
+        old_group = self.mock_group("mhcfoo")
+        self._disco_autoscale.get_existing_group.side_effect = [old_group, None]
+        self.assertFalse(self._ci_deploy.test_ami(ami, deployment_strategy='blue_green', dry_run=False))
+        self._disco_bake.promote_ami.assert_not_called()
+        self._disco_elb.wait_for_instance_health_state.assert_not_called()
+        self._disco_aws.spinup.assert_called_once_with(
+            [{'ami': 'ami-12345678', 'sequence': 1, 'deployable': 'no', 'min_size': 1,
+              'integration_test': None, 'desired_size': 1, 'max_size': 1, 'smoke_test': 'no',
+              'hostclass': 'mhcfoo'}], testing=True, create_if_exists=True)
+        self._disco_autoscale.delete_groups.assert_not_called()
+
+    def test_bg_with_too_many_autoscaling_groups(self):
+        '''Blue/green can handle too many autoscaling groups error when spinning up a new ASG'''
+        ami = MagicMock()
+        ami.name = "mhcfoo 2"
+        ami.id = "ami-12345678"
+        self._ci_deploy.wait_for_smoketests = MagicMock(return_value=True)
+        self._ci_deploy.run_integration_tests = MagicMock(return_value=True)
+        self._disco_aws.spinup.side_effect = TooManyAutoscalingGroups
         old_group = self.mock_group("mhcfoo")
         self._disco_autoscale.get_existing_group.side_effect = [old_group, None]
         self.assertFalse(self._ci_deploy.test_ami(ami, deployment_strategy='blue_green', dry_run=False))
