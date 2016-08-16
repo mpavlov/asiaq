@@ -101,7 +101,7 @@ def run():
         if args.cluster:
             rds.update_cluster_by_id(args.cluster)
         else:
-            rds.update_all_clusters_in_vpc(parallell=args.parallel)
+            rds.update_all_clusters_in_vpc(parallel=args.parallel)
     elif args.mode == "delete":
         rds.delete_db_instance(args.cluster, skip_final_snapshot=args.skip_final_snapshot)
     elif args.mode == "cleanup_snapshots":
