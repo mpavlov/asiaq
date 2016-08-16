@@ -14,6 +14,7 @@ from botocore.exceptions import WaiterError
 import boto3
 
 from .resource_helper import throttled_call
+from .exceptions import TooManyAutoscalingGroups
 
 
 DEFAULT_TERMINATION_POLICIES = ["OldestLaunchConfiguration"]
@@ -315,7 +316,7 @@ class DiscoAutoscale(object):
         elif len(groups) == 1 or (len(groups) == 2 and not throw_on_two_groups):
             return groups[0]
         else:
-            raise RuntimeError("There are too many autoscaling groups for {}.".format(hostclass))
+            raise TooManyAutoscalingGroups("There are too many autoscaling groups for {}.".format(hostclass))
 
     def terminate(self, instance_id, decrement_capacity=True):
         """

@@ -10,7 +10,7 @@ import hashlib
 import boto3
 import botocore
 
-from .disco_aws_util import get_tag_value
+from .disco_aws_util import get_tag_value, is_truthy
 from .disco_route53 import DiscoRoute53
 from .disco_acm import DiscoACM
 from .disco_iam import DiscoIAM
@@ -83,8 +83,8 @@ class DiscoELB(object):
             hostclass = get_tag_value(tag_description["Tags"], "hostclass")
             environment = get_tag_value(tag_description["Tags"], "environment")
             testing = get_tag_value(tag_description["Tags"], "is_testing")
-            if hostclass and environment and testing:
-                elb_name = self.get_elb_name(environment, hostclass, testing)
+            if hostclass and environment and testing is not None:
+                elb_name = self.get_elb_name(environment, hostclass, is_truthy(testing))
             else:
                 # Otherwise, look for the elb_name tag or just use the name of the load balancer
                 elb_name = get_tag_value(tag_description["Tags"], "elb_name") or elb_id
