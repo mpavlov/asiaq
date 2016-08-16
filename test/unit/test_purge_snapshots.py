@@ -49,9 +49,9 @@ class DiscoPurgeSnapshotsTest(TestCase):
             mock.tags['env'] = env
         return mock
 
-    def _create_ami_mock(self, id):
+    def _create_ami_mock(self, ami_id):
         mock = MagicMock()
-        mock.id = id
+        mock.id = ami_id
 
         return mock
 
