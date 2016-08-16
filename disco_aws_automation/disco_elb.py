@@ -369,7 +369,7 @@ class DiscoELB(object):
         return instances["InstanceStates"]
 
     def wait_for_instance_health_state(self, hostclass, testing=False, instance_ids=None, state="InService",
-                                       timeout=180):
+                                       timeout=600):
         """
         Waits for instances attached to an ELB to enter a specific state. At least one instance must enter the
         specified state.
