@@ -33,7 +33,7 @@ def get_parser():
     parser_update_group.add_argument('--cluster', dest='cluster',
                                      help='Cluster name (RDS Database Instance Identifier)')
     parser_update_group.add_argument('--parallel', dest='parallel', action='store_const', const=True,
-                                     default=False,  help='Update clusters in parallel')
+                                     default=False, help='Update clusters in parallel')
 
     # List Mode
     parser_list = subparsers.add_parser("list", help="List RDS clusters in an environment")
