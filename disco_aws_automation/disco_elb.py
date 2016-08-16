@@ -10,7 +10,7 @@ import hashlib
 import boto3
 import botocore
 
-from .disco_aws_util import get_tag_value
+from .disco_aws_util import get_tag_value, is_truthy
 from .disco_route53 import DiscoRoute53
 from .disco_acm import DiscoACM
 from .disco_iam import DiscoIAM
@@ -79,8 +79,15 @@ class DiscoELB(object):
         # Populate our ELB info dicts
         for tag_description in tag_descriptions:
             elb_id = tag_description["LoadBalancerName"]
-            # If they have an 'elb_name' tag, use that instead of the actual LoadBalancerName
-            elb_name = get_tag_value(tag_description["Tags"], "elb_name") or elb_id
+            # Try to figure out the name of the ELB from its tags
+            hostclass = get_tag_value(tag_description["Tags"], "hostclass")
+            environment = get_tag_value(tag_description["Tags"], "environment")
+            testing = get_tag_value(tag_description["Tags"], "is_testing")
+            if hostclass and environment and testing is not None:
+                elb_name = self.get_elb_name(environment, hostclass, is_truthy(testing))
+            else:
+                # Otherwise, look for the elb_name tag or just use the name of the load balancer
+                elb_name = get_tag_value(tag_description["Tags"], "elb_name") or elb_id
             elb = [elb_in_env for elb_in_env in elbs_in_env
                    if elb_in_env["LoadBalancerName"] == elb_id][0]
             availability_zones = ','.join(elb["AvailabilityZones"])
@@ -156,7 +163,7 @@ class DiscoELB(object):
     def get_or_create_elb(self, hostclass, security_groups, subnets, hosted_zone_name,
                           health_check_url, instance_protocol, instance_port,
                           elb_protocols, elb_ports, elb_public, sticky_app_cookie,
-                          idle_timeout=None, connection_draining_timeout=None, testing=False):
+                          idle_timeout=None, connection_draining_timeout=None, testing=False, tags=None):
         """
         Returns an elb.
         This updates an existing elb if it exists, otherwise this creates a new elb.
@@ -178,6 +185,7 @@ class DiscoELB(object):
             connection_draining_timeout (int): timeout limit (in seconds) that ELB should allow for open
                                                requests to resolve before removing EC2 instance from ELB
             testing (bool): True if the ELB will be used for testing purposes only.
+            tags (dict): dict of tag names as keys and tag values. Removing tags is not supported
         """
         cname = self.get_cname(hostclass, hosted_zone_name, testing=testing)
         elb_id = DiscoELB.get_elb_id(self.vpc.environment_name, hostclass, testing=testing)
@@ -209,10 +217,7 @@ class DiscoELB(object):
                 'LoadBalancerName': elb_id,
                 'Listeners': listeners,
                 'SecurityGroups': security_groups,
-                'Subnets': subnets,
-                'Tags': [
-                    {'Key': 'elb_name', 'Value': elb_name}
-                ]
+                'Subnets': subnets
             }
 
             if not elb_public:
@@ -229,6 +234,7 @@ class DiscoELB(object):
         self._setup_health_check(elb_id, health_check_url, instance_protocol, instance_port, elb_name)
         self._setup_sticky_cookies(elb_id, elb_ports, sticky_app_cookie, elb_name)
         self._update_elb_attributes(elb_id, idle_timeout, connection_draining_timeout)
+        self._update_tags(elb_id, tags)
 
         return elb
 
@@ -265,6 +271,14 @@ class DiscoELB(object):
         elb_name = DiscoELB.get_elb_name(self.vpc.environment_name, hostclass, testing=testing)
 
         return self._get_elb(elb_id) or self._get_elb(elb_name)
+
+    def _update_tags(self, elb_id, tags):
+        if tags:
+            logging.info("Tagging ELB %s with %s tags", elb_id, tags)
+            tag_dicts = [{'Key': key, 'Value': value} for key, value in tags.iteritems()]
+            throttled_call(self.elb_client.add_tags,
+                           LoadBalancerNames=[elb_id],
+                           Tags=tag_dicts)
 
     def _get_elb(self, load_balancer_name):
         """Get an ELB by its name"""
