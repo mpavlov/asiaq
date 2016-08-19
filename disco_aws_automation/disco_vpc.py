@@ -341,7 +341,7 @@ class DiscoVPC(object):
         self.disco_vpc_endpoints.update()
         self.configure_notifications()
         self.disco_vpc_peerings.update_peering_connections()
-        self.rds.update_all_clusters_in_vpc()
+        self.rds.update_all_clusters_in_vpc(parallel=True)
 
     def configure_notifications(self, dry_run=False):
         """
