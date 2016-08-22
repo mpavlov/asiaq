@@ -9,7 +9,8 @@ import boto3
 from .resource_helper import (
     keep_trying,
     find_or_create,
-    create_filters
+    create_filters,
+    throttled_call
 )
 
 
@@ -102,7 +103,8 @@ class DiscoSubnet(object):
                                         network_interface_id=route.get('NetworkInterfaceId'),
                                         vpc_peering_connection_id=route.get('VpcPeeringConnectionId'),
                                         nat_gateway_id=route.get('NatGatewayId'))
-                self.boto3_ec2.disassociate_route_table(AssociationId=association['RouteTableAssociationId'])
+                throttled_call(self.boto3_ec2.disassociate_route_table,
+                               AssociationId=association['RouteTableAssociationId'])
 
         self._associate_route_table(new_route_table)
         self._route_table = new_route_table
@@ -116,7 +118,7 @@ class DiscoSubnet(object):
         """ Delete the NAT gateway that is currently associated with the subnet """
         self.nat_eip_allocation_id = None
         if self.nat_gateway:
-            self.boto3_ec2.delete_nat_gateway(NatGatewayId=self.nat_gateway['NatGatewayId'])
+            throttled_call(self.boto3_ec2.delete_nat_gateway, NatGatewayId=self.nat_gateway['NatGatewayId'])
             self._nat_gateway = None
 
     def create_peering_routes(self, peering_conn_id, cidr):
@@ -139,13 +141,13 @@ class DiscoSubnet(object):
                 'Create route for (route_table: %s, dest_cidr: %s, connection: %s)',
                 params['RouteTableId'], params['DestinationCidrBlock'],
                 params['VpcPeeringConnectionId'])
-            self.boto3_ec2.create_route(**params)
+            throttled_call(self.boto3_ec2.create_route, **params)
         else:
             logging.info(
                 'Update route for (route_table: %s, dest_cidr: %s, connection: %s)',
                 params['RouteTableId'], params['DestinationCidrBlock'],
                 params['VpcPeeringConnectionId'])
-            self.boto3_ec2.replace_route(**params)
+            throttled_call(self.boto3_ec2.replace_route, **params)
 
         self._refresh_route_table()
 
@@ -155,7 +157,7 @@ class DiscoSubnet(object):
             'RouteTableId': self.route_table['RouteTableId'],
             'DestinationCidrBlock': destination_cidr_block
         }
-        self.boto3_ec2.delete_route(**delete_params)
+        throttled_call(self.boto3_ec2.delete_route, **delete_params)
         self._refresh_route_table()
 
     def add_route_to_gateway(self, destination_cidr_block, gateway_id):
@@ -188,7 +190,7 @@ class DiscoSubnet(object):
         if nat_gateway_id:
             params['NatGatewayId'] = nat_gateway_id
 
-        result = self.boto3_ec2.create_route(**params)['Return']
+        result = throttled_call(self.boto3_ec2.create_route, **params)['Return']
 
         if result:
             self._refresh_route_table()
@@ -199,10 +201,10 @@ class DiscoSubnet(object):
             'RouteTableId': route_table_id,
             'DestinationCidrBlock': destination_cidr_block
         }
-        self.boto3_ec2.delete_route(**delete_params)
+        throttled_call(self.boto3_ec2.delete_route, **delete_params)
 
         logging.error("Re-creating route.")
-        result = self.boto3_ec2.create_route(**params)['Return']
+        result = throttled_call(self.boto3_ec2.create_route, **params)['Return']
         self._refresh_route_table()
         return result
 
@@ -213,13 +215,13 @@ class DiscoSubnet(object):
             'DestinationCidrBlock': destination_cidr_block,
             'GatewayId': gateway_id
         }
-        self.boto3_ec2.replace_route(**params)
+        throttled_call(self.boto3_ec2.replace_route, **params)
 
     def _find_subnet(self):
         filters = self._resource_filter
         filters['Filters'].extend(create_filters({'availabilityZone': [self.name]}))
         try:
-            return self.boto3_ec2.describe_subnets(**filters)['Subnets'][0]
+            return throttled_call(self.boto3_ec2.describe_subnets, **filters)['Subnets'][0]
         except IndexError:
             return None
 
@@ -233,7 +235,7 @@ class DiscoSubnet(object):
             'CidrBlock': self.cidr,
             'AvailabilityZone': self.name
         }
-        subnet_dict = self.boto3_ec2.create_subnet(**params)['Subnet']
+        subnet_dict = throttled_call(self.boto3_ec2.create_subnet, **params)['Subnet']
         self._apply_subnet_tags(subnet_dict['SubnetId'])
         logging.debug("%s subnet_dict: %s", self.name, subnet_dict)
         return subnet_dict
@@ -250,14 +252,14 @@ class DiscoSubnet(object):
         filters = self._resource_filter
         filters['Filters'].extend(create_filters({'tag:subnet': [self.name]}))
         try:
-            return self.boto3_ec2.describe_route_tables(**filters)['RouteTables'][0]
+            return throttled_call(self.boto3_ec2.describe_route_tables, **filters)['RouteTables'][0]
         except IndexError:
             return None
 
     def _create_route_table(self):
         params = dict()
         params['VpcId'] = self.metanetwork.vpc.vpc['VpcId']
-        route_table = self.boto3_ec2.create_route_table(**params)['RouteTable']
+        route_table = throttled_call(self.boto3_ec2.create_route_table, **params)['RouteTable']
         self._apply_subnet_tags(route_table['RouteTableId'])
         logging.debug("%s route table: %s", self.name, route_table)
 
@@ -268,7 +270,7 @@ class DiscoSubnet(object):
         params = dict()
         params['SubnetId'] = self.subnet_dict['SubnetId']
         params['RouteTableId'] = route_table['RouteTableId']
-        self.boto3_ec2.associate_route_table(**params)
+        throttled_call(self.boto3_ec2.associate_route_table, **params)
 
     def _create_and_associate_route_table(self):
         route_table = self._create_route_table()
@@ -282,7 +284,7 @@ class DiscoSubnet(object):
                                        'state': ['available', 'pending']})
         }
         try:
-            result = self.boto3_ec2.describe_nat_gateways(**params)['NatGateways'][0]
+            result = throttled_call(self.boto3_ec2.describe_nat_gateways, **params)['NatGateways'][0]
         except IndexError:
             return None
 
@@ -305,9 +307,9 @@ class DiscoSubnet(object):
                 'AllocationId': self.nat_eip_allocation_id
             }
             logging.info("Creating NAT gateway with EIP allocation ID: %s", self.nat_eip_allocation_id)
-            nat_gateway = self.boto3_ec2.create_nat_gateway(**params)['NatGateway']
+            nat_gateway = throttled_call(self.boto3_ec2.create_nat_gateway, **params)['NatGateway']
 
-            waiter = self.boto3_ec2.get_waiter('nat_gateway_available')
+            waiter = throttled_call(self.boto3_ec2.get_waiter, 'nat_gateway_available')
             waiter.wait(NatGatewayIds=[nat_gateway['NatGatewayId']])
 
             return self._find_nat_gateway()
