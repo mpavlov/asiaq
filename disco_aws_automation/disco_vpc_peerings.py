@@ -8,7 +8,7 @@ from boto.exception import EC2ResponseError
 import boto3
 
 from . import read_config
-from .resource_helper import tag2dict, create_filters
+from .resource_helper import tag2dict, create_filters, throttled_call
 from .exceptions import VPCPeeringSyntaxError
 # FIXME: Disabling complaint about relative-import. This seems to be the only
 # way that works for unit tests.
@@ -59,10 +59,12 @@ class DiscoVPCPeerings(object):
                                 peer_vpc_id, peering['VpcPeeringConnectionId'])
                 continue
 
-            vpc_peering_route_tables = self.boto3_ec2.describe_route_tables(
-                Filters=create_filters(
-                    {'route.vpc-peering-connection-id': [peering['VpcPeeringConnectionId']]})
-            )['RouteTables']
+            peering_query = create_filters(
+                {'route.vpc-peering-connection-id': [peering['VpcPeeringConnectionId']]}
+            )
+
+            vpc_peering_route_tables = throttled_call(self.boto3_ec2.describe_route_tables,
+                                                      Filters=peering_query)['RouteTables']
 
             for route_table in vpc_peering_route_tables:
                 tags_dict = tag2dict(route_table['Tags'])
@@ -95,7 +97,7 @@ class DiscoVPCPeerings(object):
 
     def _find_peer_vpc(self, peer_vpc_id):
         try:
-            peer_vpc = self.boto3_ec2.describe_vpcs(VpcIds=[peer_vpc_id])['Vpcs'][0]
+            peer_vpc = throttled_call(self.boto3_ec2.describe_vpcs, VpcIds=[peer_vpc_id])['Vpcs'][0]
         except Exception:
             return None
 

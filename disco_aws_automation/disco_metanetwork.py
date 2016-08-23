@@ -18,7 +18,8 @@ from disco_aws_automation.network_helper import calc_subnet_offset
 from .disco_subnet import DiscoSubnet
 from .resource_helper import (
     keep_trying,
-    find_or_create
+    find_or_create,
+    throttled_call
 )
 from .disco_constants import NETWORKS
 from .exceptions import (
@@ -520,14 +521,14 @@ class DiscoMetaNetwork(object):
         for route in self.disco_subnets.values()[0].route_table['Routes']:
             if route.get('NatGatewayId') and route['DestinationCidrBlock'] == '0.0.0.0/0':
                 try:
-                    nat_gateway = self.boto3_ec2.describe_nat_gateways(
-                        NatGatewayIds=[route['NatGatewayId']])['NatGateways'][0]
+                    nat_gateway = throttled_call(self.boto3_ec2.describe_nat_gateways,
+                                                 NatGatewayIds=[route['NatGatewayId']])['NatGateways'][0]
                 except IndexError:
                     raise RuntimeError("Phantom NatGatewayId {0} found in meta network {1}."
                                        .format(route['NatGatewayId'], self.name))
 
-                subnet = self.boto3_ec2.describe_subnets(
-                    SubnetIds=[nat_gateway['SubnetId']])['Subnets'][0]
+                subnet = throttled_call(self.boto3_ec2.describe_subnets,
+                                        SubnetIds=[nat_gateway['SubnetId']])['Subnets'][0]
 
                 for tag in subnet['Tags']:
                     if tag['Key'] == 'meta_network':
