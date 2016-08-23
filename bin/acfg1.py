@@ -55,7 +55,6 @@ def _copy_files(source, destination, hostclasses, dryrun=False):
     # TODO Break this into smaller functions
     # pylint: disable=R0914
 
-
     for path, dirnames, filenames in os.walk(source):
         destpath = os.path.join(destination, os.path.relpath(path, source))
 
@@ -89,7 +88,7 @@ def _copy_files(source, destination, hostclasses, dryrun=False):
 
         # Add the host specific files first
         for destname, srcname in src_for_file.items():
-            src = os.path.join(path, filename)
+            src = os.path.join(path, srcname)
             dst = os.path.join(destpath, destname)
             sources.add(src)
             destinations.add(dst)
