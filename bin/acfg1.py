@@ -207,9 +207,11 @@ def get_or_create_ids(username, groupname):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="""
     Tool for copying trees of files. Files that contain '~' are only copied if
-    string after ~ matches hostclass. The files will also be renamed,
-    stripping ~ and hostclass string after it. Permissions and file ownership
-    are applied from /metadata.txt at the root of the tree.
+    the string after ~ matches the hostclass (taken from command line options,
+    or from /opt/wgen/etc/hostclass if no option is supplied). The files will
+    also be renamed, stripping the "~somehostclass" suffix if present.
+    Permissions and file ownership are applied from the acfg.metadata file at
+    the root of the source tree.
     """)
     parser.add_argument("source", help="Source location overlay directory")
     parser.add_argument("destination", help="Destination of where to overlay source directory over")
