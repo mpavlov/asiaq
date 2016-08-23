@@ -74,16 +74,16 @@ def _copy_files(source, destination, hostclasses, dryrun=False):
 
         src_for_file = {}
         for filename in filenames:
-            (realfile, _, hostclass) = filename.partition("~")
+            (realname, _, hostclass) = filename.partition("~")
             if hostclass and hostclass not in hostclasses:
                 # this file is not relevant
                 continue
-            if realfile not in src_for_file:
-                src_for_file[realfile] = filename
+            if realname not in src_for_file:
+                src_for_file[realname] = filename
             else:
-                (_, _, previous_hostclass) = src_for_file[realfile].partition("~")
+                (_, _, previous_hostclass) = src_for_file[realname].partition("~")
                 if _higher_priority(hostclass, previous_hostclass, hostclasses):
-                    src_for_file[realfile] = filename
+                    src_for_file[realname] = filename
 
         # Add the host specific files first
         for destname, srcname in src_for_file.items():
