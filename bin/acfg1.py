@@ -74,6 +74,8 @@ def _copy_files(source, destination, hostclasses, dryrun=False):
 
         src_for_file = {}
         for filename in filenames:
+            if filename == METADATA_FILE_NAME:
+                continue
             (realname, _, hostclass) = filename.partition("~")
             if hostclass and hostclass not in hostclasses:
                 # this file is not relevant
