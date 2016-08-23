@@ -17,7 +17,7 @@ HOSTCLASS_FILE_PATH = "/opt/wgen/etc/hostclass"
 METADATA_FILE_NAME = "acfg.metadata"
 
 
-def copy_tree(source, destination, hostclasses=[], dryrun=False):
+def copy_tree(source, destination, hostclasses=None, dryrun=False):
     """Copies a file tree rooted at source to destination.
     Files that contain '~' are only copied if string after ~ matches hostclass and files
     not containing '~' are only copied if a hostclass specific version does not exist.
@@ -48,7 +48,7 @@ def copy_tree(source, destination, hostclasses=[], dryrun=False):
             raise HostclassFileNotFound()
 
     _copy_files(source, destination, hostclasses, dryrun)
-    _apply_metadata(source, hostclasses, dryrun)
+    _apply_metadata(source, destination, hostclasses, dryrun)
 
 
 def _copy_files(source, destination, hostclasses, dryrun=False):
@@ -106,7 +106,7 @@ def _copy_files(source, destination, hostclasses, dryrun=False):
                 shutil.copy(spath, dpath)
 
 
-def _apply_metadata(source, hostclasses, dryrun=False):
+def _apply_metadata(source, destination, hostclasses, dryrun=False):
     # Pylint thinks this function has too many local variables
     # pylint: disable=R0914
     metadata_file_path = os.path.join(source, METADATA_FILE_NAME)
@@ -114,6 +114,7 @@ def _apply_metadata(source, hostclasses, dryrun=False):
         logging.warning("Metadata file not found: %s, no permissions to apply.", metadata_file_path)
         return
 
+    logging.info("Applying metadata from %s to files in %s", metadata_file_path, destination)
     hostclass_for_path = {}
     with open(metadata_file_path, 'r') as metadata_file:
         for line in metadata_file.readlines():
@@ -125,12 +126,15 @@ def _apply_metadata(source, hostclasses, dryrun=False):
             except Exception:
                 raise ValueError("Not enough values to unpack on line: {0}".format(file_metadata))
 
-            (filename, _, hostclass) = file_entry.partition("~")
+            (file_entry_path, _, hostclass) = file_entry.partition("~")
 
             if hostclass and hostclass not in hostclasses:
                 logging.info("skipping permissions: %s", file_entry)
                 continue
 
+            # file_entry_path will be absolute: strip the leading slash, then look in the
+            # destination directory (which may be "/") for it.
+            filename = os.path.join(destination, file_entry_path[1:])
             if not os.path.exists(filename):
                 logging.warning("skipping permissions (file not found): %s", filename)
                 continue
