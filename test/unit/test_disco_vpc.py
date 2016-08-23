@@ -105,6 +105,7 @@ class DiscoVPCTests(unittest.TestCase):
         self.assertItemsEqual(actual_ip_ranges, expected_ip_ranges)
 
     # pylint: disable=unused-argument
+    @patch('disco_aws_automation.disco_vpc.DiscoRDS')
     @patch('disco_aws_automation.disco_vpc.DiscoVPCEndpoints')
     @patch('disco_aws_automation.disco_vpc.DiscoSNS')
     @patch('disco_aws_automation.disco_vpc.DiscoVPCGateways')
@@ -115,7 +116,7 @@ class DiscoVPCTests(unittest.TestCase):
     @patch('disco_aws_automation.disco_vpc.DiscoMetaNetwork')
     def test_create_auto_vpc(self, meta_network_mock, boto3_resource_mock,
                              boto3_client_mock, config_mock,
-                             sleep_mock, gateways_mock, sns_mock, endpoints_mock):
+                             sleep_mock, gateways_mock, sns_mock, endpoints_mock, rds_mock):
         """Test creating a VPC with a dynamic ip range"""
         # FIXME This needs to mock way too many things. DiscoVPC needs to be refactored
 

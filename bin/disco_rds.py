@@ -29,8 +29,11 @@ def get_parser():
     parser_update.set_defaults(mode="update")
     parser_update.add_argument('--env', dest='env', required=False, default=None,
                                help='The environment containing the RDS cluster(s)')
-    parser_update.add_argument('--cluster', dest='cluster',
-                               help='Cluster name (RDS Database Instance Identifier)')
+    parser_update_group = parser_update.add_mutually_exclusive_group()
+    parser_update_group.add_argument('--cluster', dest='cluster',
+                                     help='Cluster name (RDS Database Instance Identifier)')
+    parser_update_group.add_argument('--parallel', dest='parallel', action='store_const', const=True,
+                                     default=False, help='Update clusters in parallel')
 
     # List Mode
     parser_list = subparsers.add_parser("list", help="List RDS clusters in an environment")
@@ -98,7 +101,7 @@ def run():
         if args.cluster:
             rds.update_cluster_by_id(args.cluster)
         else:
-            rds.update_all_clusters_in_vpc()
+            rds.update_all_clusters_in_vpc(parallel=args.parallel)
     elif args.mode == "delete":
         rds.delete_db_instance(args.cluster, skip_final_snapshot=args.skip_final_snapshot)
     elif args.mode == "cleanup_snapshots":

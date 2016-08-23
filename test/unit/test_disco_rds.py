@@ -5,7 +5,7 @@ import unittest
 
 from mock import MagicMock, patch
 
-from disco_aws_automation.disco_rds import DiscoRDS
+from disco_aws_automation.disco_rds import RDS, DiscoRDS
 from disco_aws_automation.exceptions import RDSEnvironmentError
 from test.helpers.patch_disco_aws import get_mock_config
 
@@ -66,14 +66,14 @@ def _get_vpc_sg_rules_mock():
     return vpc_sg_rules_mock
 
 
-class DiscoRDSTests(unittest.TestCase):
-    """Test DiscoRDS class"""
+class RDSTests(unittest.TestCase):
+    """Test RDS class"""
 
     def setUp(self):
         with patch('disco_aws_automation.disco_rds.DiscoVPCSecurityGroupRules',
                    return_value=_get_vpc_sg_rules_mock()):
-
-            self.rds = DiscoRDS(_get_vpc_mock())
+            self.rds = RDS(TEST_ENV_NAME, 'testdbname', MOCK_SG_GROUP_ID,
+                           ['mock_subnet_id'], 'example.com')
             self.rds.client = MagicMock()
             self.rds.config_rds = get_mock_config({
                 'some-env-db-name': {
@@ -93,25 +93,19 @@ class DiscoRDSTests(unittest.TestCase):
                     'preferred_maintenance_window': MOCK_MAINTENANCE_WINDOW
                 }
             })
-            self.rds.domain_name = 'example.com'
-
-    def test_get_db_parameter_group_family(self):
-        """Tests that get_db_parameter_group_family handles all the expected cases"""
-        self.assertEquals("postgresql9.3", self.rds.get_db_parameter_group_family("postgresql", "9.3.1"))
-        self.assertEquals("oracle-se2-12.1",
-                          self.rds.get_db_parameter_group_family("oracle-se2", "12.1.0.2.v2"))
-        self.assertEquals("mysql123.5", self.rds.get_db_parameter_group_family("MySQL", "123.5"))
 
     # pylint: disable=unused-argument
+    @patch('disco_aws_automation.disco_vpc.DiscoVPC')
     @patch('disco_aws_automation.disco_rds.DiscoS3Bucket', return_value=_get_bucket_mock())
-    def test_get_master_password(self, bucket_mock):
+    def test_get_master_password(self, bucket_mock, vpc_mock):
         """test getting the master password for an instance using either the db name or id as the s3 key"""
         self.assertEquals('database_name_key', self.rds.get_master_password(TEST_ENV_NAME, 'db-name'))
         self.assertEquals('database-id-key', self.rds.get_master_password(TEST_ENV_NAME, 'db-id'))
 
     # pylint: disable=unused-argument
+    @patch('disco_aws_automation.disco_vpc.DiscoVPC')
     @patch('disco_aws_automation.disco_rds.DiscoS3Bucket', return_value=_get_bucket_mock())
-    def test_clone_existing_db(self, bucket_mock):
+    def test_clone_existing_db(self, bucket_mock, vpc_mock):
         """test that cloning throws an error when the destination db already exists"""
         self.rds.client.describe_db_snapshots.return_value = {
             'DBInstances': [{
@@ -122,12 +116,39 @@ class DiscoRDSTests(unittest.TestCase):
         with(self.assertRaises(RDSEnvironmentError)):
             self.rds.clone('some-env', 'db-name')
 
+    def test_get_db_parameter_group_family(self):
+        """Tests that get_db_parameter_group_family handles all the expected cases"""
+        self.assertEquals("postgresql9.3", RDS.get_db_parameter_group_family("postgresql", "9.3.1"))
+        self.assertEquals("oracle-se2-12.1",
+                          RDS.get_db_parameter_group_family("oracle-se2", "12.1.0.2.v2"))
+        self.assertEquals("mysql123.5", RDS.get_db_parameter_group_family("MySQL", "123.5"))
+
     # pylint: disable=unused-argument
+    @patch('disco_aws_automation.disco_vpc.DiscoVPC')
     @patch('disco_aws_automation.disco_rds.DiscoRoute53')
     @patch('disco_aws_automation.disco_rds.DiscoS3Bucket', return_value=_get_bucket_mock())
-    def test_clone(self, bucket_mock, r53_mock):
+    def test_clone(self, bucket_mock, r53_mock, vpc_mock):
         """test cloning a database"""
         self.rds._get_db_instance = MagicMock(return_value=None)
+        self.rds.config_rds = get_mock_config({
+            'some-env-db-name': {
+                'engine': 'oracle',
+                'allocated_storage': '100',
+                'db_instance_class': 'db.m4.2xlarge',
+                'engine_version': '12.1.0.2.v2',
+                'master_username': 'foo'
+            },
+            'some-env-db-name-with-windows': {
+                'engine': 'oracle',
+                'allocated_storage': '100',
+                'db_instance_class': 'db.m4.2xlarge',
+                'engine_version': '12.1.0.2.v2',
+                'master_username': 'foo',
+                'preferred_backup_window': MOCK_BACKUP_WINDOW,
+                'preferred_maintenance_window': MOCK_MAINTENANCE_WINDOW
+            }
+        })
+
         self.rds.client.describe_db_snapshots.return_value = {
             'DBSnapshots': [{
                 'DBSnapshotIdentifier': 'foo-snapshot'
@@ -171,15 +192,10 @@ class DiscoRDSTests(unittest.TestCase):
             DBSubnetGroupName='unittestenv-db-name',
             SubnetIds=['mock_subnet_id'])
 
-    def test_get_rds_security_group_id(self):
-        """ Verify security group ID is retrieved correctly """
-        sg_group_id = self.rds.get_rds_security_group_id()
-
-        self.assertEqual(MOCK_SG_GROUP_ID, sg_group_id)
-
     # pylint: disable=unused-argument
+    @patch('disco_aws_automation.disco_vpc.DiscoVPC')
     @patch('disco_aws_automation.disco_rds.DiscoS3Bucket', return_value=_get_bucket_mock())
-    def test_params_with_no_windows(self, bucket_mock):
+    def test_params_with_no_windows(self, bucket_mock, vpc_mock):
         """ Verify that if no windows are provided, none are given """
         params = self.rds.get_instance_parameters('some-env', 'db-name')
 
@@ -187,8 +203,9 @@ class DiscoRDSTests(unittest.TestCase):
         self.assertNotIn('PreferredMaintenanceWindow', params)
 
     # pylint: disable=unused-argument
+    @patch('disco_aws_automation.disco_vpc.DiscoVPC')
     @patch('disco_aws_automation.disco_rds.DiscoS3Bucket', return_value=_get_bucket_mock())
-    def test_params_with_windows(self, bucket_mock):
+    def test_params_with_windows(self, bucket_mock, vpc_mock):
         """ Verify that if windows are provided, they are given """
         params = self.rds.get_instance_parameters('some-env', 'db-name-with-windows')
 
@@ -197,3 +214,39 @@ class DiscoRDSTests(unittest.TestCase):
 
         self.assertEqual(MOCK_BACKUP_WINDOW, params['PreferredBackupWindow'])
         self.assertEqual(MOCK_MAINTENANCE_WINDOW, params['PreferredMaintenanceWindow'])
+
+
+class DiscoRDSTests(unittest.TestCase):
+    """Test DiscoRDS class"""
+
+    def setUp(self):
+        with patch('disco_aws_automation.disco_rds.DiscoVPCSecurityGroupRules',
+                   return_value=_get_vpc_sg_rules_mock()):
+
+            self.rds = DiscoRDS(_get_vpc_mock())
+            self.rds.client = MagicMock()
+            self.rds.config_rds = get_mock_config({
+                'some-env-db-name': {
+                    'engine': 'oracle',
+                    'allocated_storage': '100',
+                    'db_instance_class': 'db.m4.2xlarge',
+                    'engine_version': '12.1.0.2.v2',
+                    'master_username': 'foo'
+                },
+                'some-env-db-name-with-windows': {
+                    'engine': 'oracle',
+                    'allocated_storage': '100',
+                    'db_instance_class': 'db.m4.2xlarge',
+                    'engine_version': '12.1.0.2.v2',
+                    'master_username': 'foo',
+                    'preferred_backup_window': MOCK_BACKUP_WINDOW,
+                    'preferred_maintenance_window': MOCK_MAINTENANCE_WINDOW
+                }
+            })
+            self.rds.domain_name = 'example.com'
+
+    def test_get_rds_security_group_id(self):
+        """ Verify security group ID is retrieved correctly """
+        sg_group_id = self.rds.get_rds_security_group_id()
+
+        self.assertEqual(MOCK_SG_GROUP_ID, sg_group_id)
