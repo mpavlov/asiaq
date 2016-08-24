@@ -83,7 +83,7 @@ def size_as_recurrence_map(size, sentinel=''):
              - size = timed interval(s), like "2@0 22 * * *:24@0 10 * * *", will return: {'0 10 * * *': 24,
                                                                                           '0 22 * * *': 2}
     """
-    if not size:
+    if not size and size != 0:
         return {sentinel: None}
     else:
         return {sentinel: int(size)} if str(size).isdigit() else {
