@@ -11,6 +11,7 @@ from test.helpers.patch_disco_aws import TEST_ENV_NAME, get_mock_config
 
 
 # pylint: disable=unused-argument
+@patch('disco_aws_automation.disco_vpc.DiscoRDS.update_all_clusters_in_vpc')
 @patch('disco_aws_automation.disco_vpc.DiscoVPCEndpoints')
 @patch('disco_aws_automation.disco_vpc.DiscoSNS')
 @patch('disco_aws_automation.disco_vpc.DiscoVPCGateways')
@@ -21,7 +22,7 @@ from test.helpers.patch_disco_aws import TEST_ENV_NAME, get_mock_config
 @patch('disco_aws_automation.disco_vpc.DiscoVPC.get_random_free_subnet')
 def _get_vpc_mock(random_subnet_mock=None, meta_network_mock=None, boto3_resource_mock=None,
                   boto3_client_mock=None, config_mock=None,
-                  gateways_mock=None, sns_mock=None, endpoints_mock=None):
+                  gateways_mock=None, sns_mock=None, endpoints_mock=None, rds_mock=None):
 
     config_mock.return_value = get_mock_config({
         'envtype:auto-vpc-type': {
