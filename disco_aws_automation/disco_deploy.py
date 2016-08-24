@@ -246,6 +246,8 @@ class DiscoDeploy(object):
         if dry_run:
             return
 
+        # Generate the two pipelines we'll need, one with double instance sizing for deployment, and another
+        # that has correct instance sizing for the final form of the ASG.
         new_hostclass_dict = self._generate_deploy_pipeline(
             deployment_strategy=DEPLOYMENT_STRATEGY_CLASSIC,
             pipeline_dict=pipeline_dict,
@@ -253,12 +255,11 @@ class DiscoDeploy(object):
             ami=ami
         )
 
-        rollback_hostclass_dict = self._generate_final_pipeline(
+        rollback_hostclass_dict = self._generate_post_deploy_pipeline(
             pipeline_dict=pipeline_dict,
             old_group=old_group,
             ami=ami
         )
-        rollback_hostclass_dict["smoke_test"] = "no"
 
         self._disco_aws.spinup([new_hostclass_dict], testing=True)
 
@@ -347,6 +348,8 @@ class DiscoDeploy(object):
         if old_group and run_tests and not self.run_integration_tests(ami):
             raise Exception("Failed pre-test -- not testing AMI {}".format(ami.id))
 
+        # Generate the two pipelines we'll need, one with double instance sizing for deployment, and another
+        # that has correct instance sizing for the final form of the ASG.
         new_hostclass_dict = self._generate_deploy_pipeline(
             deployment_strategy=DEPLOYMENT_STRATEGY_CLASSIC,
             pipeline_dict=pipeline_dict,
@@ -354,7 +357,7 @@ class DiscoDeploy(object):
             ami=ami
         )
 
-        post_hostclass_dict = self._generate_final_pipeline(
+        post_hostclass_dict = self._generate_post_deploy_pipeline(
             pipeline_dict=pipeline_dict,
             old_group=old_group,
             ami=ami
@@ -419,8 +422,7 @@ class DiscoDeploy(object):
 
         uses_elb = is_truthy(self.hostclass_option_default(hostclass, "elb", "no"))
 
-        new_group_config = self._generate_deploy_pipeline(
-            deployment_strategy=DEPLOYMENT_STRATEGY_BLUE_GREEN,
+        new_group_config = self._generate_post_deploy_pipeline(
             pipeline_dict=pipeline_dict,
             old_group=old_group,
             ami=ami
@@ -561,7 +563,7 @@ class DiscoDeploy(object):
             hostclass=hostclass
         )
 
-    def _generate_final_pipeline(self, pipeline_dict, old_group, ami):
+    def _generate_post_deploy_pipeline(self, pipeline_dict, old_group, ami):
         """Generate pipeline with sizing for post deployment"""
         new_config = copy.deepcopy(pipeline_dict)
         new_config["sequence"] = 1
@@ -596,7 +598,7 @@ class DiscoDeploy(object):
 
     def _generate_deploy_pipeline(self, deployment_strategy, pipeline_dict, old_group, ami):
         """Generate pipeline with sizing for deployment"""
-        new_config = self._generate_final_pipeline(pipeline_dict, old_group, ami)
+        new_config = self._generate_post_deploy_pipeline(pipeline_dict, old_group, ami)
 
         # If we are using classic deployment and an older group exists, we need to double the sizing so that
         # new instances are actually deployed. These numbers will be later shrunk.
