@@ -369,7 +369,7 @@ class DiscoELB(object):
         return instances["InstanceStates"]
 
     def wait_for_instance_health_state(self, hostclass, testing=False, instance_ids=None, state="InService",
-                                       timeout=180):
+                                       timeout=600):
         """
         Waits for instances attached to an ELB to enter a specific state. At least one instance must enter the
         specified state.
@@ -397,8 +397,12 @@ class DiscoELB(object):
                 return
             # Update scope to be the instances that have not yet entered the desired state
             scope = [instance["InstanceId"] for instance in instances if instance["State"] != state]
-            logger.info("Waiting for %s in ELB %s to enter state (%s)",
-                        scope or original_scope, elb_name, state)
+            logger.info(
+                "Waiting for %s in ELB (%s) to enter state (%s)",
+                scope or original_scope,
+                elb_name,
+                state
+            )
             time.sleep(5)
         raise TimeoutError(
             "Timed out after waiting {} seconds for {} in ELB ({}) to enter state ({})".format(timeout,
