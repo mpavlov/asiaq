@@ -360,9 +360,14 @@ class DiscoAutoscale(object):
         for group in groups:
             actions = throttled_call(self.connection.get_all_scheduled_actions, as_group=group.name)
             recurring_actions = [action for action in actions if action.recurrence is not None]
-            for action in recurring_actions:
-                throttled_call(self.connection.delete_scheduled_action,
-                               scheduled_action_name=action.name, autoscale_group=group.name)
+            if recurring_actions:
+                logging.info("Deleting scheduled actions for autoscaling group %s", group.name)
+                for action in recurring_actions:
+                    throttled_call(
+                        self.connection.delete_scheduled_action,
+                        scheduled_action_name=action.name,
+                        autoscale_group=group.name
+                    )
 
     def create_recurring_group_action(self, recurrance, min_size=None, desired_capacity=None, max_size=None,
                                       hostclass=None, group_name=None):
@@ -370,6 +375,7 @@ class DiscoAutoscale(object):
         groups = self.get_existing_groups(hostclass=hostclass, group_name=group_name)
         for group in groups:
             action_name = "{0}_{1}".format(group.name, recurrance.replace('*', 'star').replace(' ', '_'))
+            logging.info("Creating scheduled action %s", action_name)
             throttled_call(self.connection.create_scheduled_group_action,
                            as_group=group.name, name=action_name,
                            min_size=min_size,

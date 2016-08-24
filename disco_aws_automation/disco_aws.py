@@ -262,9 +262,9 @@ class DiscoAWS(object):
             for subnet_ip in subnet_ips.split(' '):
                 meta_network.get_interface(subnet_ip)
 
-    def create_scaling_schedule(self, hostclass, min_size, desired_size, max_size):
+    def create_scaling_schedule(self, min_size, desired_size, max_size, hostclass=None, group_name=None):
         """Create autoscaling schedule"""
-        self.autoscale.delete_all_recurring_group_actions(hostclass=hostclass)
+        self.autoscale.delete_all_recurring_group_actions(hostclass=hostclass, group_name=group_name)
         maps = [
             size_as_recurrence_map(min_size, sentinel=None),
             size_as_recurrence_map(desired_size, sentinel=None),
@@ -275,7 +275,7 @@ class DiscoAWS(object):
                         for time in times if time is not None}
         for recurrence, sizes in combined_map.items():
             self.autoscale.create_recurring_group_action(
-                str(recurrence), hostclass=hostclass,
+                str(recurrence), hostclass=hostclass, group_name=group_name,
                 min_size=sizes[0], desired_capacity=sizes[1], max_size=sizes[2])
 
     def _default_protocol_for_port(self, port):
@@ -422,7 +422,7 @@ class DiscoAWS(object):
             group_name=group_name
         )
 
-        self.create_scaling_schedule(hostclass, min_size, desired_size, max_size)
+        self.create_scaling_schedule(min_size, desired_size, max_size, group_name=group.name)
 
         # Create alarms and custom metrics for the hostclass, if is not being used for testing
         if not testing:
