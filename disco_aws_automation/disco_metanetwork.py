@@ -28,6 +28,8 @@ from .exceptions import (
     RouteCreationError
 )
 
+logger = logging.getLogger(__name__)
+
 
 class DiscoMetaNetwork(object):
     """
@@ -154,7 +156,7 @@ class DiscoMetaNetwork(object):
             self.vpc.get_vpc_id()
         )
         self._tag_resource(security_group)
-        logging.debug("%s security_group: %s", self.name, security_group)
+        logger.debug("%s security_group: %s", self.name, security_group)
         return security_group
 
     @property
@@ -209,14 +211,14 @@ class DiscoMetaNetwork(object):
 
     def _instantiate_subnets(self, try_creating_aws_subnets=True):
         # FIXME needs to talk about and simplify this
-        logging.debug("instantiating subnets")
+        logger.debug("instantiating subnets")
         zones = self._connection.get_all_zones()
-        logging.debug("zones: %s", zones)
+        logger.debug("zones: %s", zones)
         # We'll need to split each subnet into smaller ones, one per zone
         # offset is how much we need to add to cidr divisor to create at least
         # that len(zone) subnets
         zone_cidr_offset = calc_subnet_offset(len(zones))
-        logging.debug("zone_offset: %s", zone_cidr_offset)
+        logger.debug("zone_offset: %s", zone_cidr_offset)
 
         if try_creating_aws_subnets:
             zone_cidrs = self.network_cidr.subnet(
@@ -227,12 +229,12 @@ class DiscoMetaNetwork(object):
 
         subnets = {}
         for zone, cidr in zip(zones, zone_cidrs):
-            logging.debug("%s %s", zone, cidr)
+            logger.debug("%s %s", zone, cidr)
             disco_subnet = DiscoSubnet(str(zone.name), self, str(cidr),
                                        self.centralized_route_table.id
                                        if self.centralized_route_table else None)
             subnets[zone.name] = disco_subnet
-            logging.debug("%s disco_subnet: %s", self.name, disco_subnet)
+            logger.debug("%s disco_subnet: %s", self.name, disco_subnet)
 
         return subnets
 
@@ -273,7 +275,7 @@ class DiscoMetaNetwork(object):
         if interfaces:
             return interfaces[0]
 
-        logging.debug("Creating floating ENI %s", private_ip)
+        logger.debug("Creating floating ENI %s", private_ip)
         aws_subnet = self.subnet_by_ip(private_ip)
         return self._connection.create_network_interface(
             subnet_id=aws_subnet['SubnetId'],
@@ -314,7 +316,7 @@ class DiscoMetaNetwork(object):
         desire_sg_rules[4]: source security group ID
         desire_sg_rules[5]: source CIDR
         """
-        logging.info("Updating security rules for meta network %s", self.name)
+        logger.info("Updating security rules for meta network %s", self.name)
         current_sg_rules = [
             self.create_sg_rule_tuple(
                 rule.ip_protocol,
@@ -330,8 +332,8 @@ class DiscoMetaNetwork(object):
         sg_rules_to_add = list(desired_sg_rules - current_sg_rules)
         sg_rules_to_delete = list(current_sg_rules - desired_sg_rules)
 
-        logging.info("Adding new security group rules %s", sg_rules_to_add)
-        logging.info("Revoking security group rules %s", sg_rules_to_delete)
+        logger.info("Adding new security group rules %s", sg_rules_to_add)
+        logger.info("Revoking security group rules %s", sg_rules_to_delete)
 
         if not dry_run:
             self._add_sg_rules(sg_rules_to_add)
@@ -342,14 +344,14 @@ class DiscoMetaNetwork(object):
         for rule in rule_tuples:
             rule = DiscoMetaNetwork._convert_sg_rule_tuple_to_dict(rule)
             if not self._connection.revoke_security_group(**rule):
-                logging.warning("Failed to revoke security group %s", rule)
+                logger.warning("Failed to revoke security group %s", rule)
 
     def _add_sg_rules(self, rule_tuples):
         """ Add a list of security rules to the current meta network """
         for rule in rule_tuples:
             rule = DiscoMetaNetwork._convert_sg_rule_tuple_to_dict(rule)
             if not self._connection.authorize_security_group(**rule):
-                logging.warning("Failed to authorize security group %s", rule)
+                logger.warning("Failed to authorize security group %s", rule)
 
     def ip_by_offset(self, offset):
         """
@@ -445,10 +447,10 @@ class DiscoMetaNetwork(object):
         routes_to_delete = current_route_tuples - desired_route_tuples - routes_to_be_replaced
         routes_to_add = desired_route_tuples - current_route_tuples - routes_to_replace
 
-        logging.info("Routes to delete: %s", routes_to_delete)
-        logging.info("Routes to replace existing ones: %s", routes_to_replace)
-        logging.info("Existing routes to be replaced: %s", routes_to_be_replaced)
-        logging.info("Routes to add: %s", routes_to_add)
+        logger.info("Routes to delete: %s", routes_to_delete)
+        logger.info("Routes to replace existing ones: %s", routes_to_replace)
+        logger.info("Existing routes to be replaced: %s", routes_to_be_replaced)
+        logger.info("Routes to add: %s", routes_to_add)
 
         if not dry_run:
             self._delete_gateway_routes([route[0] for route in routes_to_delete])
@@ -467,14 +469,14 @@ class DiscoMetaNetwork(object):
                     gateway_id=gateway_id
                 )
             except EC2ResponseError:
-                logging.exception("Failed to create route due to conflict. Deleting old route and re-trying.")
+                logger.exception("Failed to create route due to conflict. Deleting old route and re-trying.")
                 self._connection.delete_route(self.centralized_route_table.id, destination_cidr_block)
                 new_route = self._connection.create_route(
                     route_table_id=self.centralized_route_table.id,
                     destination_cidr_block=destination_cidr_block,
                     gateway_id=gateway_id
                 )
-                logging.error("Route re-created")
+                logger.error("Route re-created")
                 return new_route
         else:
             # No centralized route table here, so add a route to each disco_subnet
@@ -548,14 +550,14 @@ class DiscoMetaNetwork(object):
                 if _.destination_cidr_block == cidr
             ]
             if not peering_routes_for_cidr:
-                logging.info(
+                logger.info(
                     'Create routes for (route_table: %s, dest_cidr: %s, connection: %s)',
                     self.centralized_route_table.id, cidr, peering_conn_id)
                 self._connection.create_route(route_table_id=self.centralized_route_table.id,
                                               destination_cidr_block=cidr,
                                               vpc_peering_connection_id=peering_conn_id)
             else:
-                logging.info(
+                logger.info(
                     'Update routes for (route_table: %s, dest_cidr: %s, connection: %s)',
                     self.centralized_route_table.id, cidr, peering_conn_id)
                 self._connection.replace_route(route_table_id=self.centralized_route_table.id,

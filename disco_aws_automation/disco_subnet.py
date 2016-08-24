@@ -13,6 +13,8 @@ from .resource_helper import (
     throttled_call
 )
 
+logger = logging.getLogger(__name__)
+
 
 class DiscoSubnet(object):
     """
@@ -137,13 +139,13 @@ class DiscoSubnet(object):
         ]
 
         if not peering_routes_for_cidr:
-            logging.info(
+            logger.info(
                 'Create route for (route_table: %s, dest_cidr: %s, connection: %s)',
                 params['RouteTableId'], params['DestinationCidrBlock'],
                 params['VpcPeeringConnectionId'])
             throttled_call(self.boto3_ec2.create_route, **params)
         else:
-            logging.info(
+            logger.info(
                 'Update route for (route_table: %s, dest_cidr: %s, connection: %s)',
                 params['RouteTableId'], params['DestinationCidrBlock'],
                 params['VpcPeeringConnectionId'])
@@ -196,14 +198,14 @@ class DiscoSubnet(object):
             self._refresh_route_table()
             return result
 
-        logging.info("Failed to create route due to conflict. Deleting old route and re-trying.")
+        logger.info("Failed to create route due to conflict. Deleting old route and re-trying.")
         delete_params = {
             'RouteTableId': route_table_id,
             'DestinationCidrBlock': destination_cidr_block
         }
         throttled_call(self.boto3_ec2.delete_route, **delete_params)
 
-        logging.error("Re-creating route.")
+        logger.error("Re-creating route.")
         result = throttled_call(self.boto3_ec2.create_route, **params)['Return']
         self._refresh_route_table()
         return result
@@ -237,7 +239,7 @@ class DiscoSubnet(object):
         }
         subnet_dict = throttled_call(self.boto3_ec2.create_subnet, **params)['Subnet']
         self._apply_subnet_tags(subnet_dict['SubnetId'])
-        logging.debug("%s subnet_dict: %s", self.name, subnet_dict)
+        logger.debug("%s subnet_dict: %s", self.name, subnet_dict)
         return subnet_dict
 
     def _find_route_table_by_id(self, route_table_id):
@@ -261,7 +263,7 @@ class DiscoSubnet(object):
         params['VpcId'] = self.metanetwork.vpc.vpc['VpcId']
         route_table = throttled_call(self.boto3_ec2.create_route_table, **params)['RouteTable']
         self._apply_subnet_tags(route_table['RouteTableId'])
-        logging.debug("%s route table: %s", self.name, route_table)
+        logger.debug("%s route table: %s", self.name, route_table)
 
         return route_table
 
@@ -306,7 +308,7 @@ class DiscoSubnet(object):
                 'SubnetId': self.subnet_dict['SubnetId'],
                 'AllocationId': self.nat_eip_allocation_id
             }
-            logging.info("Creating NAT gateway with EIP allocation ID: %s", self.nat_eip_allocation_id)
+            logger.info("Creating NAT gateway with EIP allocation ID: %s", self.nat_eip_allocation_id)
             nat_gateway = throttled_call(self.boto3_ec2.create_nat_gateway, **params)['NatGateway']
 
             waiter = throttled_call(self.boto3_ec2.get_waiter, 'nat_gateway_available')
