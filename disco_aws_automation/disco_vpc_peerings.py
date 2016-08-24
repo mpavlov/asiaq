@@ -118,11 +118,16 @@ class DiscoVPCPeerings(object):
             vpc_map = peering_configs[peering]['vpc_map']
             vpc_metanetwork_map = peering_configs[peering]['vpc_metanetwork_map']
             vpc_ids = [vpc.vpc['VpcId'] for vpc in vpc_map.values()]
-            existing_peerings = client.describe_vpc_peering_connections(
+
+            existing_peerings = throttled_call(
+                client.describe_vpc_peering_connections,
                 Filters=create_filters({'status-code': ['active'],
                                         'accepter-vpc-info.vpc-id': [vpc_ids[0]],
                                         'requester-vpc-info.vpc-id': [vpc_ids[1]]})
-            )['VpcPeeringConnections'] + client.describe_vpc_peering_connections(
+            )['VpcPeeringConnections']
+
+            existing_peerings += throttled_call(
+                client.describe_vpc_peering_connections,
                 Filters=create_filters({'status-code': ['active'],
                                         'accepter-vpc-info.vpc-id': [vpc_ids[1]],
                                         'requester-vpc-info.vpc-id': [vpc_ids[0]]})
@@ -130,16 +135,21 @@ class DiscoVPCPeerings(object):
 
             # create peering when peering doesn't exist
             if not existing_peerings:
-                peering_conn = client.create_vpc_peering_connection(
-                    VpcId=vpc_ids[0], PeerVpcId=vpc_ids[1])['VpcPeeringConnection']
-                client.accept_vpc_peering_connection(
-                    VpcPeeringConnectionId=peering_conn['VpcPeeringConnectionId'])
+                peering_conn = throttled_call(
+                    client.create_vpc_peering_connection,
+                    VpcId=vpc_ids[0], PeerVpcId=vpc_ids[1]
+                )['VpcPeeringConnection']
+
+                throttled_call(
+                    client.accept_vpc_peering_connection,
+                    VpcPeeringConnectionId=peering_conn['VpcPeeringConnectionId']
+                )
                 logger.info("Created new peering connection %s for %s",
                             peering_conn['VpcPeeringConnectionId'], peering)
             else:
                 peering_conn = existing_peerings[0]
-                logger.info("Peering connection %s exists for %s",
-                            existing_peerings[0]['VpcPeeringConnectionId'], peering)
+                logging.info("Peering connection %s exists for %s",
+                             existing_peerings[0]['VpcPeeringConnectionId'], peering)
             DiscoVPCPeerings.create_peering_routes(vpc_map, vpc_metanetwork_map, peering_conn)
 
     @staticmethod
@@ -309,7 +319,10 @@ class DiscoVPCPeerings(object):
         for peering in DiscoVPCPeerings.list_peerings(vpc_id):
             try:
                 logger.info('deleting peering connection %s', peering['VpcPeeringConnectionId'])
-                client.delete_vpc_peering_connection(VpcPeeringConnectionId=peering['VpcPeeringConnectionId'])
+                throttled_call(
+                    client.delete_vpc_peering_connection,
+                    VpcPeeringConnectionId=peering['VpcPeeringConnectionId']
+                )
             except EC2ResponseError:
                 raise RuntimeError('Failed to delete VPC Peering connection \
                                     {}'.format(peering['VpcPeeringConnectionId']))
@@ -323,13 +336,17 @@ class DiscoVPCPeerings(object):
         """
         client = boto3.client('ec2')
         if vpc_id:
-            peerings = client.describe_vpc_peering_connections(
+            peerings = throttled_call(
+                client.describe_vpc_peering_connections,
                 Filters=create_filters({'requester-vpc-info.vpc-id': [vpc_id]})
-            )['VpcPeeringConnections'] + client.describe_vpc_peering_connections(
+            )['VpcPeeringConnections']
+
+            peerings += throttled_call(
+                client.describe_vpc_peering_connections,
                 Filters=create_filters({'accepter-vpc-info.vpc-id': [vpc_id]})
             )['VpcPeeringConnections']
         else:
-            peerings = client.describe_vpc_peering_connections()['VpcPeeringConnections']
+            peerings = throttled_call(client.describe_vpc_peering_connections)['VpcPeeringConnections']
 
         peering_states = LIVE_PEERING_STATES + (["failed"] if include_failed else [])
         return [

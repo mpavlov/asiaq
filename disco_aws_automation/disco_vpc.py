@@ -167,11 +167,15 @@ class DiscoVPC(object):
         """
         client = boto3.client('ec2')
         if vpc_id:
-            vpcs = client.describe_vpcs(
-                Filters=create_filters({'vpc-id': [vpc_id]}))['Vpcs']
+            vpcs = throttled_call(
+                client.describe_vpcs,
+                Filters=create_filters({'vpc-id': [vpc_id]})
+            )['Vpcs']
         elif environment_name:
-            vpcs = client.describe_vpcs(
-                Filters=create_filters({'tag:Name': [environment_name]}))['Vpcs']
+            vpcs = throttled_call(
+                client.describe_vpcs,
+                Filters=create_filters({'tag:Name': [environment_name]})
+            )['Vpcs']
         else:
             raise VPCEnvironmentError("Expect vpc_id or environment_name")
 
@@ -500,7 +504,10 @@ class DiscoVPC(object):
     def find_vpc_id_by_name(vpc_name):
         """Find VPC by name"""
         client = boto3.client('ec2')
-        vpcs = client.describe_vpcs(Filters=create_filters({'tag:Name': [vpc_name]}))['Vpcs']
+        vpcs = throttled_call(
+            client.describe_vpcs,
+            Filters=create_filters({'tag:Name': [vpc_name]})
+        )['Vpcs']
         if len(vpcs) == 1:
             return vpcs[0]['VpcId']
         elif len(vpcs) == 0:
@@ -512,7 +519,7 @@ class DiscoVPC(object):
     def list_vpcs():
         """Returns list of boto.vpc.vpc.VPC classes, one for each existing VPC"""
         client = boto3.client('ec2')
-        vpcs = client.describe_vpcs()
+        vpcs = throttled_call(client.describe_vpcs)
         return [{'id': vpc['VpcId'],
                  'tags': tag2dict(vpc['Tags'] if 'Tags' in vpc else None),
                  'cidr_block': vpc['CidrBlock']}
