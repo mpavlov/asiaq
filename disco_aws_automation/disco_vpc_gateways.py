@@ -8,7 +8,7 @@ import time
 from boto.exception import EC2ResponseError
 
 from .resource_helper import (
-    wait_for_state_boto3, find_or_create, create_filters)
+    wait_for_state_boto3, find_or_create, create_filters, throttled_call)
 from .disco_eip import DiscoEIP
 from .exceptions import (TimeoutError, EIPConfigError)
 
@@ -61,10 +61,10 @@ class DiscoVPCGateways(object):
         return route_tuples
 
     def _create_internet_gw(self):
-        internet_gateway = self.boto3_ec2.create_internet_gateway()['InternetGateway']
-        self.boto3_ec2.attach_internet_gateway(
-            InternetGatewayId=internet_gateway['InternetGatewayId'],
-            VpcId=self.disco_vpc.get_vpc_id())
+        internet_gateway = throttled_call(self.boto3_ec2.create_internet_gateway)['InternetGateway']
+        throttled_call(self.boto3_ec2.attach_internet_gateway,
+                       InternetGatewayId=internet_gateway['InternetGatewayId'],
+                       VpcId=self.disco_vpc.get_vpc_id())
         logging.debug("internet_gateway: %s", internet_gateway)
 
         return internet_gateway
@@ -84,8 +84,8 @@ class DiscoVPCGateways(object):
                 logging.debug("Waiting 30s to avoid VGW 'non-existance' conditon post detach.")
                 time.sleep(30)
 
-            self.boto3_ec2.attach_vpn_gateway(
-                VpnGatewayId=vgw['VpnGatewayId'], VpcId=self.disco_vpc.get_vpc_id())
+            throttled_call(self.boto3_ec2.attach_vpn_gateway,
+                           VpnGatewayId=vgw['VpnGatewayId'], VpcId=self.disco_vpc.get_vpc_id())
             logging.debug("Waiting for VGW to become attached.")
 
             self._wait_for_vgw_states(u'attached')
@@ -98,7 +98,8 @@ class DiscoVPCGateways(object):
     def _find_internet_gw(self):
         """Locate Internet Gateway that corresponds to this VPN"""
         igw_filter = create_filters({'attachment.vpc-id': [self.disco_vpc.vpc['VpcId']]})
-        igws = self.boto3_ec2.describe_internet_gateways(Filters=igw_filter)['InternetGateways']
+        igws = throttled_call(self.boto3_ec2.describe_internet_gateways,
+                              Filters=igw_filter)['InternetGateways']
         if len(igws) == 0:
             logging.debug("Cannot find the required Internet Gateway named for VPC %s.",
                           self.disco_vpc.vpc['VpcId'])
@@ -109,7 +110,7 @@ class DiscoVPCGateways(object):
     def _find_vgw(self):
         """Locate VPN Gateway that corresponds to this VPN"""
         vgw_filter = create_filters({'tag:Name': [self.disco_vpc.environment_name]})
-        vgws = self.boto3_ec2.describe_vpn_gateways(Filters=vgw_filter)
+        vgws = throttled_call(self.boto3_ec2.describe_vpn_gateways, Filters=vgw_filter)
         if not len(vgws['VpnGateways']):
             logging.debug("Cannot find the required VPN Gateway named %s.", self.disco_vpc.environment_name)
             return None
@@ -119,7 +120,7 @@ class DiscoVPCGateways(object):
         """Checks if all VPN Gateways are in the desired state"""
         filters = create_filters({'tag:Name': [self.disco_vpc.environment_name]})
         states = []
-        vgws = self.boto3_ec2.describe_vpn_gateways(Filters=filters)
+        vgws = throttled_call(self.boto3_ec2.describe_vpn_gateways, Filters=filters)
         for vgw in vgws['VpnGateways']:
             if vgw.get('VpcAttachments'):
                 for attachment in vgw['VpcAttachments']:
@@ -154,10 +155,12 @@ class DiscoVPCGateways(object):
         vgw_filter = create_filters({'attachment.state': ['attached'],
                                      'tag:Name': [self.disco_vpc.environment_name]})
         detached = False
-        for vgw in self.boto3_ec2.describe_vpn_gateways(Filters=vgw_filter)['VpnGateways']:
+        vpn_gateways = throttled_call(self.boto3_ec2.describe_vpn_gateways, Filters=vgw_filter)['VpnGateways']
+        for vgw in vpn_gateways:
             logging.debug("Detaching VGW: %s.", vgw)
-            if not self.boto3_ec2.detach_vpn_gateway(VpnGatewayId=vgw['VpnGatewayId'],
-                                                     VpcId=vgw['VpcAttachments'][0]['VpcId']):
+            if not throttled_call(self.boto3_ec2.detach_vpn_gateway,
+                                  VpnGatewayId=vgw['VpnGatewayId'],
+                                  VpcId=vgw['VpcAttachments'][0]['VpcId']):
                 logging.error("Failed to detach %s from %s", vgw['VpnGatewayId'],
                               vgw['VpcAttachments'][0]['VpcId'])
             else:
@@ -178,12 +181,12 @@ class DiscoVPCGateways(object):
             {'attachment.vpc-id': [self.disco_vpc.get_vpc_id()]})
 
         # delete gateways
-        for igw in self.boto3_ec2.describe_internet_gateways(
-                Filters=vpc_attachment_filters)['InternetGateways']:
-            self.boto3_ec2.detach_internet_gateway(
-                InternetGatewayId=igw['InternetGatewayId'],
-                VpcId=self.disco_vpc.get_vpc_id())
-            self.boto3_ec2.delete_internet_gateway(InternetGatewayId=igw['InternetGatewayId'])
+        for igw in throttled_call(self.boto3_ec2.describe_internet_gateways,
+                                  Filters=vpc_attachment_filters)['InternetGateways']:
+            throttled_call(self.boto3_ec2.detach_internet_gateway,
+                           InternetGatewayId=igw['InternetGatewayId'],
+                           VpcId=self.disco_vpc.get_vpc_id())
+            throttled_call(self.boto3_ec2.delete_internet_gateway, InternetGatewayId=igw['InternetGatewayId'])
 
     def update_nat_gateways_and_routes(self, dry_run=False):
         """ Update the NAT gateways and the routes to them for the VPC based on
@@ -261,9 +264,9 @@ class DiscoVPCGateways(object):
         """ Find all NAT gateways belonging to a vpc and destroy them"""
         filter_params = {'Filters': create_filters({'vpc-id': [self.disco_vpc.vpc['VpcId']]})}
 
-        nat_gateways = self.boto3_ec2.describe_nat_gateways(**filter_params)['NatGateways']
+        nat_gateways = throttled_call(self.boto3_ec2.describe_nat_gateways, **filter_params)['NatGateways']
         for nat_gateway in nat_gateways:
-            self.boto3_ec2.delete_nat_gateway(NatGatewayId=nat_gateway['NatGatewayId'])
+            throttled_call(self.boto3_ec2.delete_nat_gateway, NatGatewayId=nat_gateway['NatGatewayId'])
 
         # Need to wait for all the NAT gateways to be deleted
         wait_for_state_boto3(self.boto3_ec2.describe_nat_gateways, filter_params,
