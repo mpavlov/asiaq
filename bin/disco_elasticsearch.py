@@ -5,7 +5,7 @@ Manages ElasticSearch
 from __future__ import print_function
 import argparse
 import sys
-import logging
+
 from disco_aws_automation import DiscoElasticsearch
 from disco_aws_automation import DiscoESArchive
 from disco_aws_automation.disco_aws_util import run_gracefully, is_truthy
@@ -126,9 +126,9 @@ def run():
         if args.mode == 'archive':
             snap_states = disco_es_archive.archive(dry_run=args.dry_run)
             if args.dry_run:
-                logging.info("Snapshots to be taken: %s", snap_states['SUCCESS'])
+                print("Snapshots to be taken: {0}".format(snap_states['SUCCESS']))
             else:
-                logging.info("Snapshots state: %s", snap_states)
+                print("Snapshots state: {0}".format(snap_states))
 
             if args.groom:
                 disco_es_archive.groom(dry_run=args.dry_run)

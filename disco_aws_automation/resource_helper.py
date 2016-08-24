@@ -13,6 +13,8 @@ from .exceptions import (
     S3WritingError
 )
 
+logger = logging.getLogger(__name__)
+
 STATE_POLL_INTERVAL = 2  # seconds
 INSTANCE_SSHABLE_POLL_INTERVAL = 15  # seconds
 MAX_POLL_INTERVAL = 60  # seconds
@@ -66,7 +68,7 @@ def keep_trying(max_time, fun, *args, **kwargs):
             return fun(*args, **kwargs)
         except Exception:
             if logging.getLogger().level == logging.DEBUG:
-                logging.exception("Failed to run %s.", fun)
+                logger.exception("Failed to run %s.", fun)
             if time.time() > expire_time:
                 raise
             time.sleep(curr_delay)
@@ -93,7 +95,7 @@ def throttled_call(fun, *args, **kwargs):
             return fun(*args, **kwargs)
         except (BotoServerError, botocore.exceptions.ClientError) as err:
             if logging.getLogger().level == logging.DEBUG:
-                logging.exception("Failed to run %s.", fun)
+                logger.exception("Failed to run %s.", fun)
 
             if isinstance(err, BotoServerError):
                 error_code = err.error_code
@@ -177,17 +179,17 @@ def wait_for_sshable(remotecmd, instance, timeout=15 * 60, quiet=False):
     max_time = start_time + timeout
 
     if not quiet:
-        logging.info("Waiting for instance %s to be fully provisioned.", instance.id)
+        logger.info("Waiting for instance %s to be fully provisioned.", instance.id)
     wait_for_state(instance, u'running', timeout)
     if not quiet:
-        logging.info("Instance %s running (booting up).", instance.id)
+        logger.info("Instance %s running (booting up).", instance.id)
 
     while True:
-        logging.debug(
+        logger.debug(
             "Waiting for %s to become sshable.", instance.id)
         if remotecmd(instance, ['true'], nothrow=True)[0] == 0:
-            logging.info("Instance %s now SSHable.", instance.id)
-            logging.debug("Waited %s seconds for instance to boot", int(time.time() - start_time))
+            logger.info("Instance %s now SSHable.", instance.id)
+            logger.debug("Waited %s seconds for instance to boot", int(time.time() - start_time))
             return
         if time.time() >= max_time:
             break

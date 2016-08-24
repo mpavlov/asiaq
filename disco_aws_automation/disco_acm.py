@@ -6,6 +6,8 @@ import logging
 import boto3
 import botocore
 
+logger = logging.getLogger(__name__)
+
 CERT_SUMMARY_LIST_KEY = 'CertificateSummaryList'
 CERT_ARN_KEY = 'CertificateArn'
 DOMAIN_NAME_KEY = 'DomainName'
@@ -34,7 +36,7 @@ class DiscoACM(object):
         # sanity check left-most label
         name, subdomain = dns_name.split('.', 1)
         if not name or name == '*':
-            logging.error('Left-most label "%s" of "%s" is invalid', name, dns_name)
+            logger.error('Left-most label "%s" of "%s" is invalid', name, dns_name)
             return False
 
         # exact match
@@ -57,7 +59,7 @@ class DiscoACM(object):
             try:
                 self._acm = boto3.client('acm')
             except Exception:
-                logging.warning("ACM service does not exist in current region")
+                logger.warning("ACM service does not exist in current region")
                 return None
         return self._acm
 
@@ -72,12 +74,12 @@ class DiscoACM(object):
             # determine the most specific domain match
             certs.sort(key=lambda cert: len(cert[DOMAIN_NAME_KEY]), reverse=True)
             if not certs:
-                logging.warning("No ACM certificates returned for %s", dns_name)
+                logger.warning("No ACM certificates returned for %s", dns_name)
                 return None
             else:
                 return certs[0][CERT_ARN_KEY]
         except (botocore.exceptions.EndpointConnectionError,
                 botocore.vendored.requests.exceptions.ConnectionError):
             # some versions of botocore(1.3.26) will try to connect to acm even if outside us-east-1
-            logging.exception("Unable to get ACM certificate")
+            logger.exception("Unable to get ACM certificate")
             return None

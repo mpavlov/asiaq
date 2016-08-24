@@ -4,7 +4,6 @@ Command line tool for creating and destroying VPC's
 """
 
 from __future__ import print_function
-import logging
 import argparse
 import sys
 
@@ -80,11 +79,11 @@ def parse_arguments():
 def create_vpc_command(args):
     """ handle vpc create command actions"""
     if DiscoVPC.fetch_environment(environment_name=args.vpc_name):
-        logging.error("VPC with same name already exists.")
+        print("VPC with same name already exists.")
         sys.exit(1)
     else:
         vpc = DiscoVPC(args.vpc_name, args.vpc_type)
-        logging.info("VPC %s(%s) has been created", args.vpc_name, vpc.get_vpc_id())
+        print("VPC {0}({1}) has been created".format(args.vpc_name, vpc.get_vpc_id()))
 
 
 def destroy_vpc_command(args):
@@ -97,7 +96,7 @@ def destroy_vpc_command(args):
     if vpc:
         vpc.destroy()
     else:
-        logging.error("No matching VPC found")
+        print("No matching VPC found")
         sys.exit(2)
 
 
@@ -111,7 +110,7 @@ def update_vpc_command(args):
     if vpc:
         vpc.update(args.dry_run)
     else:
-        logging.error("No matching VPC found")
+        print("No matching VPC found")
         sys.exit(2)
 
 
@@ -127,7 +126,7 @@ def list_vpc_command(args):
 def proxy_peerings_command(args):
     """ handle peerings command actions"""
     if args.vpc_name and args.vpc_id:
-        logging.error("Don't use vpc_name and vpc_id at the same time.")
+        print("Don't use vpc_name and vpc_id at the same time.")
         sys.exit(2)
 
     if args.vpc_name:

@@ -37,6 +37,8 @@ from .exceptions import (
     MultipleVPCsForVPCNameError, VPCConfigError, VPCEnvironmentError,
     VPCNameNotFound)
 
+logger = logging.getLogger(__name__)
+
 
 # FIXME: pylint thinks the file has too many instance arguments
 # pylint: disable=R0902
@@ -326,8 +328,8 @@ class DiscoVPC(object):
         vpc = ec2.Vpc(self.vpc['VpcId'])
         tags = vpc.create_tags(Tags=[{'Key': 'Name', 'Value': self.environment_name},
                                      {'Key': 'type', 'Value': self.environment_type}])
-        logging.debug("vpc: %s", self.vpc)
-        logging.debug("vpc tags: %s", tags)
+        logger.debug("vpc: %s", self.vpc)
+        logger.debug("vpc tags: %s", tags)
 
         # Enable DNS
         throttled_call(self.boto3_ec2.modify_vpc_attribute,
@@ -355,7 +357,7 @@ class DiscoVPC(object):
         Note that topics are not deleted with the VPC, since that would require re-subscribing the members.
         """
         notifications = self.alarms_config.get_notifications()
-        logging.info("Desired alarms config: %s", notifications)
+        logger.info("Desired alarms config: %s", notifications)
         if not dry_run:
             DiscoSNS().update_sns_with_notifications(notifications, self.environment_name)
 
@@ -370,7 +372,7 @@ class DiscoVPC(object):
                            AllocationId=eip['AllocationId'],
                            AllowReassociation=allow_reassociation)
         except EC2ResponseError:
-            logging.exception("Skipping failed EIP association. Perhaps reassociation of EIP is not allowed?")
+            logger.exception("Skipping failed EIP association. Perhaps reassociation of EIP is not allowed?")
 
     def vpc_filters(self):
         """Filters used to get only the current VPC when filtering an AWS reply by 'vpc-id'"""
@@ -380,17 +382,17 @@ class DiscoVPC(object):
         """ Update the existing VPC """
         # Ignoring changes in CIDR for now at least
 
-        logging.info("Updating security group rules...")
+        logger.info("Updating security group rules...")
         self.disco_vpc_sg_rules.update_meta_network_sg_rules(dry_run)
-        logging.info("Updating gateway routes...")
+        logger.info("Updating gateway routes...")
         self.disco_vpc_gateways.update_gateways_and_routes(dry_run)
-        logging.info("Updating NAT gateways and routes...")
+        logger.info("Updating NAT gateways and routes...")
         self.disco_vpc_gateways.update_nat_gateways_and_routes(dry_run)
-        logging.info("Updating VPC S3 endpoints...")
+        logger.info("Updating VPC S3 endpoints...")
         self.disco_vpc_endpoints.update(dry_run=dry_run)
-        logging.info("Updating VPC peering connections...")
+        logger.info("Updating VPC peering connections...")
         self.disco_vpc_peerings.update_peering_connections(dry_run)
-        logging.info("Updating alarm notifications...")
+        logger.info("Updating alarm notifications...")
         self.configure_notifications(dry_run)
 
     def destroy(self):
@@ -428,9 +430,9 @@ class DiscoVPC(object):
                      for i in r['Instances']]
 
         if not instances:
-            logging.debug("No running instances")
+            logger.debug("No running instances")
             return
-        logging.debug("terminating %s instance(s) %s", len(instances), instances)
+        logger.debug("terminating %s instance(s) %s", len(instances), instances)
 
         throttled_call(self.boto3_ec2.terminate_instances, InstanceIds=instances)
 
@@ -439,7 +441,7 @@ class DiscoVPC(object):
                     Filters=create_filters({'instance-state-name': ['terminated']}))
         autoscale.clean_configs()
 
-        logging.debug("waiting for instance shutdown scripts")
+        logger.debug("waiting for instance shutdown scripts")
         time.sleep(60)  # see http://copperegg.com/hooking-into-the-aws-shutdown-flow/
 
     def _destroy_rds(self, wait=True):
@@ -471,12 +473,12 @@ class DiscoVPC(object):
                                 Filters=self.vpc_filters())['RouteTables']
         for route_table in routes:
             if len(route_table["Associations"]) > 0 and route_table["Associations"][0]["Main"]:
-                logging.info("Skipping the default main route table %s", route_table['RouteTableId'])
+                logger.info("Skipping the default main route table %s", route_table['RouteTableId'])
                 continue
             try:
                 throttled_call(self.boto3_ec2.delete_route_table, RouteTableId=route_table['RouteTableId'])
             except EC2ResponseError:
-                logging.error("Error deleting route_table %s:.", route_table['RouteTableId'])
+                logger.error("Error deleting route_table %s:.", route_table['RouteTableId'])
                 raise
 
     def _destroy_vpc(self):

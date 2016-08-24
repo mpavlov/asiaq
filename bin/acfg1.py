@@ -13,6 +13,8 @@ import pwd
 import grp
 import subprocess
 
+logger = logging.getLogger(__name__)
+
 HOSTCLASS_FILE_PATH = "/opt/wgen/etc/hostclass"
 METADATA_FILE_NAME = "acfg.metadata"
 
@@ -61,7 +63,7 @@ def _copy_files(source, destination, hostclasses, dryrun=False):
         for dirname in dirnames:
             spath = os.path.join(path, dirname)
             dpath = os.path.join(destpath, dirname)
-            logging.info("make directory %s", dpath)
+            logger.info("make directory %s", dpath)
             if not dryrun:
                 if not os.path.isdir(dpath):
                     os.makedirs(dpath)
@@ -98,11 +100,11 @@ def _copy_files(source, destination, hostclasses, dryrun=False):
         for filename in filenames:
             src_file = os.path.join(path, filename)
             if src_file not in sources:
-                logging.info("skipping: %s", os.path.realpath(src_file))
+                logger.info("skipping: %s", os.path.realpath(src_file))
 
         # Tell user what is being copied, copy unless this is a dry run
         for (spath, dpath) in files:
-            logging.info("copying %s to %s", os.path.realpath(spath), dpath)
+            logger.info("copying %s to %s", os.path.realpath(spath), dpath)
             if not dryrun:
                 shutil.copy(spath, dpath)
 
@@ -112,10 +114,10 @@ def _apply_metadata(source, destination, hostclasses, dryrun=False):
     # pylint: disable=R0914
     metadata_file_path = os.path.join(source, METADATA_FILE_NAME)
     if not os.path.exists(metadata_file_path):
-        logging.warning("Metadata file not found: %s, no permissions to apply.", metadata_file_path)
+        logger.warning("Metadata file not found: %s, no permissions to apply.", metadata_file_path)
         return
 
-    logging.info("Applying metadata from %s to files in %s", metadata_file_path, destination)
+    logger.info("Applying metadata from %s to files in %s", metadata_file_path, destination)
     hostclass_for_path = {}
     with open(metadata_file_path, 'r') as metadata_file:
         for line in metadata_file.readlines():
@@ -130,32 +132,32 @@ def _apply_metadata(source, destination, hostclasses, dryrun=False):
             (file_entry_path, _, hostclass) = file_entry.partition("~")
 
             if hostclass and hostclass not in hostclasses:
-                logging.info("skipping permissions: %s", file_entry)
+                logger.info("skipping permissions: %s", file_entry)
                 continue
 
             # file_entry_path will be absolute: strip the leading slash, then look in the
             # destination directory (which may be "/") for it.
             filename = os.path.join(destination, file_entry_path[1:])
             if not os.path.exists(filename):
-                logging.warning("skipping permissions (file not found): %s", filename)
+                logger.warning("skipping permissions (file not found): %s", filename)
                 continue
 
             if filename not in hostclass_for_path:
                 hostclass_for_path[filename] = hostclass
-                logging.info("setting ownership of %s to %s:%s", filename, owner, group)
+                logger.info("setting ownership of %s to %s:%s", filename, owner, group)
             else:
                 if _higher_priority(hostclass, hostclass_for_path[filename], hostclasses):
                     hostclass_for_path[filename] = hostclass
-                    logging.info("OVERRIDING ownership of %s to %s:%s", filename, owner, group)
+                    logger.info("OVERRIDING ownership of %s to %s:%s", filename, owner, group)
                 else:
-                    logging.info("Skipping permissions from hostclass %s on %s", hostclass, filename)
+                    logger.info("Skipping permissions from hostclass %s on %s", hostclass, filename)
                     continue
 
             if not dryrun:
                 uid, gid = get_or_create_ids(owner, group)
                 os.chown(filename, uid, gid)
 
-            logging.info("setting permissions of %s to %s", filename, permissions)
+            logger.info("setting permissions of %s to %s", filename, permissions)
             if not dryrun:
                 os.chmod(filename, int(permissions, 8))
 
@@ -189,13 +191,13 @@ def get_or_create_ids(username, groupname):
     try:
         gid = grp.getgrnam(groupname).gr_gid
     except KeyError:
-        logging.info("Creating group %s", groupname)
+        logger.info("Creating group %s", groupname)
         subprocess.call(['/usr/sbin/groupadd', '-f', groupname])
         gid = grp.getgrnam(groupname).gr_gid
     try:
         uid = pwd.getpwnam(username).pw_uid
     except KeyError:
-        logging.info("Creating user %s", username)
+        logger.info("Creating user %s", username)
         subprocess.call(['/usr/sbin/adduser',
                          '-r',
                          '--gid', str(gid),
@@ -220,7 +222,6 @@ if __name__ == "__main__":
     parser.add_argument('--hostclass', action='append', dest='hostclasses', metavar='HOSTCLASS',
                         help='A hostclass (possibly virtual) for which to select files. (Repeatable.)')
 
-    logger = logging.getLogger('')
     logger.setLevel(logging.INFO)
 
     args = parser.parse_args()

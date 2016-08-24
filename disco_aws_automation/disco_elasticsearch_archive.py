@@ -24,6 +24,8 @@ from .exceptions import TimeoutError
 from .disco_constants import ES_CONFIG_FILE
 from .resource_helper import keep_trying
 
+logger = logging.getLogger(__name__)
+
 ES_SNAPSHOT_FINAL_STATES = ['SUCCESS', 'FAILED']
 SNAPSHOT_WAIT_TIMEOUT = 60 * 20
 SNAPSHOT_POLL_INTERVAL = 60
@@ -177,7 +179,7 @@ class DiscoESArchive(object):
         total_bytes = cluster_stats["nodes"]["fs"]["total_in_bytes"]
         free_bytes = cluster_stats["nodes"]["fs"]['free_in_bytes']
         need_bytes = total_bytes * (1 - threshold)
-        logging.debug("disk utilization : %i%%", (total_bytes - free_bytes) * 100 / total_bytes)
+        logger.debug("disk utilization : %i%%", (total_bytes - free_bytes) * 100 / total_bytes)
         return need_bytes - free_bytes
 
     def _shards_to_delete(self, cluster_stats, max_shards):
@@ -198,8 +200,8 @@ class DiscoESArchive(object):
         bytes_to_free = self._bytes_to_free(cluster_stats, threshold)
         shards_to_delete = self._shards_to_delete(cluster_stats, max_shards)
 
-        logging.debug("Need to free %i bytes.", bytes_to_free)
-        logging.debug("Need to delete %i shards.", shards_to_delete)
+        logger.debug("Need to free %i bytes.", bytes_to_free)
+        logger.debug("Need to delete %i shards.", shards_to_delete)
         if bytes_to_free <= 0 and shards_to_delete <= 0:
             return []
 
@@ -292,7 +294,7 @@ class DiscoESArchive(object):
             }
         }
 
-        logging.info("Creating ES snapshot repository: %s", repository_config)
+        logger.info("Creating ES snapshot repository: %s", repository_config)
         try:
             self.es_client.snapshot.create_repository(self._repository_name, repository_config)
         except TransportError:
@@ -300,13 +302,13 @@ class DiscoESArchive(object):
                 self.es_client.snapshot.get_repository(self._repository_name)
                 # This can happen when repo is being used to make snapshot but we
                 # attempt to re-create it.
-                logging.warning(
+                logger.warning(
                     "Error on creating ES snapshot respository %s, "
                     "but one already exists, ingnoring",
                     self._repository_name
                 )
             except:
-                logging.error(
+                logger.error(
                     "Could not create archive repository. "
                     "Make sure bucket %s exists and IAM policy allows es to access bucket. "
                     "repository config: %s",
@@ -343,12 +345,12 @@ class DiscoESArchive(object):
         green_archivable = set(indices) & set(green_indices)
         ungreen_archivable = set(indices) - set(green_indices)
         if ungreen_archivable:
-            logging.error(
+            logger.error(
                 "Skipping archiving of following unhealthy indexes: %s",
                 ", ".join(ungreen_archivable)
             )
         if not green_archivable:
-            logging.warning("No indices to archive.")
+            logger.warning("No indices to archive.")
             return snap_states
 
         self._create_repository()
@@ -358,21 +360,21 @@ class DiscoESArchive(object):
         for index in green_archivable:
             snap_state = self.snapshot_state(index)
             if snap_state == 'FAILED':
-                logging.info(
+                logger.info(
                     "Deleting the falied snapshot for index (%s) so that it can be archived again.",
                     index)
                 if not dry_run:
                     self.es_client.snapshot.delete(repository=self._repository_name,
                                                    snapshot=index)
             elif snap_state != 'unknown':
-                logging.info(
+                logger.info(
                     'Index (%s) was already archived.',
                     index
                 )
                 snap_states['existed'].append(index)
                 continue
 
-            logging.info("Archiving index: %s", index)
+            logger.info("Archiving index: %s", index)
             if not dry_run:
                 try:
                     self.es_client.snapshot.create(
@@ -417,18 +419,22 @@ class DiscoESArchive(object):
         if max_shards <= 0:
             raise RuntimeError("ElasticSearch max shards must be greater than 0.")
 
-        logging.info("Using archive threshold: %s, and max shards: %s",
-                     threshold, max_shards)
+        logger.info(
+            "Using archive threshold: %s, and max shards: %s",
+            threshold, max_shards
+        )
         indices_to_delete = self._indices_to_delete(threshold, max_shards)
 
         if indices_to_delete:
             for index in indices_to_delete:
-                logging.info("Deleting index (%s) from cluster (%s).",
-                             index, self.cluster_name)
+                logger.info(
+                    "Deleting index (%s) from cluster (%s).",
+                    index, self.cluster_name
+                )
                 if not dry_run:
                     self.es_client.indices.delete(index=index)
         else:
-            logging.info("No need to delete any indices.")
+            logger.info("No need to delete any indices.")
 
     def snapshots(self, snapshots=None):
         """
@@ -459,8 +465,10 @@ class DiscoESArchive(object):
         snap_state = keep_trying(SNAPSHOT_WAIT_TIMEOUT, self.snapshot_state, snapshot)
 
         while snap_state not in ES_SNAPSHOT_FINAL_STATES:
-            logging.info("Snapshot (%s) has not reached final states. Going to wait for %s seconds.",
-                         snapshot, SNAPSHOT_POLL_INTERVAL)
+            logger.info(
+                "Snapshot (%s) has not reached final states. Going to wait for %s seconds.",
+                snapshot, SNAPSHOT_POLL_INTERVAL
+            )
             sleep(SNAPSHOT_POLL_INTERVAL)
             now = time()
             if now > max_time:
@@ -491,25 +499,29 @@ class DiscoESArchive(object):
                 else:
                     failed_snapshots.append(snap['snapshot'])
 
-        logging.debug("Snapshots within the specified date range: %s", snapshots)
+        logger.debug("Snapshots within the specified date range: %s", snapshots)
         if failed_snapshots:
-            logging.warning("Failed snapshots were found within the specified date range: %s",
-                            failed_snapshots)
+            logger.warning(
+                "Failed snapshots were found within the specified date range: %s",
+                failed_snapshots
+            )
 
         if not snapshots:
-            logging.info("No snapshots within date range are found.")
+            logger.info("No snapshots within date range are found.")
             return
 
         existing_indices = self._all_index_names()
-        logging.debug("Existing indices in the cluster: %s",
-                      existing_indices)
+        logger.debug(
+            "Existing indices in the cluster: %s",
+            existing_indices
+        )
         snapshots = set(snapshots) - set(existing_indices)
         if not snapshots:
-            logging.info("All snapshots within date range are already present as indices.")
+            logger.info("All snapshots within date range are already present as indices.")
             return
 
         for snap in snapshots:
-            logging.info("Restoring snapshot: %s", snap)
+            logger.info("Restoring snapshot: %s", snap)
             if not dry_run:
                 self.es_client.snapshot.restore(repository=self._repository_name,
                                                 snapshot=snap)

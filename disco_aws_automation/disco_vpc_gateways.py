@@ -12,6 +12,8 @@ from .resource_helper import (
 from .disco_eip import DiscoEIP
 from .exceptions import (TimeoutError, EIPConfigError)
 
+logger = logging.getLogger(__name__)
+
 
 VGW_STATE_POLL_INTERVAL = 2  # seconds
 VGW_ATTACH_TIME = 600  # seconds. From observation, it takes about 300s to attach vgw
@@ -32,7 +34,7 @@ class DiscoVPCGateways(object):
         vpn_gateway = self._find_and_attach_vpn_gw()
 
         for network in self.disco_vpc.networks.values():
-            logging.info("Updating gateway routes for meta network: %s", network.name)
+            logger.info("Updating gateway routes for meta network: %s", network.name)
             route_tuples = self._get_gateway_route_tuples(network.name, internet_gateway, vpn_gateway)
             network.update_gateways_and_routes(route_tuples, dry_run)
 
@@ -65,7 +67,7 @@ class DiscoVPCGateways(object):
         throttled_call(self.boto3_ec2.attach_internet_gateway,
                        InternetGatewayId=internet_gateway['InternetGatewayId'],
                        VpcId=self.disco_vpc.get_vpc_id())
-        logging.debug("internet_gateway: %s", internet_gateway)
+        logger.debug("internet_gateway: %s", internet_gateway)
 
         return internet_gateway
 
@@ -73,25 +75,25 @@ class DiscoVPCGateways(object):
         """If configured, attach VPN Gateway and create corresponding routes"""
         vgw = self._find_vgw()
         if vgw:
-            logging.debug("Attaching VGW: %s.", vgw)
+            logger.debug("Attaching VGW: %s.", vgw)
             if vgw.get('VpcAttachments') and vgw['VpcAttachments'][0]['State'] != 'detached' and \
                     vgw['VpcAttachments'][0]['VpcId'] != self.disco_vpc.get_vpc_id():
 
-                logging.info("VGW %s already attached to %s. Will detach and reattach to %s.",
-                             vgw['VpnGatewayId'], vgw['VpcAttachments'][0]['VpcId'],
-                             self.disco_vpc.get_vpc_id())
+                logger.info("VGW %s already attached to %s. Will detach and reattach to %s.",
+                            vgw['VpnGatewayId'], vgw['VpcAttachments'][0]['VpcId'],
+                            self.disco_vpc.get_vpc_id())
                 self._detach_vgws()
-                logging.debug("Waiting 30s to avoid VGW 'non-existance' conditon post detach.")
+                logger.debug("Waiting 30s to avoid VGW 'non-existance' conditon post detach.")
                 time.sleep(30)
 
             throttled_call(self.boto3_ec2.attach_vpn_gateway,
                            VpnGatewayId=vgw['VpnGatewayId'], VpcId=self.disco_vpc.get_vpc_id())
-            logging.debug("Waiting for VGW to become attached.")
+            logger.debug("Waiting for VGW to become attached.")
 
             self._wait_for_vgw_states(u'attached')
-            logging.debug("VGW have been attached.")
+            logger.debug("VGW have been attached.")
         else:
-            logging.info("No VGW to attach.")
+            logger.info("No VGW to attach.")
 
         return vgw
 
@@ -101,8 +103,8 @@ class DiscoVPCGateways(object):
         igws = throttled_call(self.boto3_ec2.describe_internet_gateways,
                               Filters=igw_filter)['InternetGateways']
         if len(igws) == 0:
-            logging.debug("Cannot find the required Internet Gateway named for VPC %s.",
-                          self.disco_vpc.vpc['VpcId'])
+            logger.debug("Cannot find the required Internet Gateway named for VPC %s.",
+                         self.disco_vpc.vpc['VpcId'])
             return None
 
         return igws[0]
@@ -112,7 +114,7 @@ class DiscoVPCGateways(object):
         vgw_filter = create_filters({'tag:Name': [self.disco_vpc.environment_name]})
         vgws = throttled_call(self.boto3_ec2.describe_vpn_gateways, Filters=vgw_filter)
         if not len(vgws['VpnGateways']):
-            logging.debug("Cannot find the required VPN Gateway named %s.", self.disco_vpc.environment_name)
+            logger.debug("Cannot find the required VPN Gateway named %s.", self.disco_vpc.environment_name)
             return None
         return vgws['VpnGateways'][0]
 
@@ -128,8 +130,8 @@ class DiscoVPCGateways(object):
                         states.append(attachment['State'] == state)
                     elif attachment['VpcId'] == self.disco_vpc.get_vpc_id():
                         states.append(attachment['State'] == state)
-        logging.debug("%s of %s VGW attachments are now in state '%s'",
-                      states.count(True), len(states), state)
+        logger.debug("%s of %s VGW attachments are now in state '%s'",
+                     states.count(True), len(states), state)
         return states and all(states)
 
     def _wait_for_vgw_states(self, state, timeout=VGW_ATTACH_TIME):
@@ -157,12 +159,12 @@ class DiscoVPCGateways(object):
         detached = False
         vpn_gateways = throttled_call(self.boto3_ec2.describe_vpn_gateways, Filters=vgw_filter)['VpnGateways']
         for vgw in vpn_gateways:
-            logging.debug("Detaching VGW: %s.", vgw)
+            logger.debug("Detaching VGW: %s.", vgw)
             if not throttled_call(self.boto3_ec2.detach_vpn_gateway,
                                   VpnGatewayId=vgw['VpnGatewayId'],
                                   VpcId=vgw['VpcAttachments'][0]['VpcId']):
-                logging.error("Failed to detach %s from %s", vgw['VpnGatewayId'],
-                              vgw['VpcAttachments'][0]['VpcId'])
+                logger.error("Failed to detach %s from %s", vgw['VpnGatewayId'],
+                             vgw['VpcAttachments'][0]['VpcId'])
             else:
                 detached = True
 
@@ -170,10 +172,10 @@ class DiscoVPCGateways(object):
             return
 
         try:
-            logging.debug("Waiting for VGWs to become detached.")
+            logger.debug("Waiting for VGWs to become detached.")
             self._wait_for_vgw_states(u'detached')
         except TimeoutError:
-            logging.exception("Failed to detach VPN Gateways (Timeout).")
+            logger.exception("Failed to detach VPN Gateways (Timeout).")
 
     def _destroy_igws(self):
         """ Find all gateways belonging to vpc and destroy them"""
@@ -206,10 +208,10 @@ class DiscoVPCGateways(object):
             self._update_nat_gateways(network, dry_run)
 
         routes_to_delete = list(current_nat_routes - desired_nat_routes)
-        logging.info("NAT gateway routes to delete (source, dest): %s", routes_to_delete)
+        logger.info("NAT gateway routes to delete (source, dest): %s", routes_to_delete)
 
         routes_to_add = list(desired_nat_routes - current_nat_routes)
-        logging.info("NAT gateway routes to add (source, dest): %s", routes_to_add)
+        logger.info("NAT gateway routes to add (source, dest): %s", routes_to_add)
 
         if not dry_run:
             self._delete_nat_gateway_routes([route[0] for route in routes_to_delete])
@@ -219,8 +221,8 @@ class DiscoVPCGateways(object):
         eips = self.disco_vpc.get_config("{0}_nat_gateways".format(network.name))
         if not eips:
             # No NAT config, delete the gateways if any
-            logging.info("No NAT gateways defined for meta network %s. Deleting them if there's any.",
-                         network.name)
+            logger.info("No NAT gateways defined for meta network %s. Deleting them if there's any.",
+                        network.name)
             if not dry_run:
                 network.delete_nat_gateways()
         else:
@@ -234,8 +236,8 @@ class DiscoVPCGateways(object):
                 allocation_ids.append(address.allocation_id)
 
             if allocation_ids:
-                logging.info("Setting up NAT gateways in meta network %s using these allocation IDs: %s",
-                             network.name, allocation_ids)
+                logger.info("Setting up NAT gateways in meta network %s using these allocation IDs: %s",
+                            network.name, allocation_ids)
                 if not dry_run:
                     network.add_nat_gateways(allocation_ids)
 
