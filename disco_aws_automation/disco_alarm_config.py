@@ -13,6 +13,7 @@ from .exceptions import AlarmConfigError
 from .disco_aws_util import is_truthy
 from .disco_elb import DiscoELB
 
+logger = logging.getLogger(__name__)
 
 NOTIFICATION_LEVELS = ["critical", "info"]
 NOTIFICATION_SECTION_NAME = "notifications"
@@ -75,11 +76,11 @@ class DiscoAlarmConfig(object):
         self._level = options["level"]
 
         if maximum:
-            logging.debug("threshold_max: %s", options["threshold_max"])
+            logger.debug("threshold_max: %s", options["threshold_max"])
             self.threshold = int(options["threshold_max"])
             self.threshold_type = "max"
         else:
-            logging.debug("threshold_min: %s", options["threshold_min"])
+            logger.debug("threshold_min: %s", options["threshold_min"])
             self.threshold = int(options["threshold_min"])
             self.threshold_type = "min"
 
@@ -199,7 +200,7 @@ class DiscoAlarmsConfig(object):
         else:
             self.config = read_config(DEFAULT_CONFIG_FILE)
         self.environment = environment
-        self.elasticsearch = elasticsearch or None  # laziliy intialized
+        self.elasticsearch = elasticsearch or None
         self._autoscale = autoscale or None  # laziliy intialized
         self._defaults = None
 
@@ -312,8 +313,8 @@ class DiscoAlarmsConfig(object):
                 continue
 
             if namespace == "AWS/ES" and not self.elasticsearch:
-                logging.info("Skipping creation of %s.%s.%s.%s because no Elasticsearch object was provided",
-                             team, namespace, metric_name, section_hostclass)
+                logger.info("Skipping creation of %s.%s.%s.%s because no Elasticsearch object was provided",
+                            team, namespace, metric_name, section_hostclass)
                 continue
 
             options = self._get_alarm_specification_dict(

@@ -4,7 +4,6 @@ Command line tool for dealing with ELB snapshots
 """
 from __future__ import print_function
 import argparse
-import logging
 
 from disco_aws_automation import DiscoAWS, read_config
 from disco_aws_automation.disco_aws_util import run_gracefully
@@ -46,7 +45,7 @@ def get_parser():
     parser_delete = subparsers.add_parser(
         'delete', help='Delete a set of snapshots')
     parser_delete_group = parser_delete.add_mutually_exclusive_group(required=True)
-    parser_delete.set_defaults(mode='cdelete')
+    parser_delete.set_defaults(mode='delete')
     parser_delete_group.add_argument('--snapshot', dest='snapshots', default=[], action='append', type=str)
 
     parser_take = subparsers.add_parser(
@@ -57,6 +56,7 @@ def get_parser():
     parser_take_group.add_argument('--hostname', dest='hostnames', default=[], action='append', type=str)
     parser_take_group.add_argument('--hostclass', dest='hostclasses', default=[], action='append', type=str)
     parser_take_group.add_argument('--ami', dest='amis', default=[], action='append', type=str)
+    parser_take_group.add_argument('--volume-id', dest='volume_id', type=str)
 
     parser_update = subparsers.add_parser(
         'update', help='Update snapshot used by new instances in a hostclass')
@@ -98,15 +98,19 @@ def run():
     elif args.mode == "cleanup":
         aws.disco_storage.cleanup_ebs_snapshots(args.keep)
     elif args.mode == "capture":
-        instances = instances_from_args(aws, args)
-        if not instances:
-            logging.warning("No instances found")
-        for instance in instances:
-            return_code, output = aws.remotecmd(
-                instance, ["sudo /opt/wgen/bin/take_snapshot.sh"], user="snapshot")
-            if return_code:
-                raise Exception("Failed to snapshot instance {0}:\n {1}\n".format(instance, output))
-            logging.info("Successfully snapshotted %s", instance)
+        if args.volume_id:
+            snapshot_id = aws.disco_storage.take_snapshot(args.volume_id)
+            print("Successfully created snapshot: {0}".format(snapshot_id))
+        else:
+            instances = instances_from_args(aws, args)
+            if not instances:
+                print("No instances found")
+            for instance in instances:
+                return_code, output = aws.remotecmd(
+                    instance, ["sudo /opt/wgen/bin/take_snapshot.sh"], user="snapshot")
+                if return_code:
+                    raise Exception("Failed to snapshot instance {0}:\n {1}\n".format(instance, output))
+                print("Successfully snapshotted {0}".format(instance))
     elif args.mode == "delete":
         for snapshot_id in args.snapshots:
             aws.disco_storage.delete_snapshot(snapshot_id)

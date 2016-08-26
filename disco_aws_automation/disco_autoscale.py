@@ -14,6 +14,9 @@ from botocore.exceptions import WaiterError
 import boto3
 
 from .resource_helper import throttled_call
+from .exceptions import TooManyAutoscalingGroups
+
+logger = logging.getLogger(__name__)
 
 
 DEFAULT_TERMINATION_POLICIES = ["OldestLaunchConfiguration"]
@@ -134,11 +137,11 @@ class DiscoAutoscale(object):
     def delete_config(self, config_name):
         '''Delete a specific Launch Configuration'''
         throttled_call(self.connection.delete_launch_configuration, config_name)
-        logging.info("Deleting launch configuration %s", config_name)
+        logger.info("Deleting launch configuration %s", config_name)
 
     def clean_configs(self):
         '''Delete unused Launch Configurations in current environment'''
-        logging.info("Cleaning up unused launch configurations in %s", self.environment_name)
+        logger.info("Cleaning up unused launch configurations in %s", self.environment_name)
         for config in self._get_config_generator():
             try:
                 self.delete_config(config.name)
@@ -156,10 +159,10 @@ class DiscoAutoscale(object):
         for group in groups:
             try:
                 throttled_call(group.delete, force_delete=force)
-                logging.info("Deleting group %s", group.name)
+                logger.info("Deleting group %s", group.name)
                 self.delete_config(group.launch_config_name)
             except BotoServerError:
-                logging.info("Unable to delete group %s, try force deleting", group.name)
+                logger.info("Unable to delete group %s, try force deleting", group.name)
 
     def clean_groups(self, force=False):
         '''
@@ -180,7 +183,7 @@ class DiscoAutoscale(object):
         groups = self.get_existing_groups(hostclass=hostclass, group_name=group_name)
         for group in groups:
             group.min_size = group.max_size = group.desired_capacity = 0
-            logging.info("Scaling down group %s", group.name)
+            logger.info("Scaling down group %s", group.name)
             throttled_call(group.update)
 
             if wait:
@@ -188,11 +191,11 @@ class DiscoAutoscale(object):
                 instance_ids = [inst.instance_id for inst in self.get_instances(group_name=group_name)]
 
                 try:
-                    logging.info("Waiting for scaledown of group %s", group.name)
+                    logger.info("Waiting for scaledown of group %s", group.name)
                     waiter.wait(InstanceIds=instance_ids)
                 except WaiterError:
                     if noerror:
-                        logging.exception("Unable to wait for scaling down of %s", group_name)
+                        logger.exception("Unable to wait for scaling down of %s", group_name)
                         return False
                     else:
                         raise
@@ -315,7 +318,7 @@ class DiscoAutoscale(object):
         elif len(groups) == 1 or (len(groups) == 2 and not throw_on_two_groups):
             return groups[0]
         else:
-            raise RuntimeError("There are too many autoscaling groups for {}.".format(hostclass))
+            raise TooManyAutoscalingGroups("There are too many autoscaling groups for {}.".format(hostclass))
 
     def terminate(self, instance_id, decrement_capacity=True):
         """
@@ -359,9 +362,14 @@ class DiscoAutoscale(object):
         for group in groups:
             actions = throttled_call(self.connection.get_all_scheduled_actions, as_group=group.name)
             recurring_actions = [action for action in actions if action.recurrence is not None]
-            for action in recurring_actions:
-                throttled_call(self.connection.delete_scheduled_action,
-                               scheduled_action_name=action.name, autoscale_group=group.name)
+            if recurring_actions:
+                logger.info("Deleting scheduled actions for autoscaling group %s", group.name)
+                for action in recurring_actions:
+                    throttled_call(
+                        self.connection.delete_scheduled_action,
+                        scheduled_action_name=action.name,
+                        autoscale_group=group.name
+                    )
 
     def create_recurring_group_action(self, recurrance, min_size=None, desired_capacity=None, max_size=None,
                                       hostclass=None, group_name=None):
@@ -369,6 +377,7 @@ class DiscoAutoscale(object):
         groups = self.get_existing_groups(hostclass=hostclass, group_name=group_name)
         for group in groups:
             action_name = "{0}_{1}".format(group.name, recurrance.replace('*', 'star').replace(' ', '_'))
+            logger.info("Creating scheduled action %s", action_name)
             throttled_call(self.connection.create_scheduled_group_action,
                            as_group=group.name, name=action_name,
                            min_size=min_size,
@@ -416,11 +425,11 @@ class DiscoAutoscale(object):
             snapshot_bdm.size = snapshot_size
             self.update_group(self.get_existing_group(hostclass=hostclass, group_name=group_name),
                               self._create_new_launchconfig(hostclass, launch_config).name)
-            logging.info(
+            logger.info(
                 "Updating %s group's snapshot from %s to %s", hostclass or group_name, old_snapshot_id,
                 snapshot_id)
         else:
-            logging.debug(
+            logger.debug(
                 "Autoscaling group %s is already referencing latest snapshot %s", hostclass or group_name,
                 snapshot_id)
 
@@ -429,15 +438,15 @@ class DiscoAutoscale(object):
         group = self.get_existing_group(hostclass=hostclass, group_name=group_name)
 
         if not group:
-            logging.warning("Auto Scaling group %s does not exist. Cannot change %s ELB(s)",
-                            hostclass or group_name, ', '.join(elb_names))
+            logger.warning("Auto Scaling group %s does not exist. Cannot change %s ELB(s)",
+                           hostclass or group_name, ', '.join(elb_names))
             return (set(), set())
 
         new_lbs = set(elb_names) - set(group.load_balancers)
         extras = set(group.load_balancers) - set(elb_names)
         if new_lbs or extras:
-            logging.info("Updating ELBs for group %s from [%s] to [%s]",
-                         group.name, ", ".join(group.load_balancers), ", ".join(elb_names))
+            logger.info("Updating ELBs for group %s from [%s] to [%s]",
+                        group.name, ", ".join(group.load_balancers), ", ".join(elb_names))
         if new_lbs:
             throttled_call(self.boto3_autoscale.attach_load_balancers,
                            AutoScalingGroupName=group.name,

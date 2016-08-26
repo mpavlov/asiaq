@@ -9,13 +9,15 @@ from boto.exception import EC2ResponseError
 import boto3
 
 from . import read_config
-from .resource_helper import tag2dict, create_filters
-from .exceptions import VPCPeeringSyntaxError, VPCConfigError
+from .resource_helper import tag2dict, create_filters, throttled_call
+from .exceptions import VPCPeeringSyntaxError
 # FIXME: Disabling complaint about relative-import. This seems to be the only
 # way that works for unit tests.
 # pylint: disable=W0403
 import disco_vpc
 from .disco_constants import VPC_CONFIG_FILE
+
+logger = logging.getLogger(__name__)
 
 LIVE_PEERING_STATES = ["pending-acceptance", "provisioning", "active"]
 
@@ -33,8 +35,8 @@ class DiscoVPCPeerings(object):
         desired_peerings = self.parse_peering_strs_config(self.disco_vpc.environment_name)
         existing_peerings = self._get_existing_peerings()
 
-        logging.info("Desired VPC peering connections: %s", desired_peerings)
-        logging.info("Existing VPC peering connections: %s", existing_peerings)
+        logger.info("Desired VPC peering connections: %s", desired_peerings)
+        logger.info("Existing VPC peering connections: %s", existing_peerings)
 
         if existing_peerings > desired_peerings:
             raise RuntimeError("Some existing VPC peering connections are not "
@@ -43,7 +45,7 @@ class DiscoVPCPeerings(object):
                                .format(existing_peerings - desired_peerings))
 
         peerings_config = self.parse_peerings_config(self.disco_vpc.get_vpc_id())
-        logging.debug("Desired VPC peering config: %s", peerings_config)
+        logger.debug("Desired VPC peering config: %s", peerings_config)
         if not dry_run:
             DiscoVPCPeerings.create_peering_connections(peerings_config)
 
@@ -52,12 +54,20 @@ class DiscoVPCPeerings(object):
 
         for peering in DiscoVPCPeerings.list_peerings(self.disco_vpc.get_vpc_id()):
 
-            peer_vpc = self._find_peer_vpc(self._get_peer_vpc_id(peering))
+            peer_vpc_id = self._get_peer_vpc_id(peering)
+            peer_vpc = self._find_peer_vpc(peer_vpc_id)
+            if not peer_vpc:
+                logger.warning("Failed to find the peer VPC (%s) associated with peering (%s). "
+                               "If the VPC no longer exists, please delete the peering manually.",
+                               peer_vpc_id, peering['VpcPeeringConnectionId'])
+                continue
 
-            vpc_peering_route_tables = self.boto3_ec2.describe_route_tables(
-                Filters=create_filters(
-                    {'route.vpc-peering-connection-id': [peering['VpcPeeringConnectionId']]})
-            )['RouteTables']
+            peering_query = create_filters(
+                {'route.vpc-peering-connection-id': [peering['VpcPeeringConnectionId']]}
+            )
+
+            vpc_peering_route_tables = throttled_call(self.boto3_ec2.describe_route_tables,
+                                                      Filters=peering_query)['RouteTables']
 
             for route_table in vpc_peering_route_tables:
                 tags_dict = tag2dict(route_table['Tags'])
@@ -68,12 +78,15 @@ class DiscoVPCPeerings(object):
                         self.disco_vpc.environment_type + '/' + \
                         subnet_name_parts[1]
 
-                    for route in route_table['Routes']:
-                        if route.get('VpcPeeringConnectionId') == peering['VpcPeeringConnectionId']:
+                    route_cidrs = [route['DestinationCidrBlock']
+                                   for route in route_table['Routes']
+                                   if route.get('VpcPeeringConnectionId') ==
+                                   peering['VpcPeeringConnectionId']]
+
+                    for network in peer_vpc.networks.values():
+                        if str(network.network_cidr) in route_cidrs:
                             dest_network = peer_vpc.environment_name + ':' + \
-                                peer_vpc.environment_type + '/' + \
-                                [network.name for network in peer_vpc.networks.values()
-                                 if str(network.network_cidr) == route['DestinationCidrBlock']][0]
+                                peer_vpc.environment_type + '/' + network.name
 
                             current_peerings.add(source_network + ' ' + dest_network)
 
@@ -87,9 +100,9 @@ class DiscoVPCPeerings(object):
 
     def _find_peer_vpc(self, peer_vpc_id):
         try:
-            peer_vpc = self.boto3_ec2.describe_vpcs(VpcIds=[peer_vpc_id])['Vpcs'][0]
-        except IndexError:
-            raise RuntimeError("Failed to retrieve VPC with vpc_id: {0}".format(peer_vpc_id))
+            peer_vpc = throttled_call(self.boto3_ec2.describe_vpcs, VpcIds=[peer_vpc_id])['Vpcs'][0]
+        except Exception:
+            return None
 
         try:
             vpc_tags_dict = tag2dict(peer_vpc['Tags'])
@@ -106,11 +119,16 @@ class DiscoVPCPeerings(object):
             vpc_map = peering_configs[peering]['vpc_map']
             vpc_metanetwork_map = peering_configs[peering]['vpc_metanetwork_map']
             vpc_ids = [vpc.vpc['VpcId'] for vpc in vpc_map.values()]
-            existing_peerings = client.describe_vpc_peering_connections(
+
+            existing_peerings = throttled_call(
+                client.describe_vpc_peering_connections,
                 Filters=create_filters({'status-code': ['active'],
                                         'accepter-vpc-info.vpc-id': [vpc_ids[0]],
                                         'requester-vpc-info.vpc-id': [vpc_ids[1]]})
-            )['VpcPeeringConnections'] + client.describe_vpc_peering_connections(
+            )['VpcPeeringConnections']
+
+            existing_peerings += throttled_call(
+                client.describe_vpc_peering_connections,
                 Filters=create_filters({'status-code': ['active'],
                                         'accepter-vpc-info.vpc-id': [vpc_ids[1]],
                                         'requester-vpc-info.vpc-id': [vpc_ids[0]]})
@@ -118,12 +136,17 @@ class DiscoVPCPeerings(object):
 
             # create peering when peering doesn't exist
             if not existing_peerings:
-                peering_conn = client.create_vpc_peering_connection(
-                    VpcId=vpc_ids[0], PeerVpcId=vpc_ids[1])['VpcPeeringConnection']
-                client.accept_vpc_peering_connection(
-                    VpcPeeringConnectionId=peering_conn['VpcPeeringConnectionId'])
-                logging.info("Created new peering connection %s for %s",
-                             peering_conn['VpcPeeringConnectionId'], peering)
+                peering_conn = throttled_call(
+                    client.create_vpc_peering_connection,
+                    VpcId=vpc_ids[0], PeerVpcId=vpc_ids[1]
+                )['VpcPeeringConnection']
+
+                throttled_call(
+                    client.accept_vpc_peering_connection,
+                    VpcPeeringConnectionId=peering_conn['VpcPeeringConnectionId']
+                )
+                logger.info("Created new peering connection %s for %s",
+                            peering_conn['VpcPeeringConnectionId'], peering)
             else:
                 peering_conn = existing_peerings[0]
                 logging.info("Peering connection %s exists for %s",
@@ -170,22 +193,22 @@ class DiscoVPCPeerings(object):
             for peering_id, peering_config in peering_info.iteritems():
                 vpc_ids_in_peering = [vpc.vpc['VpcId'] for vpc in peering_config.get("vpc_map", {}).values()]
 
-                if len(vpc_ids_in_peering) < 2:
-                    pass  # not all vpcs were up, nothing to do
-                elif vpc_id and vpc_id not in vpc_ids_in_peering:
-                    logging.debug("Skipping peering %s because it doesn't include %s", peering, vpc_id)
-                else:
-                    peering_configs[peering_id] = peering_config
+            if len(vpc_ids_in_peering) < 2:
+                pass  # not all vpcs were up, nothing to do
+            elif vpc_id and vpc_id not in vpc_ids_in_peering:
+                logger.debug("Skipping peering %s because it doesn't include %s", peering, vpc_id)
+            else:
+                peering_configs[peering] = peering_config
 
         return peering_configs
 
     @staticmethod
     def _get_peering_lines():
-        logging.debug("Parsing peerings configuration specified in %s", VPC_CONFIG_FILE)
+        logger.debug("Parsing peerings configuration specified in %s", VPC_CONFIG_FILE)
         config = read_config(VPC_CONFIG_FILE)
 
         if 'peerings' not in config.sections():
-            logging.info("No VPC peering configuration defined.")
+            logger.info("No VPC peering configuration defined.")
             return {}
 
         peerings = [
@@ -253,7 +276,7 @@ class DiscoVPCPeerings(object):
             peering connection containing two other dictionaries: vpc_name -> DiscoVPC instance
             and vpc_name -> metanetwork name
         """
-        logging.debug('checking existence for peering %s', line)
+        logger.debug('checking existence for peering %s', line)
         endpoints = line.split(' ')
         if not len(endpoints) == 2:
             raise VPCConfigError('Invalid peering config "%s". Peering config must be of the format '
@@ -307,7 +330,7 @@ class DiscoVPCPeerings(object):
             missing_vpcs.append('%s:%s' % (target_info['vpc_name'], target_info['vpc_type']))
 
         if missing_vpcs:
-            logging.warn(
+            logger.debug(
                 "Skipping peering %s because the following VPC(s) are not up: %s",
                 line, ", ".join(missing_vpcs))
             return {}
@@ -359,8 +382,11 @@ class DiscoVPCPeerings(object):
         client = boto3.client('ec2')
         for peering in DiscoVPCPeerings.list_peerings(vpc_id):
             try:
-                logging.info('deleting peering connection %s', peering['VpcPeeringConnectionId'])
-                client.delete_vpc_peering_connection(VpcPeeringConnectionId=peering['VpcPeeringConnectionId'])
+                logger.info('deleting peering connection %s', peering['VpcPeeringConnectionId'])
+                throttled_call(
+                    client.delete_vpc_peering_connection,
+                    VpcPeeringConnectionId=peering['VpcPeeringConnectionId']
+                )
             except EC2ResponseError:
                 raise RuntimeError('Failed to delete VPC Peering connection \
                                     {}'.format(peering['VpcPeeringConnectionId']))
@@ -374,13 +400,17 @@ class DiscoVPCPeerings(object):
         """
         client = boto3.client('ec2')
         if vpc_id:
-            peerings = client.describe_vpc_peering_connections(
+            peerings = throttled_call(
+                client.describe_vpc_peering_connections,
                 Filters=create_filters({'requester-vpc-info.vpc-id': [vpc_id]})
-            )['VpcPeeringConnections'] + client.describe_vpc_peering_connections(
+            )['VpcPeeringConnections']
+
+            peerings += throttled_call(
+                client.describe_vpc_peering_connections,
                 Filters=create_filters({'accepter-vpc-info.vpc-id': [vpc_id]})
             )['VpcPeeringConnections']
         else:
-            peerings = client.describe_vpc_peering_connections()['VpcPeeringConnections']
+            peerings = throttled_call(client.describe_vpc_peering_connections)['VpcPeeringConnections']
 
         peering_states = LIVE_PEERING_STATES + (["failed"] if include_failed else [])
         return [
