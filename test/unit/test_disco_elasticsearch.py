@@ -35,6 +35,7 @@ MOCK_ES_CONFIG_DEFINITION = {
         "volume_size": "10",
         "iops": "10000",
         "snapshot_start_hour": "5",
+        "version": "1.5",
         "allowed_source_ips": "192.0.2.100 192.0.2.200"
     },
     "foo:other-logs": {
@@ -63,6 +64,7 @@ MOCK_ES_CONFIG_DEFINITION = {
         "volume_size": "10",
         "iops": "1000",
         "snapshot_start_hour": "5",
+        "version": "2.3",
         "allowed_source_ips": ""
     }
 }
