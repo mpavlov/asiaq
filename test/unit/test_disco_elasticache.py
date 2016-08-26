@@ -6,7 +6,6 @@ from mock import MagicMock, PropertyMock, call
 from disco_aws_automation import DiscoElastiCache
 from test.helpers.matchers import MatchAnything
 from test.helpers.patch_disco_aws import get_mock_config
-from test.helpers.matchers import MatchAnything
 
 
 def _get_mock_vpc():

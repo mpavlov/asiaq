@@ -10,7 +10,7 @@ import boto3
 
 from . import read_config
 from .resource_helper import tag2dict, create_filters, throttled_call
-from .exceptions import VPCPeeringSyntaxError
+from .exceptions import VPCPeeringSyntaxError, VPCConfigError
 # FIXME: Disabling complaint about relative-import. This seems to be the only
 # way that works for unit tests.
 # pylint: disable=W0403
@@ -193,12 +193,12 @@ class DiscoVPCPeerings(object):
             for peering_id, peering_config in peering_info.iteritems():
                 vpc_ids_in_peering = [vpc.vpc['VpcId'] for vpc in peering_config.get("vpc_map", {}).values()]
 
-            if len(vpc_ids_in_peering) < 2:
-                pass  # not all vpcs were up, nothing to do
-            elif vpc_id and vpc_id not in vpc_ids_in_peering:
-                logger.debug("Skipping peering %s because it doesn't include %s", peering, vpc_id)
-            else:
-                peering_configs[peering] = peering_config
+                if len(vpc_ids_in_peering) < 2:
+                    pass  # not all vpcs were up, nothing to do
+                elif vpc_id and vpc_id not in vpc_ids_in_peering:
+                    logger.debug("Skipping peering %s because it doesn't include %s", peering, vpc_id)
+                else:
+                    peering_configs[peering_id] = peering_config
 
         return peering_configs
 
