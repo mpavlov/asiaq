@@ -281,7 +281,10 @@ class DiscoVPCPeerings(object):
 
         vpc_objects = {
             vpc_name: safe_get_from_list(
-                vpc_conn.describe_vpcs(Filters=create_filters({'tag-value': [vpc_name]}))['Vpcs'], 0)
+                throttled_call(
+                    vpc_conn.describe_vpcs,
+                    Filters=create_filters({'tag-value': [vpc_name]})
+                )['Vpcs'], 0)
             for vpc_name in vpc_type_map.keys()
         }
 
