@@ -284,14 +284,22 @@ class DiscoVPC(object):
         dhcp_configs.append({"Key": "domain-name-servers", "Values": [internal_dns, external_dns]})
         dhcp_configs.append({"Key": "ntp-servers", "Values": [ntp_server]})
 
-        dhcp_options = throttled_call(self.boto3_ec2.create_dhcp_options,
-                                      DhcpConfigurations=dhcp_configs)['DhcpOptions']
+        dhcp_options = throttled_call(
+            self.boto3_ec2.create_dhcp_options,
+            DhcpConfigurations=dhcp_configs
+        )['DhcpOptions']
 
-        throttled_call(self.boto3_ec2.create_tags, Resources=[dhcp_options['DhcpOptionsId']],
-                       Tags=[{'Key': 'Name', 'Value': self.environment_name}])
+        keep_trying(
+            60,
+            self.boto3_ec2.create_tags,
+            Resources=[dhcp_options['DhcpOptionsId']],
+            Tags=[{'Key': 'Name', 'Value': self.environment_name}]
+        )
 
-        dhcp_options = throttled_call(self.boto3_ec2.describe_dhcp_options,
-                                      DhcpOptionsIds=[dhcp_options['DhcpOptionsId']])['DhcpOptions']
+        dhcp_options = throttled_call(
+            self.boto3_ec2.describe_dhcp_options,
+            DhcpOptionsIds=[dhcp_options['DhcpOptionsId']]
+        )['DhcpOptions']
 
         if len(dhcp_options) == 0:
             raise RuntimeError("Failed to find DHCP options after creation.")
