@@ -246,7 +246,7 @@ class DiscoSubnet(object):
         params = dict()
         params['RouteTableIds'] = [route_table_id]
         try:
-            return self.boto3_ec2.describe_route_tables(**params)['RouteTables'][0]
+            return throttled_call(self.boto3_ec2.describe_route_tables, **params)['RouteTables'][0]
         except IndexError:
             return None
 
