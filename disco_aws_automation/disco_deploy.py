@@ -267,7 +267,7 @@ class DiscoDeploy(object):
 
         self._disco_aws.spinup([new_hostclass_dict], testing=True)
 
-        if self.wait_for_smoketests(ami.id, post_hostclass_dict["desired_size"]):
+        if self.wait_for_smoketests(ami.id, rollback_hostclass_dict["desired_size"]):
             self._promote_ami(ami, "tested")
         else:
             self._promote_ami(ami, "failed")
