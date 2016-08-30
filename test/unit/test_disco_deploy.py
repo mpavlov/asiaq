@@ -946,7 +946,7 @@ class DiscoDeployTests(TestCase):
         self._ci_deploy.wait_for_smoketests = MagicMock(return_value=True)
         self._ci_deploy.test_ami(ami, dry_run=False)
         self._disco_bake.promote_ami.assert_called_with(ami, 'tested')
-        self._ci_deploy.wait_for_smoketests.assert_called_with(ami.id, 2)
+        self._ci_deploy.wait_for_smoketests.assert_called_with(ami.id, self._existing_group.desired_capacity)
         self._disco_aws.spinup.assert_has_calls(
             [call([{'ami': 'ami-12345678', 'sequence': 1, 'deployable': 'yes',
                     'min_size': 2, 'integration_test': None, 'desired_size': 4,
@@ -966,7 +966,7 @@ class DiscoDeployTests(TestCase):
         self._ci_deploy.wait_for_smoketests = MagicMock(return_value=False)
         self._ci_deploy.test_ami(ami, dry_run=False)
         self._disco_bake.promote_ami.assert_called_with(ami, 'failed')
-        self._ci_deploy.wait_for_smoketests.assert_called_with(ami.id, 2)
+        self._ci_deploy.wait_for_smoketests.assert_called_with(ami.id, self._existing_group.desired_capacity)
         self._disco_aws.spinup.assert_has_calls(
             [call([{'ami': 'ami-12345678', 'sequence': 1, 'deployable': 'yes',
                     'min_size': 2, 'integration_test': None, 'desired_size': 4,
@@ -986,7 +986,7 @@ class DiscoDeployTests(TestCase):
         self._ci_deploy.wait_for_smoketests = MagicMock(return_value=True)
         self._ci_deploy.test_ami(ami, dry_run=False)
         self._disco_bake.promote_ami.assert_called_with(ami, 'tested')
-        self._ci_deploy.wait_for_smoketests.assert_called_with(ami.id, 2)
+        self._ci_deploy.wait_for_smoketests.assert_called_with(ami.id, self._existing_group.desired_capacity)
         self._disco_aws.spinup.assert_has_calls(
             [call([{'ami': 'ami-12345678', 'sequence': 1, 'deployable': 'yes',
                     'integration_test': None, 'smoke_test': 'no', 'hostclass': 'mhctimedautoscale',
@@ -1013,7 +1013,7 @@ class DiscoDeployTests(TestCase):
         self._ci_deploy.wait_for_smoketests = MagicMock(return_value=True)
         self._ci_deploy.test_ami(ami, dry_run=False)
         self._disco_bake.promote_ami.assert_called_with(ami, 'tested')
-        self._ci_deploy.wait_for_smoketests.assert_called_with(ami.id, 2)
+        self._ci_deploy.wait_for_smoketests.assert_called_with(ami.id, self._existing_group.desired_capacity)
         self._disco_aws.spinup.assert_has_calls(
             [call([{'ami': 'ami-12345678', 'sequence': 1, 'deployable': 'no',
                     'integration_test': None, 'smoke_test': 'no', 'hostclass': 'mhctimedautoscalenodeploy',
