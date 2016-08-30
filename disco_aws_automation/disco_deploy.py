@@ -267,7 +267,7 @@ class DiscoDeploy(object):
 
         self._disco_aws.spinup([new_hostclass_dict], testing=True)
 
-        if self.wait_for_smoketests(ami.id, new_hostclass_dict["desired_size"]):
+        if self.wait_for_smoketests(ami.id, rollback_hostclass_dict["desired_size"]):
             self._promote_ami(ami, "tested")
         else:
             self._promote_ami(ami, "failed")
@@ -370,7 +370,7 @@ class DiscoDeploy(object):
         self._disco_aws.spinup([new_hostclass_dict])
 
         try:
-            if (self.wait_for_smoketests(ami.id, new_hostclass_dict["desired_size"]) and
+            if (self.wait_for_smoketests(ami.id, post_hostclass_dict["desired_size"]) and
                     (not run_tests or self.run_tests_with_maintenance_mode(ami))):
                 # Roll forward with new configuration
                 self._disco_aws.terminate(self._get_old_instances(ami.id), use_autoscaling=True)
