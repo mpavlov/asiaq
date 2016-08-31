@@ -11,10 +11,10 @@ DEFAULT_CONFIG_FILE_CLOUDFRONT = "disco_cloudfront.ini"
 class DiscoCloudfront(object):
     """ Class to create Cloudfront distribution  """
 
-    def __init__(self, vpc, config_file=None):
+    def __init__(self, vpc, config_file=DEFAULT_CONFIG_FILE_CLOUDFRONT):
         self.vpc = vpc
         self.client = boto3.client('cloudfront')
-        self.config_file = DEFAULT_CONFIG_FILE_CLOUDFRONT
+        self.config_file = config_file
         self._config = None
         
     @property
@@ -170,25 +170,20 @@ class DiscoCloudfront(object):
                     'MinimumProtocolVersion': 'TLSv1',
                 },
             })
-        print response
 
     def _get_option(self, option_name, project_name='training_pages'):
         """Get a config option for a cluster"""
         if not self.config:
-            raise CommandError('ElastiCache config file missing')
+            raise CommandError('Cloudfront config file missing')
 
         section_name = self.vpc.environment_name + ':' + project_name
-        #section_name = 'ci' + ':' + project_name
-        print 'section_name ', section_name
 
         if not self.config.has_section(section_name):
-            raise CommandError('%s section missing in ElastiCache config' % section_name)
+            raise CommandError('%s section missing in Cloudfront config' % section_name)
 
         if self.config.has_option(section_name, option_name):
-            print 'Found it'
             return self.config.get(section_name, option_name)
         else:
-            print 'Nope'
-
+            return None
         return None
 

@@ -42,15 +42,14 @@ def run():
         print("Environment does not exist: {}".format(env))
         sys.exit(1)
 
-    print (args)
-    print (vpc)
-
     disco_cf = DiscoCloudfront(vpc)
 
     if args.mode == "create":
-        print (args)
         entries = disco_cf.create(origin_path)
-    interactive_shell = sys.__stdin__.isatty()
+    elif args.mode == "update":
+        print ("TBD Pull in a story. ")
+    elif args.mode == "delete":
+        print ("TBD Lets do it. ")
 
 if __name__ == "__main__":
     run_gracefully(run)
