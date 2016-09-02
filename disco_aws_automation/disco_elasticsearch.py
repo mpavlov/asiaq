@@ -393,6 +393,7 @@ class DiscoElasticsearch(object):
         allowed_source_ips = self.get_es_option("allowed_source_ips", elasticsearch_name).split()
 
         config = {
+            'ElasticsearchVersion': self.get_es_option('version', elasticsearch_name),
             'DomainName': domain_name,
             'ElasticsearchClusterConfig': es_cluster_config,
             'EBSOptions': ebs_option,
