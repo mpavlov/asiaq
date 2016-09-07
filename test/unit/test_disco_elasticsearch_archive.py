@@ -267,7 +267,7 @@ class DiscoESArchiveTests(TestCase):
 
     def test_restore_date_query(self):
         """Verify that date range query works correctly in ES restore operation"""
-        # Calling restore for testing:249
+        # Calling restore for testing
 
         self._es_archive.restore('2016.06.01', '2016.06.06')
 
