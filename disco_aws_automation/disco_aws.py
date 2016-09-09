@@ -776,13 +776,13 @@ class DiscoAWS(object):
 
     @staticmethod
     def is_running(instance):
-        """Returns true iff an instance is in the running state"""
+        """Returns true if an instance is in the running state"""
         instance.update()
         return instance.state == u'running'
 
     @staticmethod
     def is_terminal_state(instance):
-        """Returns true iff an instance is in the terminated state"""
+        """Returns true if an instance is in the terminated state"""
         instance.update()
         return instance.state in (u'failed', u'terminated')
 

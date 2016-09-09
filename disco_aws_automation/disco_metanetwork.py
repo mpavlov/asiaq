@@ -117,7 +117,8 @@ class DiscoMetaNetwork(object):
         return self._centralized_route_table
 
     def _find_centralized_route_table(self):
-        route_tables = self._connection.get_all_route_tables(
+        route_tables = throttled_call(
+            self._connection.get_all_route_tables,
             filters=self._resource_filter
         )
         if len(route_tables) != 1:
@@ -138,7 +139,8 @@ class DiscoMetaNetwork(object):
 
     def _find_security_group(self):
         try:
-            return self._connection.get_all_security_groups(
+            return throttled_call(
+                self._connection.get_all_security_groups,
                 filters=self._resource_filter
             )[0]
         except IndexError:
@@ -150,7 +152,8 @@ class DiscoMetaNetwork(object):
         return NETWORKS[self.name]
 
     def _create_security_group(self):
-        security_group = self._connection.create_security_group(
+        security_group = throttled_call(
+            self._connection.create_security_group,
             self._resource_name(),
             self.sg_description,
             self.vpc.get_vpc_id()
@@ -201,7 +204,7 @@ class DiscoMetaNetwork(object):
             for disco_subnet in self.disco_subnets.values():
                 disco_subnet.recreate_route_table()
 
-            self._connection.delete_route_table(self.centralized_route_table.id)
+            throttled_call(self._connection.delete_route_table, self.centralized_route_table.id)
             self._centralized_route_table = None
 
     def delete_nat_gateways(self):
@@ -212,7 +215,7 @@ class DiscoMetaNetwork(object):
     def _instantiate_subnets(self, try_creating_aws_subnets=True):
         # FIXME needs to talk about and simplify this
         logger.debug("instantiating subnets")
-        zones = self._connection.get_all_zones()
+        zones = throttled_call(self._connection.get_all_zones)
         logger.debug("zones: %s", zones)
         # We'll need to split each subnet into smaller ones, one per zone
         # offset is how much we need to add to cidr divisor to create at least
@@ -269,7 +272,8 @@ class DiscoMetaNetwork(object):
         """
         interface_filter = self.vpc_filter()
         interface_filter["private-ip-address"] = private_ip
-        interfaces = self._connection.get_all_network_interfaces(
+        interfaces = throttled_call(
+            self._connection.get_all_network_interfaces,
             filters=interface_filter
         )
         if interfaces:
@@ -277,7 +281,8 @@ class DiscoMetaNetwork(object):
 
         logger.debug("Creating floating ENI %s", private_ip)
         aws_subnet = self.subnet_by_ip(private_ip)
-        return self._connection.create_network_interface(
+        return throttled_call(
+            self._connection.create_network_interface,
             subnet_id=aws_subnet['SubnetId'],
             private_ip_address=private_ip,
             description="floating interface",
@@ -343,14 +348,14 @@ class DiscoMetaNetwork(object):
         """ Revoke the list of security group rules from the current meta network """
         for rule in rule_tuples:
             rule = DiscoMetaNetwork._convert_sg_rule_tuple_to_dict(rule)
-            if not self._connection.revoke_security_group(**rule):
+            if not throttled_call(self._connection.revoke_security_group, **rule):
                 logger.warning("Failed to revoke security group %s", rule)
 
     def _add_sg_rules(self, rule_tuples):
         """ Add a list of security rules to the current meta network """
         for rule in rule_tuples:
             rule = DiscoMetaNetwork._convert_sg_rule_tuple_to_dict(rule)
-            if not self._connection.authorize_security_group(**rule):
+            if not throttled_call(self._connection.authorize_security_group, **rule):
                 logger.warning("Failed to authorize security group %s", rule)
 
     def ip_by_offset(self, offset):
@@ -393,7 +398,8 @@ class DiscoMetaNetwork(object):
         """
         if self.centralized_route_table:
             for dest_cidr_block in dest_cidr_blocks:
-                self._connection.delete_route(
+                throttled_call(
+                    self._connection.delete_route,
                     route_table_id=self.centralized_route_table.id,
                     destination_cidr_block=dest_cidr_block
                 )
@@ -463,15 +469,21 @@ class DiscoMetaNetwork(object):
 
         if self.centralized_route_table:
             try:
-                return self._connection.create_route(
+                return throttled_call(
+                    self._connection.create_route,
                     route_table_id=self.centralized_route_table.id,
                     destination_cidr_block=destination_cidr_block,
                     gateway_id=gateway_id
                 )
             except EC2ResponseError:
                 logger.exception("Failed to create route due to conflict. Deleting old route and re-trying.")
-                self._connection.delete_route(self.centralized_route_table.id, destination_cidr_block)
-                new_route = self._connection.create_route(
+                throttled_call(
+                    self._connection.delete_route,
+                    self.centralized_route_table.id,
+                    destination_cidr_block
+                )
+                new_route = throttled_call(
+                    self._connection.create_route,
                     route_table_id=self.centralized_route_table.id,
                     destination_cidr_block=destination_cidr_block,
                     gateway_id=gateway_id
@@ -491,7 +503,8 @@ class DiscoMetaNetwork(object):
     def _replace_gateway_routes(self, route_tuples):
         for route_tuple in route_tuples:
             if self.centralized_route_table:
-                self._connection.replace_route(
+                throttled_call(
+                    self._connection.replace_route,
                     route_table_id=self.centralized_route_table.id,
                     destination_cidr_block=route_tuple[0],
                     gateway_id=route_tuple[1]
@@ -553,16 +566,22 @@ class DiscoMetaNetwork(object):
                 logger.info(
                     'Create routes for (route_table: %s, dest_cidr: %s, connection: %s)',
                     self.centralized_route_table.id, cidr, peering_conn_id)
-                self._connection.create_route(route_table_id=self.centralized_route_table.id,
-                                              destination_cidr_block=cidr,
-                                              vpc_peering_connection_id=peering_conn_id)
+                throttled_call(
+                    self._connection.create_route,
+                    route_table_id=self.centralized_route_table.id,
+                    destination_cidr_block=cidr,
+                    vpc_peering_connection_id=peering_conn_id
+                )
             else:
                 logger.info(
                     'Update routes for (route_table: %s, dest_cidr: %s, connection: %s)',
                     self.centralized_route_table.id, cidr, peering_conn_id)
-                self._connection.replace_route(route_table_id=self.centralized_route_table.id,
-                                               destination_cidr_block=cidr,
-                                               vpc_peering_connection_id=peering_conn_id)
+                throttled_call(
+                    self._connection.replace_route,
+                    route_table_id=self.centralized_route_table.id,
+                    destination_cidr_block=cidr,
+                    vpc_peering_connection_id=peering_conn_id
+                )
         else:
             # No centralized route table here, so add a route to each subnet
             for disco_subnet in self.disco_subnets.values():
