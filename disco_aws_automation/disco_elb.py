@@ -380,7 +380,7 @@ class DiscoELB(object):
         instance_ids    A list of instance_ids to filter to. Defaults to all instances in the ELB.
         state           The state to wait for the instances. Should be one of ['InService', 'OutOfService',
                         'Unknown']. Defaults to 'InService'.
-        timeout         The number of seconds to wait for instances to reach that state. Default: 60.
+        timeout         The number of seconds to wait for instances to reach that state. Default: 600.
         See http://boto3.readthedocs.io/en/latest/reference/services/elb.html
         """
         elb = self.get_elb(hostclass=hostclass, testing=testing)
