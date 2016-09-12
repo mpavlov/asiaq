@@ -73,7 +73,7 @@ class DiscoSSM(object):
             instance_ids
         )
 
-        command = throttled_call(self.conn.send_command, **arguments)
+        command = self._send_command(**arguments)
         command_id = command["Command"]["CommandId"]
 
         is_successful = self._wait_for_ssm_command(command_id=command_id)
@@ -118,7 +118,9 @@ class DiscoSSM(object):
         """
         stop_time = time.time() + timeout
         while time.time() < stop_time:
-            command = throttled_call(self.conn.list_commands, CommandId=command_id)
+            command = self._list_commands(
+                CommandId=command_id
+            )
             status = command["Commands"][0]["Status"]
             document_name = command["Commands"][0]["DocumentName"]
             instance_ids = command["Commands"][0]["InstanceIds"]
@@ -165,8 +167,7 @@ class DiscoSSM(object):
         }
 
         """
-        command_invocations = throttled_call(
-            self.conn.list_command_invocations,
+        command_invocations = self._list_command_invocations(
             CommandId=command_id,
             Details=True
         )
@@ -237,6 +238,18 @@ class DiscoSSM(object):
         }
 
         return plugin_output
+
+    def _send_command(self, **arguments):
+        """Convenience method for sending SSM commands"""
+        return throttled_call(self.conn.send_command, **arguments)
+
+    def _list_commands(self, **arguments):
+        """Convenience method for listing SSM commands"""
+        return throttled_call(self.conn.list_commands, **arguments)
+
+    def _list_command_invocations(self, **arguments):
+        """Convenience method for listing invocations of SSM commands"""
+        return throttled_call(self.conn.list_command_invocations, **arguments)
 
     def get_aws_option(self, option, section=DEFAULT_CONFIG_SECTION):
         """Get a value from the config"""
