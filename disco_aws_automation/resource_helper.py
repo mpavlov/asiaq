@@ -102,7 +102,7 @@ def throttled_call(fun, *args, **kwargs):
             else:
                 error_code = err.response['Error'].get('Code', 'Unknown')
 
-            if (error_code != "Throttling") or (time.time() > expire_time):
+            if (error_code not in ("Throttling", "RequestLimitExceeded")) or (time.time() > expire_time):
                 raise
 
             time.sleep(curr_delay)
