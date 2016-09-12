@@ -16,22 +16,22 @@ def parse_args():
                         const=True, default=False, help='Log in debug level.')
     subparsers = parser.add_subparsers(help='Sub-command help')
 
-    # list mode
-    parser_list = subparsers.add_parser("list", help="List all SSM documents")
-    parser_list.set_defaults(mode="list")
+    # list document mode
+    parser_list = subparsers.add_parser("list-documents", help="List all SSM documents")
+    parser_list.set_defaults(mode="list-documents")
     parser_list.add_argument("--headers", dest="headers", required=False, default=False, action="store_true",
                              help="Option to show headers in the output")
 
-    # get mode
-    parser_get = subparsers.add_parser("get", help="Print out the content of a SSM document")
-    parser_get.set_defaults(mode="get")
+    # get document mode
+    parser_get = subparsers.add_parser("get-document", help="Print out the content of a SSM document")
+    parser_get.set_defaults(mode="get-document")
     parser_get.add_argument("--name", dest="name", required=True, type=str,
                             help="The name of the document")
 
-    # update mode
-    parser_update = subparsers.add_parser("update",
+    # update document mode
+    parser_update = subparsers.add_parser("update-document",
                                           help="Update all SSM documents to reflect what's in configuration")
-    parser_update.set_defaults(mode="update")
+    parser_update.set_defaults(mode="update-documents")
     parser_update.add_argument('--wait', dest='wait', action='store_const', const=True, default=False,
                                help="Wait for all the updates to finish before existing the command")
     parser_update.add_argument('--dry-run', dest='dry_run', action='store_const', const=True,
@@ -73,11 +73,11 @@ def run():
 
     disco_ssm = DiscoSSM()
 
-    if args.mode == "list":
+    if args.mode == "list-documents":
         list_documents(disco_ssm, args.headers)
-    elif args.mode == "get":
+    elif args.mode == "get-document":
         print_content(disco_ssm, args.name)
-    elif args.mode == "update":
+    elif args.mode == "update-documents":
         update_documents(disco_ssm, args.wait, args.dry_run)
 
 
