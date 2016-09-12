@@ -40,43 +40,45 @@ def parse_args():
     return parser.parse_args()
 
 
-def list_documents(discoSSM, headers=False):
+def list_documents(disco_ssm, headers=False):
     """ Lists all the asiaq managed SSM documents """
-    docs = sorted(discoSSM.get_all_documents(),
+    docs = sorted(disco_ssm.get_all_documents(),
                   key=lambda doc: doc["Name"])
     if headers:
-        print(u"{0:<30} {1:<20} {2}".format("Name", "Owner", "Platforms"))
+        print u"{0:<30} {1:<20} {2}".format("Name", "Owner", "Platforms")
 
     for doc in docs:
         line = u"{0:<30} {1:<20} {2}".format(doc["Name"],
                                              doc["Owner"],
                                              ",".join(doc["PlatformTypes"]))
-        print(line)
+        print line
 
 
-def print_content(discoSSM, name):
+def print_content(disco_ssm, name):
     """ Prints out the content of a SSM document """
-    doc = discoSSM.get_document(name)
-    print(doc)
+    doc = disco_ssm.get_document_content(name)
+    if doc:
+        print doc
 
 
-def update_documents(discoSSM, wait, dry_run):
+def update_documents(disco_ssm, wait, dry_run):
     """ Update all SSM documents to reflect what's in configuration """
-    discoSSM.update(wait, dry_run)
+    disco_ssm.update(wait, dry_run)
+
 
 def run():
     """ Parses command line and dispatches the commands disco_dynamodb.py list """
     args = parse_args()
     configure_logging(args.debug)
 
-    discoSSM = DiscoSSM()
+    disco_ssm = DiscoSSM()
 
     if args.mode == "list":
-        list_documents(discoSSM, args.headers)
+        list_documents(disco_ssm, args.headers)
     elif args.mode == "get":
-        print_content(discoSSM, args.name)
+        print_content(disco_ssm, args.name)
     elif args.mode == "update":
-        update_documents(discoSSM, args.wait, args.dry_run)
+        update_documents(disco_ssm, args.wait, args.dry_run)
 
 
 if __name__ == "__main__":

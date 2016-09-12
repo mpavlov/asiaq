@@ -5,19 +5,13 @@ import os
 import logging
 import time
 import json
-from ConfigParser import NoOptionError
 
 import boto3
 
-from boto3.exceptions import Boto3Error
-from botocore.exceptions import BotoCoreError, ClientError
+from botocore.exceptions import ClientError
 from . import read_config
-from .disco_creds import DiscoS3Bucket
-from .resource_helper import throttled_call, keep_trying, wait_for_state_boto3
-from .disco_aws_util import is_truthy
-from .disco_constants import (
-    DEFAULT_CONFIG_SECTION
-)
+from .resource_helper import throttled_call, wait_for_state_boto3
+from .exceptions import TimeoutError
 
 logger = logging.getLogger(__name__)
 
@@ -70,8 +64,8 @@ class DiscoSSM(object):
         result = [doc for doc in documents if doc["Name"].startswith(DOCUMENT_PREFIX)]
         return result
 
-    def get_document(self, doc_name):
-        """ Returns the content of the document named."""
+    def get_document_content(self, doc_name):
+        """ Returns the content of the document."""
         if not doc_name.startswith(DOCUMENT_PREFIX):
             raise Exception("Document name ({0}) doesn't start with \"{1}\".".
                             format(doc_name, DOCUMENT_PREFIX))
@@ -79,16 +73,15 @@ class DiscoSSM(object):
         try:
             response = throttled_call(self.conn.get_document, Name=doc_name)
         except ClientError:
-            logger.info("Document name (%s) is invalid.", doc_name)
-            return {}
+            logger.info("Document name (%s) is not found.", doc_name)
+            return None
 
         return response.get("Content")
 
     def update(self, wait=False, dry_run=False):
         """ Updates SSM documents from configuration """
         desired_docs = set(self._list_docs_in_config())
-        existing_docs = set([doc["Name"]
-                            for doc in self.get_all_documents()])
+        existing_docs = set([doc["Name"] for doc in self.get_all_documents()])
 
         docs_to_create = desired_docs - existing_docs
         docs_to_delete = existing_docs - desired_docs
@@ -110,7 +103,7 @@ class DiscoSSM(object):
             docs_to_create |= docs_to_update
             self._create_docs(docs_to_create)
             if wait:
-                self._wait_for_docs_active(docs_to_create);
+                self._wait_for_docs_active(docs_to_create)
 
     def _create_docs(self, docs_to_create):
         for doc_name in docs_to_create:
@@ -122,10 +115,14 @@ class DiscoSSM(object):
             throttled_call(self.ssm_client.delete_document, Name=doc_name)
 
     def _check_for_update(self, docs_to_check):
+        """
+        Returns the documents whose content in the configuration is different from
+        the one currently in AWS
+        """
         docs_to_update = set()
         for doc_name in docs_to_check:
             desired_json = self._read_ssm_file(doc_name[len(DOCUMENT_PREFIX):])
-            existing_json = self._standardize_json_str(self.get_document(doc_name))
+            existing_json = self._standardize_json_str(self.get_document_content(doc_name))
 
             if desired_json != existing_json:
                 docs_to_update.add(doc_name)
@@ -161,12 +158,12 @@ class DiscoSSM(object):
 
     def _read_ssm_file(self, doc_name):
         file_path = "{0}/{1}{2}".format(SSM_DOCUMENTS_DIR, doc_name, SSM_EXT)
-        with open(file_path) as infile:
+        with open(file_path, 'r') as infile:
             ssm_content = infile.read()
 
         try:
             return self._standardize_json_str(ssm_content)
-        except ValueError as exc:
+        except ValueError:
             raise RuntimeError("Invalid SSM document file: {0}".format(file_path))
 
     def _standardize_json_str(self, json_str):

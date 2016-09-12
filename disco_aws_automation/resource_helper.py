@@ -4,7 +4,6 @@ This module has a bunch of functions about waiting for an AWS resource to become
 import logging
 import time
 
-import botocore
 from botocore.exceptions import ClientError
 from boto.exception import EC2ResponseError, BotoServerError
 
