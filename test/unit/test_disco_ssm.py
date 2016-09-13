@@ -2,7 +2,7 @@
 import copy
 import json
 from unittest import TestCase
-from mock import MagicMock, patch
+from mock import MagicMock, patch, call
 
 from botocore.exceptions import ClientError
 
@@ -42,12 +42,13 @@ MOCK_ASIAQ_DOCUMENTS = [
 ]
 MOCK_ASIAQ_DOCUMENT_CONTENTS = {
     'asiaq-ssm_document_1': '{"field1": "value1"}',
-    'asiaq-ssm_document_2': '{"field1": "value1"}',
+    'asiaq-ssm_document_2': '{"field2": "value2"}',
 }
 MOCK_ASIAQ_DOCUMENT_FILE_CONTENTS = {
     SSM_DOCUMENTS_DIR + '/asiaq-ssm_document_1.ssm': MOCK_ASIAQ_DOCUMENT_CONTENTS['asiaq-ssm_document_1'],
     SSM_DOCUMENTS_DIR + '/asiaq-ssm_document_2.ssm': MOCK_ASIAQ_DOCUMENT_CONTENTS['asiaq-ssm_document_2'],
 }
+MOCK_NEXT_TOKEN = "abcdefgABCDEFG"
 
 
 # pylint: disable=invalid-name
@@ -58,12 +59,22 @@ def mock_boto3_client(arg):
 
     mock_asiaq_documents = copy.copy(MOCK_ASIAQ_DOCUMENTS)
     mock_asiaq_document_contents = copy.copy(MOCK_ASIAQ_DOCUMENT_CONTENTS)
+    wait_flags = {'delete': True, 'create': True}
 
-    def _mock_list_documents():
-        return {
-            'DocumentIdentifiers': mock_asiaq_documents + MOCK_AWS_DOCUMENTS,
-            'NextToken': ''
-        }
+    def _mock_list_documents(NextToken=''):
+        all_documents = MOCK_AWS_DOCUMENTS + mock_asiaq_documents
+        if NextToken == '':
+            return {
+                'DocumentIdentifiers': all_documents[:len(all_documents) / 2],
+                'NextToken': MOCK_NEXT_TOKEN
+            }
+        elif NextToken == MOCK_NEXT_TOKEN:
+            return {
+                'DocumentIdentifiers': all_documents[len(all_documents) / 2:],
+                'NextToken': ''
+            }
+        else:
+            raise RuntimeError("Invalid NextToken: {0}".format(NextToken))
 
     def _mock_get_document(Name):
         if Name not in mock_asiaq_document_contents:
@@ -79,10 +90,38 @@ def mock_boto3_client(arg):
                                      'PlatformTypes': ['Linux']})
         mock_asiaq_document_contents[Name] = Content
 
+    def _mock_delete_document(Name):
+        doc_to_delete = [document for document in mock_asiaq_documents
+                         if document['Name'] == Name]
+        if doc_to_delete:
+            mock_asiaq_documents.remove(doc_to_delete[0])
+        mock_asiaq_document_contents.pop(Name, None)
+
+    def _mock_describe_document(Name):
+        # Using two wait flags to simulate that AWS is taking time to delete and
+        # create documents
+        if Name not in mock_asiaq_document_contents:
+            if wait_flags['delete']:
+                wait_flags['delete'] = False
+                return {'Document': {'Name': Name, 'Status': 'Active'}}
+            else:
+                wait_flags['delete'] = True
+                raise ClientError({'Error': {'Code': 'Mock_code', 'Message': 'mock message'}},
+                                  'DescribeDocument')
+        else:
+            if wait_flags['create']:
+                wait_flags['create'] = False
+                return {'Document': {'Name': Name, 'Status': 'Creating'}}
+            else:
+                wait_flags['create'] = True
+                return {'Document': {'Name': Name, 'Status': 'Active'}}
+
     mock_ssm = MagicMock()
     mock_ssm.list_documents.side_effect = _mock_list_documents
     mock_ssm.get_document.side_effect = _mock_get_document
     mock_ssm.create_document.side_effect = _mock_create_document
+    mock_ssm.delete_document.side_effect = _mock_delete_document
+    mock_ssm.describe_document.side_effect = _mock_describe_document
 
     return mock_ssm
 
@@ -126,8 +165,13 @@ class DiscoSSMTests(TestCase):
         # Calling the method under test
         documents = self._ssm.get_all_documents()
 
+        # Begin verifications
         # Make sure the documents returned contain only the asiaq-managed ones
         self.assertEquals(documents, MOCK_ASIAQ_DOCUMENTS)
+
+        expected_list_calls = [call(), call(NextToken=MOCK_NEXT_TOKEN)]
+        self.assertEquals(expected_list_calls,
+                          self._ssm.conn.list_documents.mock_calls)
 
     @patch('boto3.client', mock_boto3_client)
     def test_get_document_content(self):
@@ -155,7 +199,7 @@ class DiscoSSMTests(TestCase):
         # Calling the method under test
         doc_content = self._ssm.get_document_content('asiaq-random_doc')
 
-        # Verifying result
+        # Verifying results
         self.assertEquals(doc_content, None)
 
     @patch('boto3.client', mock_boto3_client)
@@ -165,18 +209,105 @@ class DiscoSSMTests(TestCase):
         """Verify that creating new documents in the update() method works"""
         # Setting up test
         mock_os_listdir.return_value = ['asiaq-ssm_document_1.ssm', 'asiaq-ssm_document_2.ssm',
-                                        'asiaq-ssm_document_3.ssm',
+                                        'asiaq-ssm_document_3.ssm', 'asiaq-ssm_document_4.ssm',
                                         'random_file1.txt', 'random_file2.jpg']
 
-        mock_doc_content = '{"random_field": "random_value"}'
+        mock_doc_content_1 = '{"random_field_1": "random_value_1"}'
+        mock_doc_content_2 = '{"random_field_2": "random_value_2"}'
         mock_file_contents = copy.copy(MOCK_ASIAQ_DOCUMENT_FILE_CONTENTS)
-        mock_file_contents[SSM_DOCUMENTS_DIR + '/asiaq-ssm_document_3.ssm'] = mock_doc_content
+        mock_file_contents[SSM_DOCUMENTS_DIR + '/asiaq-ssm_document_3.ssm'] = mock_doc_content_1
+        mock_file_contents[SSM_DOCUMENTS_DIR + '/asiaq-ssm_document_4.ssm'] = mock_doc_content_2
         mock_open.side_effect = create_mock_open(mock_file_contents)
 
         # Calling the method under test
-        self._ssm.update()
+        self._ssm.update(wait=False)
 
-        # Verify document is created successfully
-        self.assertEquals(_standardize_json_str(mock_doc_content),
+        # Verify documents are created successfully
+        self.assertEquals(_standardize_json_str(mock_doc_content_1),
                           _standardize_json_str(
                               self._ssm.get_document_content('asiaq-ssm_document_3')))
+        self.assertEquals(_standardize_json_str(mock_doc_content_2),
+                          _standardize_json_str(
+                              self._ssm.get_document_content('asiaq-ssm_document_4')))
+
+    @patch('boto3.client', mock_boto3_client)
+    @patch('os.listdir')
+    @patch('disco_aws_automation.disco_ssm.open')
+    def test_update_delete_docs(self, mock_open, mock_os_listdir):
+        """Verify that deleting documents in the update() method works"""
+        # Setting up test
+        mock_os_listdir.return_value = ['asiaq-ssm_document_2.ssm', 'random_file1.txt',
+                                        'random_file2.jpg']
+        mock_file_contents = copy.copy(MOCK_ASIAQ_DOCUMENT_FILE_CONTENTS)
+        mock_file_contents.pop(SSM_DOCUMENTS_DIR + '/asiaq-ssm_document_1.ssm', None)
+        mock_open.side_effect = create_mock_open(mock_file_contents)
+
+        # Calling the method under test
+        self._ssm.update(wait=False)
+
+        # Verify only document_1 is deleted
+        self.assertTrue(self._ssm.get_document_content('asiaq-ssm_document_1') is None)
+        self.assertEquals(_standardize_json_str(MOCK_ASIAQ_DOCUMENT_CONTENTS['asiaq-ssm_document_2']),
+                          _standardize_json_str(
+                              self._ssm.get_document_content('asiaq-ssm_document_2')))
+
+    @patch('boto3.client', mock_boto3_client)
+    @patch('os.listdir')
+    @patch('disco_aws_automation.disco_ssm.open')
+    def test_update_modify_docs(self, mock_open, mock_os_listdir):
+        """Verify that modifying documents in the update() method works"""
+        # Setting up test
+        mock_os_listdir.return_value = ['asiaq-ssm_document_1.ssm', 'asiaq-ssm_document_2.ssm',
+                                        'random_file1.txt', 'random_file2.jpg']
+
+        new_doc_1_content = '{"random_field_1": "random_value_1"}'
+        mock_file_contents = copy.copy(MOCK_ASIAQ_DOCUMENT_FILE_CONTENTS)
+        mock_file_contents[SSM_DOCUMENTS_DIR + '/asiaq-ssm_document_1.ssm'] = new_doc_1_content
+        mock_open.side_effect = create_mock_open(mock_file_contents)
+
+        # Calling the method under test
+        self._ssm.update(wait=False)
+
+        # Verify only document_1 is modified
+        self.assertEquals(_standardize_json_str(new_doc_1_content),
+                          _standardize_json_str(
+                              self._ssm.get_document_content('asiaq-ssm_document_1')))
+        self.assertEquals(_standardize_json_str(MOCK_ASIAQ_DOCUMENT_CONTENTS['asiaq-ssm_document_2']),
+                          _standardize_json_str(
+                              self._ssm.get_document_content('asiaq-ssm_document_2')))
+
+    @patch('boto3.client', mock_boto3_client)
+    @patch('os.listdir')
+    @patch('disco_aws_automation.disco_ssm.open')
+    @patch('disco_aws_automation.disco_ssm.SSM_WAIT_TIMEOUT')
+    @patch('disco_aws_automation.disco_ssm.SSM_WAIT_SLEEP_INTERVAL')
+    def test_update_modify_docs_wait(self, mock_wait_interval, mock_wait_timeout,
+                                     mock_open, mock_os_listdir):
+        """Verify that modifying documents in the update() method works with wait set to true"""
+        # Setting up test
+        mock_os_listdir.return_value = ['asiaq-ssm_document_1.ssm', 'asiaq-ssm_document_2.ssm',
+                                        'random_file1.txt', 'random_file2.jpg']
+
+        new_doc_1_content = '{"random_field_1": "random_value_1"}'
+        mock_file_contents = copy.copy(MOCK_ASIAQ_DOCUMENT_FILE_CONTENTS)
+        mock_file_contents[SSM_DOCUMENTS_DIR + '/asiaq-ssm_document_1.ssm'] = new_doc_1_content
+        mock_open.side_effect = create_mock_open(mock_file_contents)
+        mock_wait_timeout.return_value = 1
+        mock_wait_interval.return_value = 1
+
+        # Calling the method under test
+        self._ssm.update(wait=True)
+
+        # Verify only document_1 is modified
+        describe_call = call(Name='asiaq-ssm_document_1')
+        # Expecting describe_document() to be called four times: two for delete, two for create
+        expected_describe_calls = [describe_call, describe_call, describe_call, describe_call]
+        self.assertEquals(expected_describe_calls,
+                          self._ssm.conn.describe_document.mock_calls)
+
+        self.assertEquals(_standardize_json_str(new_doc_1_content),
+                          _standardize_json_str(
+                              self._ssm.get_document_content('asiaq-ssm_document_1')))
+        self.assertEquals(_standardize_json_str(MOCK_ASIAQ_DOCUMENT_CONTENTS['asiaq-ssm_document_2']),
+                          _standardize_json_str(
+                              self._ssm.get_document_content('asiaq-ssm_document_2')))
