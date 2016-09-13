@@ -7,6 +7,7 @@ from mock import MagicMock, patch, call
 from botocore.exceptions import ClientError
 
 from disco_aws_automation import DiscoSSM
+from disco_aws_automation import disco_ssm
 from disco_aws_automation.disco_ssm import SSM_DOCUMENTS_DIR
 
 from test.helpers.patch_disco_aws import (get_mock_config,
@@ -279,10 +280,7 @@ class DiscoSSMTests(TestCase):
     @patch('boto3.client', mock_boto3_client)
     @patch('os.listdir')
     @patch('disco_aws_automation.disco_ssm.open')
-    @patch('disco_aws_automation.disco_ssm.SSM_WAIT_TIMEOUT')
-    @patch('disco_aws_automation.disco_ssm.SSM_WAIT_SLEEP_INTERVAL')
-    def test_update_modify_docs_wait(self, mock_wait_interval, mock_wait_timeout,
-                                     mock_open, mock_os_listdir):
+    def test_update_modify_docs_wait(self, mock_open, mock_os_listdir):
         """Verify that modifying documents in the update() method works with wait set to true"""
         # Setting up test
         mock_os_listdir.return_value = ['asiaq-ssm_document_1.ssm', 'asiaq-ssm_document_2.ssm',
@@ -292,8 +290,8 @@ class DiscoSSMTests(TestCase):
         mock_file_contents = copy.copy(MOCK_ASIAQ_DOCUMENT_FILE_CONTENTS)
         mock_file_contents[SSM_DOCUMENTS_DIR + '/asiaq-ssm_document_1.ssm'] = new_doc_1_content
         mock_open.side_effect = create_mock_open(mock_file_contents)
-        mock_wait_timeout.return_value = 1
-        mock_wait_interval.return_value = 1
+        disco_ssm.SSM_WAIT_TIMEOUT = 1
+        disco_ssm.SSM_WAIT_SLEEP_INTERVAL = 1
 
         # Calling the method under test
         self._ssm.update(wait=True)
