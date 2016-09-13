@@ -7,8 +7,8 @@ import time
 import json
 
 import boto3
-
 from botocore.exceptions import ClientError
+
 from . import read_config
 from .resource_helper import throttled_call, wait_for_state_boto3
 from .exceptions import TimeoutError
@@ -20,7 +20,7 @@ SSM_DOCUMENTS_DIR = "ssm/documents"
 SSM_EXT = ".ssm"
 SSM_WAIT_TIMEOUT = 5 * 60
 SSM_WAIT_SLEEP_INTERVAL = 15
-DOCUMENT_PREFIX = "asiaq-"
+AWS_DOCUMENT_PREFIX = "AWS-"
 
 
 class DiscoSSM(object):
@@ -61,14 +61,14 @@ class DiscoSSM(object):
             if not next_token:
                 break
 
-        result = [doc for doc in documents if doc["Name"].startswith(DOCUMENT_PREFIX)]
+        result = [doc for doc in documents
+                  if self._check_valid_doc_prefix(doc["Name"])]
         return result
 
     def get_document_content(self, doc_name):
         """ Returns the content of the document."""
-        if not doc_name.startswith(DOCUMENT_PREFIX):
-            raise Exception("Document name ({0}) doesn't start with \"{1}\".".
-                            format(doc_name, DOCUMENT_PREFIX))
+        if not self._check_valid_doc_prefix(doc_name):
+            raise Exception("Document name ({0}) has an invalid prefix.".format(doc_name))
 
         try:
             response = throttled_call(self.conn.get_document, Name=doc_name)
@@ -107,12 +107,14 @@ class DiscoSSM(object):
 
     def _create_docs(self, docs_to_create):
         for doc_name in docs_to_create:
-            ssm_json = self._read_ssm_file(doc_name[len(DOCUMENT_PREFIX):])
+            ssm_json = self._read_ssm_file(doc_name)
+            logger.debug("Creating document: %s", doc_name)
             throttled_call(self.conn.create_document, Content=ssm_json, Name=doc_name)
 
     def _delete_docs(self, docs_to_delete):
         for doc_name in docs_to_delete:
-            throttled_call(self.ssm_client.delete_document, Name=doc_name)
+            logger.debug("Deleting document: %s", doc_name)
+            throttled_call(self.conn.delete_document, Name=doc_name)
 
     def _check_for_update(self, docs_to_check):
         """
@@ -121,7 +123,7 @@ class DiscoSSM(object):
         """
         docs_to_update = set()
         for doc_name in docs_to_check:
-            desired_json = self._read_ssm_file(doc_name[len(DOCUMENT_PREFIX):])
+            desired_json = self._read_ssm_file(doc_name)
             existing_json = self._standardize_json_str(self.get_document_content(doc_name))
 
             if desired_json != existing_json:
@@ -135,8 +137,11 @@ class DiscoSSM(object):
 
             while True:
                 try:
-                    self.ssm_client.describe_document(Name=doc_name)
+                    self.conn.describe_document(Name=doc_name)
                 except ClientError:
+                    # When the document is deleted, calling the describe method would
+                    # result in a ClientError being thrown, that's when we know the document
+                    # has been deleted.
                     break
 
                 if time_passed >= SSM_WAIT_TIMEOUT:
@@ -149,7 +154,7 @@ class DiscoSSM(object):
 
     def _wait_for_docs_active(self, docs_to_wait):
         for doc_name in docs_to_wait:
-            wait_for_state_boto3(describe_func=self.ssm_client.describe_document,
+            wait_for_state_boto3(describe_func=self.conn.describe_document,
                                  params_dict={"Name": doc_name},
                                  resources_name="Document",
                                  expected_state="Active",
@@ -171,5 +176,9 @@ class DiscoSSM(object):
 
     def _list_docs_in_config(self):
         document_files = os.listdir(SSM_DOCUMENTS_DIR)
-        return ["{0}{1}".format(DOCUMENT_PREFIX, document[:-len(SSM_EXT)])
-                for document in document_files if document.endswith(SSM_EXT)]
+        return [document[:-len(SSM_EXT)]
+                for document in document_files
+                if document.endswith(SSM_EXT) and self._check_valid_doc_prefix(document)]
+
+    def _check_valid_doc_prefix(self, doc_name):
+        return not doc_name.startswith(AWS_DOCUMENT_PREFIX)

@@ -29,7 +29,7 @@ def parse_args():
                             help="The name of the document")
 
     # update document mode
-    parser_update = subparsers.add_parser("update-document",
+    parser_update = subparsers.add_parser("update-documents",
                                           help="Update all SSM documents to reflect what's in configuration")
     parser_update.set_defaults(mode="update-documents")
     parser_update.add_argument('--wait', dest='wait', action='store_const', const=True, default=False,
@@ -64,6 +64,8 @@ def print_content(disco_ssm, name):
 def update_documents(disco_ssm, wait, dry_run):
     """ Update all SSM documents to reflect what's in configuration """
     disco_ssm.update(wait, dry_run)
+    if not dry_run:
+        print "Done"
 
 
 def run():

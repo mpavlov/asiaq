@@ -1,8 +1,8 @@
 """Tests of disco_ssm"""
 import copy
+import json
 from unittest import TestCase
 from mock import MagicMock, patch
-import json
 
 from botocore.exceptions import ClientError
 
@@ -13,18 +13,17 @@ from test.helpers.patch_disco_aws import (get_mock_config,
                                           TEST_ENV_NAME)
 
 MOCK_AWS_CONFIG_DEFINITION = {
-    "disco_aws": {
-        "default_environment": TEST_ENV_NAME,
-    }
-}
-MOCK_RANDOM_DOCUMENTS = [
+    'disco_aws': {
+        'default_environment': TEST_ENV_NAME,
+    }}
+MOCK_AWS_DOCUMENTS = [
     {
-        'Name': 'random_document_1',
+        'Name': 'AWS-document_1',
         'Owner': 'mock_owner',
         'PlatformTypes': ['Linux']
     },
     {
-        'Name': 'random_document_2',
+        'Name': 'AWS-document_2',
         'Owner': 'mock_owner',
         'PlatformTypes': ['Linux']
     }
@@ -46,11 +45,12 @@ MOCK_ASIAQ_DOCUMENT_CONTENTS = {
     'asiaq-ssm_document_2': '{"field1": "value1"}',
 }
 MOCK_ASIAQ_DOCUMENT_FILE_CONTENTS = {
-    SSM_DOCUMENTS_DIR + '/ssm_document_1.ssm': MOCK_ASIAQ_DOCUMENT_CONTENTS['asiaq-ssm_document_1'],
-    SSM_DOCUMENTS_DIR + '/ssm_document_2.ssm': MOCK_ASIAQ_DOCUMENT_CONTENTS['asiaq-ssm_document_2'],
+    SSM_DOCUMENTS_DIR + '/asiaq-ssm_document_1.ssm': MOCK_ASIAQ_DOCUMENT_CONTENTS['asiaq-ssm_document_1'],
+    SSM_DOCUMENTS_DIR + '/asiaq-ssm_document_2.ssm': MOCK_ASIAQ_DOCUMENT_CONTENTS['asiaq-ssm_document_2'],
 }
 
 
+# pylint: disable=invalid-name
 def mock_boto3_client(arg):
     """ mock method for boto3.client() """
     if arg != "ssm":
@@ -59,13 +59,13 @@ def mock_boto3_client(arg):
     mock_asiaq_documents = copy.copy(MOCK_ASIAQ_DOCUMENTS)
     mock_asiaq_document_contents = copy.copy(MOCK_ASIAQ_DOCUMENT_CONTENTS)
 
-    def mock_list_documents():
+    def _mock_list_documents():
         return {
-            'DocumentIdentifiers': mock_asiaq_documents + MOCK_RANDOM_DOCUMENTS,
+            'DocumentIdentifiers': mock_asiaq_documents + MOCK_AWS_DOCUMENTS,
             'NextToken': ''
         }
 
-    def mock_get_document(Name):
+    def _mock_get_document(Name):
         if Name not in mock_asiaq_document_contents:
             raise ClientError({'Error': {'Code': 'Mock_code', 'Message': 'mock message'}},
                               'GetDocument')
@@ -73,16 +73,16 @@ def mock_boto3_client(arg):
         return {'Name': Name,
                 'Content': mock_asiaq_document_contents[Name]}
 
-    def mock_create_document(Content, Name):
+    def _mock_create_document(Content, Name):
         mock_asiaq_documents.append({'Name': Name,
                                      'Owner': 'mock_owner',
                                      'PlatformTypes': ['Linux']})
         mock_asiaq_document_contents[Name] = Content
 
     mock_ssm = MagicMock()
-    mock_ssm.list_documents.side_effect = mock_list_documents
-    mock_ssm.get_document.side_effect = mock_get_document
-    mock_ssm.create_document.side_effect = mock_create_document
+    mock_ssm.list_documents.side_effect = _mock_list_documents
+    mock_ssm.get_document.side_effect = _mock_get_document
+    mock_ssm.create_document.side_effect = _mock_create_document
 
     return mock_ssm
 
@@ -92,7 +92,7 @@ def create_mock_open(content_dict):
     Creates a mock open method that returns the file content based
     on the dict being passed in
     """
-    def mock_open(file_name, mode):
+    def _mock_open(file_name, mode):
         if file_name not in content_dict:
             raise RuntimeError("File name ({0}) not in content dict.".format(file_name))
 
@@ -104,18 +104,17 @@ def create_mock_open(content_dict):
         mock_file.read.return_value = content_dict[file_name]
         return mock_file
 
-    return mock_open
+    return _mock_open
 
 
 def _standardize_json_str(json_str):
-        return json.dumps(json.loads(json_str), indent=4)
+    return json.dumps(json.loads(json_str), indent=4)
 
 
 class DiscoSSMTests(TestCase):
     """Test DiscoSSM"""
 
     def setUp(self):
-        
         config_aws = get_mock_config(MOCK_AWS_CONFIG_DEFINITION)
         self._ssm = DiscoSSM(environment_name=TEST_ENV_NAME,
                              config_aws=config_aws)
@@ -143,14 +142,14 @@ class DiscoSSMTests(TestCase):
         self.assertEquals(doc_content_2, MOCK_ASIAQ_DOCUMENT_CONTENTS['asiaq-ssm_document_2'])
 
     @patch('boto3.client', mock_boto3_client)
-    def test_get_document_content_invalid_doc_name(self):
+    def test_get_document_invalid_doc_name(self):
         """Verify correct error is thrown when doc_name is invalid"""
 
         # Calling the method under test
-        self.assertRaises(Exception, self._ssm.get_document_content, doc_name='random_doc')
+        self.assertRaises(Exception, self._ssm.get_document_content, doc_name='AWS-doc')
 
     @patch('boto3.client', mock_boto3_client)
-    def test_get_document_content_doc_name_not_found(self):
+    def test_get_document_doc_name_not_found(self):
         """Verify no content is returned when doc_name is not found"""
 
         # Calling the method under test
@@ -165,13 +164,13 @@ class DiscoSSMTests(TestCase):
     def test_update_create_docs(self, mock_open, mock_os_listdir):
         """Verify that creating new documents in the update() method works"""
         # Setting up test
-        mock_os_listdir.return_value = ['ssm_document_1.ssm', 'ssm_document_2.ssm',
-                                        'ssm_document_3.ssm',
+        mock_os_listdir.return_value = ['asiaq-ssm_document_1.ssm', 'asiaq-ssm_document_2.ssm',
+                                        'asiaq-ssm_document_3.ssm',
                                         'random_file1.txt', 'random_file2.jpg']
 
         mock_doc_content = '{"random_field": "random_value"}'
         mock_file_contents = copy.copy(MOCK_ASIAQ_DOCUMENT_FILE_CONTENTS)
-        mock_file_contents[SSM_DOCUMENTS_DIR + '/ssm_document_3.ssm'] = mock_doc_content
+        mock_file_contents[SSM_DOCUMENTS_DIR + '/asiaq-ssm_document_3.ssm'] = mock_doc_content
         mock_open.side_effect = create_mock_open(mock_file_contents)
 
         # Calling the method under test
@@ -180,4 +179,4 @@ class DiscoSSMTests(TestCase):
         # Verify document is created successfully
         self.assertEquals(_standardize_json_str(mock_doc_content),
                           _standardize_json_str(
-                            self._ssm.get_document_content('asiaq-ssm_document_3')))
+                              self._ssm.get_document_content('asiaq-ssm_document_3')))
