@@ -226,7 +226,11 @@ class DiscoVPCGateways(object):
             if not dry_run:
                 network.delete_nat_gateways()
         else:
-            eips = [eip.strip() for eip in eips.split(",")]
+            if eips.lower() == "auto":
+                eips = [self.eip.allocate() for _ in range(len(self.network.disco_subnets.values()))]
+                logging.info("Allocated temporary NAT EIPs: {1}".format(" ".join(eips)))
+            else:
+                eips = [eip.strip() for eip in eips.split(",")]
             allocation_ids = []
             for eip in eips:
                 address = self.eip.find_eip_address(eip)
@@ -273,3 +277,15 @@ class DiscoVPCGateways(object):
         # Need to wait for all the NAT gateways to be deleted
         wait_for_state_boto3(self.boto3_ec2.describe_nat_gateways, filter_params,
                              'NatGateways', 'deleted', 'State')
+
+        #Release EIPs of auto-
+        eips = {
+            gw['SubnetId']: gw['NatGatewayAddresses'][0]['PublicIp']
+            for gw in gateways['NatGateways']
+        }
+        for network in self.disco_vpc.networks.values():
+            nat_gateways = self.disco_vpc.get_config("{0}_nat_gateways".format(network.name))
+            if nat_gateways and nat_gateways.lower() == "auto"
+                for subnet_id in network.subnet_ids():
+                    if subnet_id in eips:
+                        self.eip.release(eips[subnet_id])

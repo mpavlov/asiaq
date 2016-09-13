@@ -176,8 +176,17 @@ class DiscoMetaNetwork(object):
         """
         return [
             IPNetwork(subnet.subnet_dict['CidrBlock'])
-            for subnet in
-            self.disco_subnets.values()
+            for subnet in self.disco_subnets.values()
+        ]
+
+    @property
+    def subnet_ids(self):
+        """
+        Return subnet ids
+        """
+        return [
+            subnet.subnet_dict['SubnetId']
+            for subnet in self.disco_subnets.values()
         ]
 
     def add_nat_gateways(self, allocation_ids):
