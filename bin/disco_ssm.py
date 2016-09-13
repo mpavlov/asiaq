@@ -32,8 +32,8 @@ def parse_args():
     parser_update = subparsers.add_parser("update-documents",
                                           help="Update all SSM documents to reflect what's in configuration")
     parser_update.set_defaults(mode="update-documents")
-    parser_update.add_argument('--wait', dest='wait', action='store_const', const=True, default=False,
-                               help="Wait for all the updates to finish before existing the command")
+    parser_update.add_argument('--no-wait', dest='no_wait', action='store_const', const=True, default=False,
+                               help="Return immediately without waiting for all the updates to finish")
     parser_update.add_argument('--dry-run', dest='dry_run', action='store_const', const=True,
                                default=False, help="Test run the update command")
 
@@ -61,9 +61,9 @@ def print_content(disco_ssm, name):
         print doc
 
 
-def update_documents(disco_ssm, wait, dry_run):
+def update_documents(disco_ssm, no_wait, dry_run):
     """ Update all SSM documents to reflect what's in configuration """
-    disco_ssm.update(wait, dry_run)
+    disco_ssm.update(not no_wait, dry_run)
     if not dry_run:
         print "Done"
 
@@ -80,7 +80,7 @@ def run():
     elif args.mode == "get-document":
         print_content(disco_ssm, args.name)
     elif args.mode == "update-documents":
-        update_documents(disco_ssm, args.wait, args.dry_run)
+        update_documents(disco_ssm, args.no_wait, args.dry_run)
 
 
 if __name__ == "__main__":

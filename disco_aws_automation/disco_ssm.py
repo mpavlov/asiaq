@@ -78,7 +78,7 @@ class DiscoSSM(object):
 
         return response.get("Content")
 
-    def update(self, wait=False, dry_run=False):
+    def update(self, wait=True, dry_run=False):
         """ Updates SSM documents from configuration """
         desired_docs = set(self._list_docs_in_config())
         existing_docs = set([doc["Name"] for doc in self.get_all_documents()])
