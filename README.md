@@ -2090,7 +2090,7 @@ Clone a database from a different environment into the current environment. The 
 SSM
 -------------------
 
-Asiaq supports the use of *Amazon EC2 Run Command* and *SSM Config* to achieve remotely executing a set of pre-defined commands on any EC2 instance, which would not have been possible if SSH access to the instance is not allowed. While *Amazon EC2 Run Command* specifies how the commands are executed, *SSM Config* allows for defining the commands that can be executed. Each command definition is individually configured in an SSM document. For more info on SSM, please visit the [AWS documentation](http://docs.aws.amazon.com/ssm/latest/APIReference/Welcome.html).
+Asiaq supports the use of *Amazon EC2 Run Command* and *SSM Config* to achieve remote execution of a set of pre-defined commands on any EC2 instance, which would not have been possible if SSH access to the instance is not allowed. While *Amazon EC2 Run Command* specifies how the commands are executed, *SSM Config* allows for defining the commands that can be executed. Each command definition is individually configured in an SSM document. For more info on SSM, please visit the [AWS documentation](http://docs.aws.amazon.com/ssm/latest/APIReference/Welcome.html).
 
 ### Commands and Configuration
 
