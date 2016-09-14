@@ -1176,14 +1176,14 @@ disco_eip.py, or temporary EIPs can be used which get released with deletion of 
 VPC. Static ips are preferred if you want to whitelist your outgoing IPs in other
 systems.
 
-To set up dynamic outbound IPs and allow all subnets to make use of NAT convigure
+To set up dynamic outbound IPs and allow all subnets to make use of NAT configure
 network as follows:
 
     tunnel_igw_routes=0.0.0.0/0
     tunnel_nat_gateways=auto
     nat_gateway_routes=intranet/tunnel dmz/tunnel maintenance/tunnel
 
-To set up static outboud IPs you must be sure to specify as many IPs as there are
+To set up static outbound IPs you must be sure to specify as many IPs as there are
 Availability Zones (at time of writing there are three). Configuration below only
 allows one metanetwork (intranet) to make use of the NAT:
 
