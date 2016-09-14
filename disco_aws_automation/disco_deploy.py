@@ -497,7 +497,7 @@ class DiscoDeploy(object):
                         except TimeoutError:
                             logger.exception("Waiting for health of instances attached to ELB timed out")
                             # Destroy the testing ASG
-                            self._disco_autoscale.delete_groups(group_name=new_group.name, force=True)
+                            # self._disco_autoscale.delete_groups(group_name=new_group.name, force=True)
                             if uses_elb:
                                 # Destroy the testing ELB
                                 self._disco_elb.delete_elb(hostclass, testing=True)
@@ -509,10 +509,10 @@ class DiscoDeploy(object):
                     # we can destroy the old group
                     if old_group:
                         # Empty the original ASG for connection draining purposes
-                        self._disco_autoscale.scaledown_groups(group_name=old_group.name, wait=True,
-                                                               noerror=True)
+                        # self._disco_autoscale.scaledown_groups(group_name=old_group.name, wait=True,  noerror=True)
                         # Destroy the original ASG
-                        self._disco_autoscale.delete_groups(group_name=old_group.name, force=True)
+                        # self._disco_autoscale.delete_groups(group_name=old_group.name, force=True)
+                        pass
                     if uses_elb:
                         # Destroy the testing ELB
                         self._disco_elb.delete_elb(hostclass, testing=True)
