@@ -8,7 +8,7 @@ import time
 from boto.exception import EC2ResponseError
 
 from .resource_helper import (
-    wait_for_state_boto3, find_or_create, create_filters, throttled_call)
+    wait_for_state_boto3, find_or_create, create_filters, throttled_call, keep_trying)
 from .disco_eip import DiscoEIP
 from .exceptions import (TimeoutError, EIPConfigError)
 
@@ -226,7 +226,18 @@ class DiscoVPCGateways(object):
             if not dry_run:
                 network.delete_nat_gateways()
         else:
-            eips = [eip.strip() for eip in eips.split(",")]
+            if eips.lower() == "auto":
+                subnets = network.subnet_ids
+                eips = [self.eip.allocate().public_ip for _ in range(len(subnets))]
+                logger.info("Allocated temporary NAT EIPs: %s.", " ".join(eips))
+                keep_trying(
+                    60,
+                    self.boto3_ec2.create_tags,
+                    Resources=subnets,
+                    Tags=[{'Key': 'dynonat', 'Value': ''}]
+                )
+            else:
+                eips = [eip.strip() for eip in eips.split(",")]
             allocation_ids = []
             for eip in eips:
                 address = self.eip.find_eip_address(eip)
@@ -264,12 +275,33 @@ class DiscoVPCGateways(object):
 
     def destroy_nat_gateways(self):
         """ Find all NAT gateways belonging to a vpc and destroy them"""
-        filter_params = {'Filters': create_filters({'vpc-id': [self.disco_vpc.vpc['VpcId']]})}
+        nat_filter = {'Filters': create_filters({'vpc-id': [self.disco_vpc.vpc['VpcId']]})}
+        nat_gateways = throttled_call(self.boto3_ec2.describe_nat_gateways, **nat_filter)['NatGateways']
 
-        nat_gateways = throttled_call(self.boto3_ec2.describe_nat_gateways, **filter_params)['NatGateways']
         for nat_gateway in nat_gateways:
             throttled_call(self.boto3_ec2.delete_nat_gateway, NatGatewayId=nat_gateway['NatGatewayId'])
 
         # Need to wait for all the NAT gateways to be deleted
-        wait_for_state_boto3(self.boto3_ec2.describe_nat_gateways, filter_params,
+        wait_for_state_boto3(self.boto3_ec2.describe_nat_gateways, nat_filter,
                              'NatGateways', 'deleted', 'State')
+
+        # Release EIPs of dynamically configured subnets
+        subnet_filter = {'Filters': create_filters(
+            {
+                'vpc-id': [self.disco_vpc.vpc['VpcId']],
+                'tag-key': ['dynonat']
+            }
+        )}
+        subnet_ids = [
+            sn['SubnetId']
+            for sn in throttled_call(self.boto3_ec2.describe_subnets, **subnet_filter)['Subnets']
+        ]
+        eips = [
+            gw['NatGatewayAddresses'][0]['PublicIp']
+            for gw in nat_gateways
+            if gw['SubnetId'] in subnet_ids
+        ]
+        if eips:
+            logger.info("Releasing temporary NAT EIPs: %s.", " ".join(eips))
+        for eip in eips:
+            self.eip.release(eip)
