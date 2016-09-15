@@ -125,8 +125,8 @@ class DiscoELB(object):
                            'Target': target,
                            'Interval': 5,
                            'Timeout': 4,
-                           'UnhealthyThreshold': 2,
-                           'HealthyThreshold': 2})
+                           'UnhealthyThreshold': 5,
+                           'HealthyThreshold': 10})
 
     def _setup_sticky_cookies(self, elb_id, elb_ports, sticky_app_cookie, elb_name):
         policies = throttled_call(self.elb_client.describe_load_balancer_policies,
