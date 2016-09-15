@@ -29,6 +29,7 @@ Table of Contents
   * [ElastiCache](#elasticache)
   * [Elasticsearch](#elasticsearch)
   * [RDS](#rds)
+  * [SSM](#ssm)
   * [Testing a hostclass](#testing-hostclasses)
 
 
@@ -2112,6 +2113,38 @@ Delete old database snapshots.
 Clone a database from a different environment into the current environment. The new database will copy all configuration options from the source database and use the most recent database snapshot from source database.
 
     disco_rds.py clone [--env ENV] --source-db SOURCE_DB --source-env SOURCE_ENV
+
+SSM
+-------------------
+
+Asiaq supports the use of *Amazon EC2 Run Command* and *SSM Config* to achieve remote execution of a set of pre-defined commands on any EC2 instance, which would not have been possible if SSH access to the instance is not allowed. While *Amazon EC2 Run Command* specifies how the commands are executed, *SSM Config* allows for defining the commands that can be executed. Each command definition is individually configured in an SSM document. For more info on SSM, please visit the [AWS documentation](http://docs.aws.amazon.com/ssm/latest/APIReference/Welcome.html).
+
+### Commands and Configuration
+
+The Asiaq command for provisioning SSM documents is `disco_ssm.py`. It operates based on the configuration files defined in the `ssm/documents` directory.
+
+To get a list of the existing SSM documents currently defined in AWS:
+
+    disco_ssm.py list-documents
+
+To view the content of an existing document:
+
+    disco_ssm.py get-documents --name DOCUMENT_NAME
+
+To create a new document, first create a `DOCUMENT_NAME.ssm` file with the document content in `ssm/documents`. Then run the following `update-documents` command. Note that the final document name in AWS would be the same as the `DOCUMENT_NAME` you specify in the file name.
+
+    disco_ssm.py update-documents
+
+To modify or delete a document, first update the content of the file or remove the file from `ssm/documents`, respectively. Then run the same `update-documents` command as creating a new document.
+
+By default, the `update-documents` command waits for all the operations to finish before existing. This behavior can be changed by using the `--no-wait` flag.
+
+    disco_ssm.py update-documents --no-wait
+
+The `update-documents` command also accepts the `--dry-run` flag, which causes the command display the changes that would have been applied to AWS if the flag was not specified.
+
+    disco_ssm.py update-documents --dry-run
+
 
 Testing Hostclasses
 -------------------
