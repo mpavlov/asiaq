@@ -29,6 +29,7 @@ Table of Contents
   * [ElastiCache](#elasticache)
   * [Elasticsearch](#elasticsearch)
   * [RDS](#rds)
+  * [SSM](#ssm)
   * [Testing a hostclass](#testing-hostclasses)
 
 
@@ -1165,6 +1166,33 @@ customer has two VPNs:
 
     dmz_igw_routes=1.2.3.4/32 1.2.3.5/32
 
+#### NAT
+
+NAT is used to allow instances to talk to internet without having public IP's.
+The NAT must be placed into metanetwork with IGW so it can connect to internet
+itself. Then routes can be added to other metanetworks to allow them to communicate
+to internet through NAT. AWS requires assignment of EIPs to a NAT, asiaq supports
+two modes of EIP assignment: Long-lived static EIPs which are reserved using
+disco_eip.py, or temporary EIPs can be used which get released with deletion of the
+VPC. Static ips are preferred if you want to whitelist your outgoing IPs in other
+systems.
+
+To set up dynamic outbound IPs and allow all subnets to make use of NAT configure
+network as follows:
+
+    tunnel_igw_routes=0.0.0.0/0
+    tunnel_nat_gateways=auto
+    nat_gateway_routes=intranet/tunnel dmz/tunnel maintenance/tunnel
+
+To set up static outbound IPs you must be sure to specify as many IPs as there are
+Availability Zones (at time of writing there are three). Configuration below only
+allows one metanetwork (intranet) to make use of the NAT:
+
+    tunnel_igw_routes=0.0.0.0/0
+    tunnel_nat_gateways=52.0.0.1 52.0.0.2 52.0.0.3
+    nat_gateway_routes=intranet/tunnel
+
+
 #### DHCP Settings
 
 AWS allows to pass in some custom values to be subsequently handed out
@@ -2002,6 +2030,7 @@ archive_max_shards=             # The maximum number of shards allowed by the gr
 archive_role=                   # Name of the assumed role used by the archival process (string)
 archive_index_prefix_pattern=   # Regex pattern used to match with the Elasticsearch indices that are included in the archival process. This pattern only tries to match the naming part of the indices before the date string. (string)
 archive_repository=             # Name of the repository used to store the index snapshots (string)
+version=                        # Version of Elasticsearch. See http://docs.aws.amazon.com/elasticsearch-service/latest/developerguide/es-configuration-api.html
 ```
 
 Additionally, access to the Elasticsearch endpoint is restricted based on IP address via Access Policy. Instances in a VPC need to ship logs to Elasticsearch via a proxy server. This proxy server's IP is read from `disco_aws.ini`. The important options are `proxy_hostclass` in the `disco_aws` section as well as the `eip` in the hostclass section referenced from the `proxy_hostclass` option.
@@ -2084,6 +2113,38 @@ Delete old database snapshots.
 Clone a database from a different environment into the current environment. The new database will copy all configuration options from the source database and use the most recent database snapshot from source database.
 
     disco_rds.py clone [--env ENV] --source-db SOURCE_DB --source-env SOURCE_ENV
+
+SSM
+-------------------
+
+Asiaq supports the use of *Amazon EC2 Run Command* and *SSM Config* to achieve remote execution of a set of pre-defined commands on any EC2 instance, which would not have been possible if SSH access to the instance is not allowed. While *Amazon EC2 Run Command* specifies how the commands are executed, *SSM Config* allows for defining the commands that can be executed. Each command definition is individually configured in an SSM document. For more info on SSM, please visit the [AWS documentation](http://docs.aws.amazon.com/ssm/latest/APIReference/Welcome.html).
+
+### Commands and Configuration
+
+The Asiaq command for provisioning SSM documents is `disco_ssm.py`. It operates based on the configuration files defined in the `ssm/documents` directory.
+
+To get a list of the existing SSM documents currently defined in AWS:
+
+    disco_ssm.py list-documents
+
+To view the content of an existing document:
+
+    disco_ssm.py get-documents --name DOCUMENT_NAME
+
+To create a new document, first create a `DOCUMENT_NAME.ssm` file with the document content in `ssm/documents`. Then run the following `update-documents` command. Note that the final document name in AWS would be the same as the `DOCUMENT_NAME` you specify in the file name.
+
+    disco_ssm.py update-documents
+
+To modify or delete a document, first update the content of the file or remove the file from `ssm/documents`, respectively. Then run the same `update-documents` command as creating a new document.
+
+By default, the `update-documents` command waits for all the operations to finish before existing. This behavior can be changed by using the `--no-wait` flag.
+
+    disco_ssm.py update-documents --no-wait
+
+The `update-documents` command also accepts the `--dry-run` flag, which causes the command display the changes that would have been applied to AWS if the flag was not specified.
+
+    disco_ssm.py update-documents --dry-run
+
 
 Testing Hostclasses
 -------------------

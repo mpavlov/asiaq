@@ -46,12 +46,12 @@ class DiscoAWSTests(TestCase):
     def test_create_scaling_schedule_only_desired(self, mock_config, **kwargs):
         """test create_scaling_schedule with only desired schedule"""
         aws = DiscoAWS(config=mock_config, environment_name=TEST_ENV_NAME, autoscale=MagicMock())
-        aws.create_scaling_schedule("mhcboo", "1", "2@1 0 * * *:3@6 0 * * *", "5")
+        aws.create_scaling_schedule("1", "2@1 0 * * *:3@6 0 * * *", "5", hostclass="mhcboo")
         aws.autoscale.assert_has_calls([
-            call.delete_all_recurring_group_actions(hostclass='mhcboo'),
-            call.create_recurring_group_action('1 0 * * *', hostclass='mhcboo',
+            call.delete_all_recurring_group_actions(hostclass='mhcboo', group_name=None),
+            call.create_recurring_group_action('1 0 * * *', hostclass='mhcboo', group_name=None,
                                                min_size=None, desired_capacity=2, max_size=None),
-            call.create_recurring_group_action('6 0 * * *', hostclass='mhcboo',
+            call.create_recurring_group_action('6 0 * * *', hostclass='mhcboo', group_name=None,
                                                min_size=None, desired_capacity=3, max_size=None)
         ], any_order=True)
 
@@ -59,22 +59,26 @@ class DiscoAWSTests(TestCase):
     def test_create_scaling_schedule_no_sched(self, mock_config, **kwargs):
         """test create_scaling_schedule with only desired schedule"""
         aws = DiscoAWS(config=mock_config, environment_name=TEST_ENV_NAME, autoscale=MagicMock())
-        aws.create_scaling_schedule("mhcboo", "1", "2", "5")
-        aws.autoscale.assert_has_calls([call.delete_all_recurring_group_actions(hostclass='mhcboo')])
+        aws.create_scaling_schedule("1", "2", "5", hostclass="mhcboo")
+        aws.autoscale.assert_has_calls([
+            call.delete_all_recurring_group_actions(hostclass='mhcboo', group_name=None)
+        ])
 
     @patch_disco_aws
     def test_create_scaling_schedule_overlapping(self, mock_config, **kwargs):
         """test create_scaling_schedule with only desired schedule"""
         aws = DiscoAWS(config=mock_config, environment_name=TEST_ENV_NAME, autoscale=MagicMock())
-        aws.create_scaling_schedule("mhcboo",
-                                    "1@1 0 * * *:2@6 0 * * *",
-                                    "2@1 0 * * *:3@6 0 * * *",
-                                    "6@1 0 * * *:9@6 0 * * *")
+        aws.create_scaling_schedule(
+            "1@1 0 * * *:2@6 0 * * *",
+            "2@1 0 * * *:3@6 0 * * *",
+            "6@1 0 * * *:9@6 0 * * *",
+            hostclass="mhcboo"
+        )
         aws.autoscale.assert_has_calls([
-            call.delete_all_recurring_group_actions(hostclass='mhcboo'),
-            call.create_recurring_group_action('1 0 * * *', hostclass='mhcboo',
+            call.delete_all_recurring_group_actions(hostclass='mhcboo', group_name=None),
+            call.create_recurring_group_action('1 0 * * *', hostclass='mhcboo', group_name=None,
                                                min_size=1, desired_capacity=2, max_size=6),
-            call.create_recurring_group_action('6 0 * * *', hostclass='mhcboo',
+            call.create_recurring_group_action('6 0 * * *', hostclass='mhcboo', group_name=None,
                                                min_size=2, desired_capacity=3, max_size=9)
         ], any_order=True)
 
@@ -82,19 +86,21 @@ class DiscoAWSTests(TestCase):
     def test_create_scaling_schedule_mixed(self, mock_config, **kwargs):
         """test create_scaling_schedule with only desired schedule"""
         aws = DiscoAWS(config=mock_config, environment_name=TEST_ENV_NAME, autoscale=MagicMock())
-        aws.create_scaling_schedule("mhcboo",
-                                    "1@1 0 * * *:2@7 0 * * *",
-                                    "2@1 0 * * *:3@6 0 * * *",
-                                    "6@2 0 * * *:9@6 0 * * *")
+        aws.create_scaling_schedule(
+            "1@1 0 * * *:2@7 0 * * *",
+            "2@1 0 * * *:3@6 0 * * *",
+            "6@2 0 * * *:9@6 0 * * *",
+            hostclass="mhcboo"
+        )
         aws.autoscale.assert_has_calls([
-            call.delete_all_recurring_group_actions(hostclass='mhcboo'),
-            call.create_recurring_group_action('1 0 * * *', hostclass='mhcboo',
+            call.delete_all_recurring_group_actions(hostclass='mhcboo', group_name=None),
+            call.create_recurring_group_action('1 0 * * *', hostclass='mhcboo', group_name=None,
                                                min_size=1, desired_capacity=2, max_size=None),
-            call.create_recurring_group_action('2 0 * * *', hostclass='mhcboo',
+            call.create_recurring_group_action('2 0 * * *', hostclass='mhcboo', group_name=None,
                                                min_size=None, desired_capacity=None, max_size=6),
-            call.create_recurring_group_action('6 0 * * *', hostclass='mhcboo',
+            call.create_recurring_group_action('6 0 * * *', hostclass='mhcboo', group_name=None,
                                                min_size=None, desired_capacity=3, max_size=9),
-            call.create_recurring_group_action('7 0 * * *', hostclass='mhcboo',
+            call.create_recurring_group_action('7 0 * * *', hostclass='mhcboo', group_name=None,
                                                min_size=2, desired_capacity=None, max_size=None)
         ], any_order=True)
 

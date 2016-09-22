@@ -22,6 +22,8 @@ from .disco_constants import (
 from .disco_alarm import DiscoAlarm
 from .disco_alarm_config import DiscoAlarmsConfig
 
+logger = logging.getLogger(__name__)
+
 
 class DiscoElasticsearch(object):
     """
@@ -142,12 +144,16 @@ class DiscoElasticsearch(object):
             environment_name = domain_name_components[-1]
             elasticsearch_name = "-".join(domain_name_components[1:-1])
             if prefix != "es":
-                logging.info("Could not parse ElasticSearch domain %s, expected format 'es-$name-$env'",
-                             domain_name)
+                logger.info(
+                    "Could not parse ElasticSearch domain %s, expected format 'es-$name-$env'",
+                    domain_name
+                )
                 continue
             if environment_name != self.environment_name:
-                logging.debug("ElasticSearch domain %s is associated with a different environment, ignoring",
-                              domain_name)
+                logger.debug(
+                    "ElasticSearch domain %s is associated with a different environment, ignoring",
+                    domain_name
+                )
                 continue
 
             domain_info = {}
@@ -167,7 +173,7 @@ class DiscoElasticsearch(object):
         """Add a Route 53 record for the given domain name"""
         # Wait until AWS attaches an endpoint to the ElasticSearch domain
         while not self.get_endpoint(domain_name):
-            logging.info('Waiting for ElasticSearch domain %s to finish being created', domain_name)
+            logger.info('Waiting for ElasticSearch domain %s to finish being created', domain_name)
             time.sleep(60)
 
         name = '{}.{}'.format(domain_name, self.zone)
@@ -275,17 +281,22 @@ class DiscoElasticsearch(object):
 
             # If no configuration was provided and the desired elasticsearch name isn't configured, ignore it
             if not es_config and desired_elasticsearch_name not in configured_elasticsearch_names:
-                logging.info("Cannot create or update unconfigured Elasticsearch domain %s", domain_name)
+                logger.info("Cannot create or update unconfigured Elasticsearch domain %s", domain_name)
                 continue
 
             # Get the latest elasticsearch config.
             desired_es_config = es_config or self._get_es_config(desired_elasticsearch_name)
 
             if desired_elasticsearch_name in all_elasticsearch_names:
-                logging.info('Updating ElasticSearch domain %s', domain_name)
+                try:
+                    del(desired_es_config["ElasticsearchVersion"])
+                    logging.debug("Ignoring ElasticsearchVersion specification on update")
+                except KeyError:
+                    pass
+                logger.info('Updating ElasticSearch domain %s', domain_name)
                 throttled_call(self.conn.update_elasticsearch_domain_config, **desired_es_config)
             else:
-                logging.info('Creating ElasticSearch domain %s', domain_name)
+                logger.info('Creating ElasticSearch domain %s', domain_name)
                 throttled_call(self.conn.create_elasticsearch_domain, **desired_es_config)
 
             # Add the Route 53 entry
@@ -319,10 +330,10 @@ class DiscoElasticsearch(object):
         for elasticsearch_name in desired_elasticsearch_names:
             domain_name = self.get_domain_name(elasticsearch_name)
             if elasticsearch_name not in all_elasticsearch_names:
-                logging.info('ElasticSearch domain %s does not exist. Nothing to delete.', domain_name)
+                logger.info('ElasticSearch domain %s does not exist. Nothing to delete.', domain_name)
                 continue
 
-            logging.info('Deleting ElasticSearch domain %s', domain_name)
+            logger.info('Deleting ElasticSearch domain %s', domain_name)
             self._remove_route53(domain_name)
             throttled_call(self.conn.delete_elasticsearch_domain, DomainName=domain_name)
 
@@ -387,6 +398,7 @@ class DiscoElasticsearch(object):
         allowed_source_ips = self.get_es_option("allowed_source_ips", elasticsearch_name).split()
 
         config = {
+            'ElasticsearchVersion': self.get_es_option('version', elasticsearch_name),
             'DomainName': domain_name,
             'ElasticsearchClusterConfig': es_cluster_config,
             'EBSOptions': ebs_option,

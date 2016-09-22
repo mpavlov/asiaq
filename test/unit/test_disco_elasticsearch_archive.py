@@ -62,7 +62,7 @@ def _create_mock_es_client(indices, indices_health, snapshots, total_bytes):
     es_client.indices = MagicMock()
 
     def _mock_cat_indices(**args):
-        if args != {'h': 'index,store.size,pri,rep', 'bytes': 'b'}:
+        if args != {'h': 'index,pri,rep,store.size', 'bytes': 'b'}:
             raise RuntimeError("Invalid arguments: {0}. This method mocks the indices method of "
                                "elasticsearch.client.CatClient and only returns the name, size "
                                "(in bytes), primary shards and replication factor of the "
@@ -70,8 +70,9 @@ def _create_mock_es_client(indices, indices_health, snapshots, total_bytes):
 
         stats_str = ""
         for index in indices:
-            stats_str += index['index'] + " " + str(index['size']) + " " + \
-                str(index['pri']) + " " + str(index['rep']) + "\n"
+            stats_str += index['index'] + " " + str(index['pri']) + " " + \
+                str(index['rep']) + " " + \
+                (str(index['size']) if index['size'] else "") + "\n"
 
         return stats_str
 
@@ -82,7 +83,7 @@ def _create_mock_es_client(indices, indices_health, snapshots, total_bytes):
         bytes_used = 0
         shards = 0
         for index in indices:
-            bytes_used += index['size']
+            bytes_used += index['size'] if index['size'] else 0
             shards += index['pri'] * (index['rep'] + 1)
 
         return {"nodes": {"fs": {"total_in_bytes": total_bytes,
@@ -112,6 +113,7 @@ def _create_mock_es_client(indices, indices_health, snapshots, total_bytes):
     es_client.snapshot = MagicMock()
     es_client.snapshot.get.side_effect = _mock_snapshot_get
     es_client.snapshot.create.side_effect = _mock_snapshot_create
+    es_client.snapshot.restore = MagicMock()
 
     return es_client
 
@@ -127,9 +129,10 @@ class DiscoESArchiveTests(TestCase):
         today = datetime.date.today().strftime('%Y.%m.%d')
         self._indices = [
             {'index': 'foo-2016.06.01', 'size': 1000, 'pri': 5, 'rep': 1},
-            {'index': 'foo-2016.06.02', 'size': 1000, 'pri': 5, 'rep': 1},
+            {'index': 'foo-2016.06.02', 'size': 2000, 'pri': 5, 'rep': 1},
             {'index': 'foo-2016.06.03', 'size': 1000, 'pri': 5, 'rep': 1},
-            {'index': 'foo-2016.06.04', 'size': 1000, 'pri': 5, 'rep': 1},
+            # Adding an index without a size property to simulate a red index
+            {'index': 'foo-2016.06.04', 'size': None, 'pri': 5, 'rep': 1},
             {'index': 'foo-2016.06.05', 'size': 1000, 'pri': 5, 'rep': 1},
             {'index': 'foo-' + today, 'size': 401, 'pri': 5, 'rep': 1}
             # Current used size is 5401, one more than the 0.9 * 6000 (threshold * TOTAL_SIZE)
@@ -167,13 +170,14 @@ class DiscoESArchiveTests(TestCase):
         self._es_archive._load_policy_json = MagicMock()
         self._es_archive._load_policy_json.return_value = MOCK_POLICY_TEXT
 
-    def test_archive(self):
-        """Verify that ES archiving works"""
         # Setting up S3 client
         self._es_archive._s3_client = MagicMock()
         self._es_archive._s3_client.list_buckets.return_value = {
             'Buckets': [{'Name': BUCKET_NAME}]
         }
+
+    def test_archive(self):
+        """Verify that ES archiving works"""
 
         # Calling archive for testing
         snap_stats = self._es_archive.archive()
@@ -244,21 +248,33 @@ class DiscoESArchiveTests(TestCase):
         self._es_archive.es_client.indices.delete.assert_called_once_with(index='foo-2016.06.01')
 
     def test_restore(self):
-        """Verify that ES resotre operation works"""
+        """Verify that ES restore operation works"""
         # Calling restore for testing
         self._es_archive.restore('2016.06.01', '2016.06.07')
 
         expected_restore_calls = [
-            call(repository=REPOSITORY_NAME, snapshot='foo-2016.06.06'),
-            call(repository=REPOSITORY_NAME, snapshot='foo-2016.06.07')]
+            call(
+                repository=REPOSITORY_NAME,
+                snapshot='foo-2016.06.06',
+                wait_for_completion=True
+            ),
+            call(
+                repository=REPOSITORY_NAME,
+                snapshot='foo-2016.06.07',
+                wait_for_completion=True
+            )
+        ]
 
         self._es_archive.es_client.snapshot.restore.assert_has_calls(expected_restore_calls)
 
     def test_restore_date_query(self):
-        """Verify that date range query works correctly in ES resotre operation"""
+        """Verify that date range query works correctly in ES restore operation"""
         # Calling restore for testing
+
         self._es_archive.restore('2016.06.01', '2016.06.06')
 
         self._es_archive.es_client.snapshot.restore.assert_called_once_with(
             repository=REPOSITORY_NAME,
-            snapshot='foo-2016.06.06')
+            snapshot='foo-2016.06.06',
+            wait_for_completion=True
+        )

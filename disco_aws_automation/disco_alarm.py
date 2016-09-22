@@ -8,6 +8,8 @@ from .disco_sns import DiscoSNS
 from .disco_alarm_config import DiscoAlarmConfig, DiscoAlarmsConfig
 from .resource_helper import throttled_call
 
+logger = logging.getLogger(__name__)
+
 # Max batch size for alarm deletion http://goo.gl/vMQOrX
 DELETE_BATCH_SIZE = 100
 ENVIRONMENT_DELETE_SKIP_NAMESPACES = ['AWS/ES']
@@ -106,7 +108,7 @@ class DiscoAlarm(object):
     def _delete_alarms(self, alarms):
         alarm_names = [alarm.name for alarm in alarms]
         alarm_len = len(alarm_names)
-        logging.debug("Deleting %s alarms.", alarm_len)
+        logger.debug("Deleting %s alarms.", alarm_len)
         for index in range(0, alarm_len, DELETE_BATCH_SIZE):
             throttled_call(
                 self.cloudwatch.delete_alarms,

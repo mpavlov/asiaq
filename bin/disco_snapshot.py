@@ -4,7 +4,6 @@ Command line tool for dealing with ELB snapshots
 """
 from __future__ import print_function
 import argparse
-import logging
 
 from disco_aws_automation import DiscoAWS, read_config
 from disco_aws_automation.disco_aws_util import run_gracefully
@@ -101,17 +100,17 @@ def run():
     elif args.mode == "capture":
         if args.volume_id:
             snapshot_id = aws.disco_storage.take_snapshot(args.volume_id)
-            logging.info("Successfully created snapshot: %s", snapshot_id)
+            print("Successfully created snapshot: {0}".format(snapshot_id))
         else:
             instances = instances_from_args(aws, args)
             if not instances:
-                logging.warning("No instances found")
+                print("No instances found")
             for instance in instances:
                 return_code, output = aws.remotecmd(
                     instance, ["sudo /opt/wgen/bin/take_snapshot.sh"], user="snapshot")
                 if return_code:
                     raise Exception("Failed to snapshot instance {0}:\n {1}\n".format(instance, output))
-                logging.info("Successfully snapshotted %s", instance)
+                print("Successfully snapshotted {0}".format(instance))
     elif args.mode == "delete":
         for snapshot_id in args.snapshots:
             aws.disco_storage.delete_snapshot(snapshot_id)

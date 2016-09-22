@@ -19,6 +19,8 @@ from .resource_helper import wait_for_state, TimeoutError
 from .exceptions import VolumeError
 from .resource_helper import throttled_call
 
+logger = logging.getLogger(__name__)
+
 TIME_BEFORE_SNAP_WARNING = 5
 BASE_AMI_SIZE_GB = 8  # Disk space per instance, in GB, excluding extra_space.
 PROVISIONED_IOPS_VOLUME_TYPE = "io1"  # http://docs.aws.amazon.com/AWSEC2/latest/UserGuide/EBSVolumeTypes.html
@@ -134,8 +136,8 @@ class DiscoStorage(object):
         try:
             return EPHEMERAL_DISK_COUNT[instance_type]
         except KeyError:
-            logging.warning("EPHEMERAL_DISK_COUNT needs to be updated with this new instance type %s",
-                            instance_type)
+            logger.warning("EPHEMERAL_DISK_COUNT needs to be updated with this new instance type %s",
+                           instance_type)
             return 0
 
     def get_latest_snapshot(self, hostclass):
@@ -150,9 +152,9 @@ class DiscoStorage(object):
         try:
             wait_for_state(snapshot, 'completed', state_attr='status', timeout=TIME_BEFORE_SNAP_WARNING)
         except TimeoutError:
-            logging.warning("Waiting for snapshot to become available...")
+            logger.warning("Waiting for snapshot to become available...")
             wait_for_state(snapshot, 'completed', state_attr='status')
-            logging.warning("... done.")
+            logger.warning("... done.")
 
     def create_snapshot_bdm(self, snapshot, iops):
         """Create a Block Device Mapping for a Snapshot"""
@@ -196,7 +198,7 @@ class DiscoStorage(object):
         if extra_space:
             sda.size = BASE_AMI_SIZE_GB + extra_space  # size in Gigabytes
         bdm[disk_names[current_disk]] = sda
-        logging.debug("mapped %s to root partition", disk_names[current_disk])
+        logger.debug("mapped %s to root partition", disk_names[current_disk])
         current_disk += 1
 
         # Map the latest snapshot for this hostclass
@@ -206,7 +208,7 @@ class DiscoStorage(object):
                 self.wait_for_snapshot(latest)
                 current_name = disk_names[current_disk]
                 bdm[current_name] = self.create_snapshot_bdm(latest, iops)
-                logging.debug("mapped %s to snapshot %s", current_name, latest.id)
+                logger.debug("mapped %s to snapshot %s", current_name, latest.id)
                 current_disk += 1
 
         # Map extra disk
@@ -218,7 +220,7 @@ class DiscoStorage(object):
                 extra.volume_type = PROVISIONED_IOPS_VOLUME_TYPE
                 extra.iops = iops
             bdm[disk_names[current_disk]] = extra
-            logging.debug("mapped %s to extra disk", disk_names[current_disk])
+            logger.debug("mapped %s to extra disk", disk_names[current_disk])
             current_disk += 1
 
         # Map an ephemeral disk
@@ -226,7 +228,7 @@ class DiscoStorage(object):
             eph = boto.ec2.blockdevicemapping.BlockDeviceType()
             eph.ephemeral_name = 'ephemeral{0}'.format(eph_index)
             bdm[disk_names[current_disk]] = eph
-            logging.debug("mapped %s to ephemeral disk %s", disk_names[current_disk], eph_index)
+            logger.debug("mapped %s to ephemeral disk %s", disk_names[current_disk], eph_index)
             current_disk += 1
 
         return bdm
@@ -249,20 +251,20 @@ class DiscoStorage(object):
 
             def _destroy_volume(volume, raise_error_on_failure=False):
                 if throttled_call(self.connection.delete_volume, volume_id=volume.id):
-                    logging.info("Destroyed temporary volume %s", volume.id)
+                    logger.info("Destroyed temporary volume %s", volume.id)
                 elif raise_error_on_failure:
                     raise VolumeError("Couldn't destroy temporary volume %s", volume.id)
                 else:
-                    logging.error("Couldn't destroy temporary volume %s", volume.id)
+                    logger.error("Couldn't destroy temporary volume %s", volume.id)
 
             try:
                 volume = throttled_call(self.connection.create_volume, size=size, zone=zone)
-                logging.info("Created temporary volume %s in zone %s.", volume.id, zone.name)
+                logger.info("Created temporary volume %s in zone %s.", volume.id, zone.name)
                 wait_for_state(volume, 'available', state_attr='status')
                 snapshot = volume.create_snapshot()
                 snapshot.add_tag('hostclass', hostclass)
                 snapshot.add_tag('env', self.environment_name)
-                logging.info("Created snapshot %s from volume %s.", snapshot.id, volume.id)
+                logger.info("Created snapshot %s from volume %s.", snapshot.id, volume.id)
             except Exception:
                 _destroy_volume(volume)
                 raise
@@ -289,14 +291,14 @@ class DiscoStorage(object):
                                    snapshot_ids=[snapshot_id],
                                    filters={'tag:env': self.environment_name})
         if not snapshots:
-            logging.error("Snapshot ID %s does not exist in environment %s",
-                          snapshot_id, self.environment_name)
+            logger.error("Snapshot ID %s does not exist in environment %s",
+                         snapshot_id, self.environment_name)
             return
 
         if throttled_call(self.connection.delete_snapshot, snapshot_id=snapshot_id):
-            logging.info("Deleted snapshot %s.", snapshot_id)
+            logger.info("Deleted snapshot %s.", snapshot_id)
         else:
-            logging.error("Couldn't delete snapshot %s.")
+            logger.error("Couldn't delete snapshot %s.")
 
     def cleanup_ebs_snapshots(self, keep_last_n):
         """
