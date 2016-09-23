@@ -170,7 +170,7 @@ class DiscoSubnet(object):
                                      {'NatGatewayIds': [nat_gateway_id]},
                                      'NatGateways', 'deleted', 'State')
 
-                self.disco_eip.release(eip, True)
+                self.disco_eip.release(eip)
                 self._delete_dyno_nat_tag()
 
             self._nat_gateway = None

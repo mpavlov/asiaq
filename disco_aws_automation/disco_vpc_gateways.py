@@ -306,4 +306,4 @@ class DiscoVPCGateways(object):
         if eips:
             logger.info("Releasing temporary NAT EIPs: %s.", " ".join(eips))
         for eip in eips:
-            self.eip.release(eip, True)
+            self.eip.release(eip)
