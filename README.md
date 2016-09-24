@@ -1166,6 +1166,33 @@ customer has two VPNs:
 
     dmz_igw_routes=1.2.3.4/32 1.2.3.5/32
 
+#### NAT
+
+NAT is used to allow instances to talk to internet without having public IP's.
+The NAT must be placed into metanetwork with IGW so it can connect to internet
+itself. Then routes can be added to other metanetworks to allow them to communicate
+to internet through NAT. AWS requires assignment of EIPs to a NAT, asiaq supports
+two modes of EIP assignment: Long-lived static EIPs which are reserved using
+disco_eip.py, or temporary EIPs can be used which get released with deletion of the
+VPC. Static ips are preferred if you want to whitelist your outgoing IPs in other
+systems.
+
+To set up dynamic outbound IPs and allow all subnets to make use of NAT configure
+network as follows:
+
+    tunnel_igw_routes=0.0.0.0/0
+    tunnel_nat_gateways=auto
+    nat_gateway_routes=intranet/tunnel dmz/tunnel maintenance/tunnel
+
+To set up static outbound IPs you must be sure to specify as many IPs as there are
+Availability Zones (at time of writing there are three). Configuration below only
+allows one metanetwork (intranet) to make use of the NAT:
+
+    tunnel_igw_routes=0.0.0.0/0
+    tunnel_nat_gateways=52.0.0.1 52.0.0.2 52.0.0.3
+    nat_gateway_routes=intranet/tunnel
+
+
 #### DHCP Settings
 
 AWS allows to pass in some custom values to be subsequently handed out
@@ -2090,7 +2117,7 @@ Clone a database from a different environment into the current environment. The 
 SSM
 -------------------
 
-Asiaq supports the use of *Amazon EC2 Run Command* and *SSM Config* to achieve remotely executing a set of pre-defined commands on any EC2 instance, which would not have been possible if SSH access to the instance is not allowed. While *Amazon EC2 Run Command* specifies how the commands are executed, *SSM Config* allows for defining the commands that can be executed. Each command definition is individually configured in an SSM document. For more info on SSM, please visit the [AWS documentation](http://docs.aws.amazon.com/ssm/latest/APIReference/Welcome.html).
+Asiaq supports the use of *Amazon EC2 Run Command* and *SSM Config* to achieve remote execution of a set of pre-defined commands on any EC2 instance, which would not have been possible if SSH access to the instance is not allowed. While *Amazon EC2 Run Command* specifies how the commands are executed, *SSM Config* allows for defining the commands that can be executed. Each command definition is individually configured in an SSM document. For more info on SSM, please visit the [AWS documentation](http://docs.aws.amazon.com/ssm/latest/APIReference/Welcome.html).
 
 ### Commands and Configuration
 
