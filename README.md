@@ -2145,6 +2145,9 @@ The `update-documents` command also accepts the `--dry-run` flag, which causes t
 
     disco_ssm.py update-documents --dry-run
 
+### Execution
+
+The mechanism for executing SSM commands is `disco_aws.py exec-ssm`. See the `--help` of that subcommand for usage instructions.
 
 Testing Hostclasses
 -------------------
