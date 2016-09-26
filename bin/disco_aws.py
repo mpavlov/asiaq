@@ -119,6 +119,7 @@ def get_parser():
     parser_terminate_group.add_argument('--hostclass', dest='hostclasses', default=[],
                                         action='append', type=str)
     parser_terminate_group.add_argument('--ami', dest='amis', default=[], action='append', type=str)
+    parser_terminate_group.add_argument('--asg', dest='asgs', default=[], action='append', type=str)
 
     parser_stop = subparsers.add_parser('stop', help='Stop (aka) shutdown instances')
     parser_stop.set_defaults(mode="stop")

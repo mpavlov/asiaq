@@ -1,6 +1,7 @@
 """
 Manage AWS SSM document creation and execution
 """
+import os
 import logging
 import time
 import json
@@ -26,6 +27,7 @@ SSM_EXT = ".ssm"
 SSM_WAIT_TIMEOUT = 5 * 60
 SSM_WAIT_SLEEP_INTERVAL = 15
 AWS_DOCUMENT_PREFIX = "AWS-"
+SSM_OUTPUT_ERROR_DELIMITER = "----------ERROR-------"
 
 
 class DiscoSSM(object):
@@ -54,7 +56,11 @@ class DiscoSSM(object):
         """Convenience method for returning the configured s3 bucket for SSM"""
         return self.get_aws_option_default("ssm_s3_bucket", default=None)
 
-    def execute(self, instance_ids, document_name, parameters=None, comment=None):
+    def get_s3_bucket(self, bucket_name=None):
+        """A bit of a convenience function for getting an S3 bucket"""
+        return DiscoS3Bucket(bucket_name or self.get_s3_bucket_name())
+
+    def execute(self, instance_ids, document_name, parameters=None, comment=None, desired_status='Success'):
         """
         Executes the given SSM document against a given list of instance ids.
 
@@ -86,7 +92,7 @@ class DiscoSSM(object):
         command = self._send_command(**arguments)
         command_id = command["Command"]["CommandId"]
 
-        is_successful = self._wait_for_ssm_command(command_id=command_id)
+        is_successful = self._wait_for_ssm_command(command_id=command_id, desired_status=desired_status)
 
         output = self.get_ssm_command_output(command_id=command_id)
 
@@ -202,7 +208,7 @@ class DiscoSSM(object):
 
     def _get_output_from_ssm(self, command_plugin):
         """Helper method for extracting command output directly from SSM"""
-        output = command_plugin['Output'].split('----------ERROR-------')
+        output = command_plugin['Output'].split(SSM_OUTPUT_ERROR_DELIMITER)
         stdout = output[0].strip() or '-'
 
         if len(output) == 2:
@@ -219,11 +225,11 @@ class DiscoSSM(object):
 
         return plugin_output
 
-    def _get_output_from_s3(self, command_plugin, s3_bucket=None):
+    def _get_output_from_s3(self, command_plugin):
         """Helper method for extracting command output from S3"""
         bucket_name = command_plugin['OutputS3BucketName']
         key = command_plugin['OutputS3KeyPrefix']
-        bucket = s3_bucket or DiscoS3Bucket(bucket_name)
+        bucket = self.get_s3_bucket(bucket_name)
 
         keys_from_command = bucket.listkeys(prefix_keys=key)
 
@@ -422,4 +428,3 @@ class DiscoSSM(object):
             return self.get_aws_option(option, section)
         except NoOptionError:
             return default
-
