@@ -141,18 +141,26 @@ def get_parser():
     parser_exec_group.add_argument('--ami', dest='amis', default=[], action='append', type=str)
     parser_exec_group.add_argument('--asg', dest='asgs', default=[], action='append', type=str)
 
-    parser_exec_ssm = subparsers.add_parser('exec-ssm', help='execute SSM document on instance')
+    parser_exec_ssm = subparsers.add_parser('exec-ssm', help='Execute SSM document on instance')
     parser_exec_ssm.set_defaults(mode="exec-ssm")
-    parser_exec_ssm.add_argument('--document', dest='document', type=str, required=True)
-    parser_exec_ssm.add_argument('--parameters', dest='parameters', type=str, default=[], action='append')
-    parser_exec_ssm.add_argument('--comment', dest='comment', type=str)
+    parser_exec_ssm.add_argument('--document', dest='document', type=str, required=True,
+                                 help='Name of the SSM document to execute')
+    parser_exec_ssm.add_argument('--parameters', dest='parameters', type=str, default=[], action='append',
+                                 help='Parameters to pass to document. Takes the form of "key=value". '
+                                 'Can be passed multiple times')
+    parser_exec_ssm.add_argument('--comment', dest='comment', type=str,
+                                 help='Audit comment describing why this command is being run.')
     parser_exec_ssm_group = parser_exec_ssm.add_mutually_exclusive_group(required=True)
-    parser_exec_ssm_group.add_argument('--instance', dest='instances', default=[], action='append', type=str)
-    parser_exec_ssm_group.add_argument('--hostname', dest='hostnames', default=[], action='append', type=str)
+    parser_exec_ssm_group.add_argument('--instance', dest='instances', default=[], action='append', type=str,
+                                       help='Instance to run document against. Repeatable.')
+    parser_exec_ssm_group.add_argument('--hostname', dest='hostnames', default=[], action='append', type=str,
+                                       help='Hostname to run document against. Repeatable.')
     parser_exec_ssm_group.add_argument('--hostclass', dest='hostclasses', default=[], action='append',
-                                       type=str)
-    parser_exec_ssm_group.add_argument('--ami', dest='amis', default=[], action='append', type=str)
-    parser_exec_ssm_group.add_argument('--asg', dest='asgs', default=[], action='append', type=str)
+                                       type=str, help='Hostclass to run document against. Repeatable.')
+    parser_exec_ssm_group.add_argument('--ami', dest='amis', default=[], action='append', type=str,
+                                       help='AMI to run document against. Repeatable.')
+    parser_exec_ssm_group.add_argument('--asg', dest='asgs', default=[], action='append', type=str,
+                                       help='Autoscaling group to run document against. Repeatable.')
 
     parser_isready = subparsers.add_parser(
         'isready', help="Checks if instances are ready (i.e instance is sshable and smoke tests passed)")
@@ -250,7 +258,7 @@ def parse_ssm_parameters(parameters):
     keys_to_values = [parameter.split('=', 1) for parameter in parameters]
     # SSM actually supports multiple values for a given key, but we probably don't need that so let's not
     # bother with that for now to make this a bit simpler.
-    return {entry[0]: [entry[0]] for entry in keys_to_values}
+    return {entry[0]: [entry[1]] for entry in keys_to_values}
 
 
 def run():
