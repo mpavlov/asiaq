@@ -583,6 +583,8 @@ class DiscoSSMTests(TestCase):
         comment = "foo-comment"
         parameters = "foo-parameters"
 
+        self._ssm.get_s3_bucket = MagicMock(side_effect=lambda bucket_name: MOCK_S3_BUCKETS.values()[0])
+
         is_successful = self._ssm.execute(
             instance_ids,
             document_name,
@@ -591,25 +593,7 @@ class DiscoSSMTests(TestCase):
         )
 
         self.assertEquals(True, is_successful)
-
-    @patch('boto3.client', mock_boto3_client)
-    def test_execute_command_fails_with_other_status(self):
-        """Verify that we fail if the desired status isn't met"""
-        self._ssm.get_s3_bucket_name = MagicMock(return_value=None)
-        instance_ids = ['i-1', 'i-2']
-        document_name = "foo-doc"
-        comment = "foo-comment"
-        parameters = "foo-parameters"
-
-        is_successful = self._ssm.execute(
-            instance_ids,
-            document_name,
-            comment=comment,
-            parameters=parameters,
-            desired_status='Failure'
-        )
-
-        self.assertEquals(False, is_successful)
+        self.assertEquals(False, self._ssm.get_s3_bucket.called)
 
     @patch('boto3.client', mock_boto3_client)
     def test_execute_command_with_s3(self):
@@ -629,6 +613,26 @@ class DiscoSSMTests(TestCase):
         )
 
         self.assertEquals(True, is_successful)
+        self.assertEquals(True, self._ssm.get_s3_bucket.called)
+
+    @patch('boto3.client', mock_boto3_client)
+    def test_execute_command_fails_with_other_status(self):
+        """Verify that we fail if the desired status isn't met"""
+        self._ssm.get_s3_bucket_name = MagicMock(return_value=None)
+        instance_ids = ['i-1', 'i-2']
+        document_name = "foo-doc"
+        comment = "foo-comment"
+        parameters = "foo-parameters"
+
+        is_successful = self._ssm.execute(
+            instance_ids,
+            document_name,
+            comment=comment,
+            parameters=parameters,
+            desired_status='Failure'
+        )
+
+        self.assertEquals(False, is_successful)
 
     @patch('boto3.client', mock_boto3_client)
     def test_read_env_from_config(self):
