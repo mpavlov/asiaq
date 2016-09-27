@@ -2149,6 +2149,10 @@ The `update-documents` command also accepts the `--dry-run` flag, which causes t
 
 The mechanism for executing SSM commands is `disco_aws.py exec-ssm`. See the `--help` of that subcommand for usage instructions.
 
+#### Configuration
+
+Executing SSM documents can be somewhat customized through modifications to `disco_aws.ini`. You can set the `default_ssm_s3_bucket` option under the `disco_aws` section in the `disco_aws.ini`. The value of this option should correspond to an S3 bucket where the output of SSM documents should be uploaded for longer term storage. If this option is not set, then the output of SSM documents will be limited to 2500 characters.
+
 Testing Hostclasses
 -------------------
 
