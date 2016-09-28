@@ -225,6 +225,7 @@ def get_preferred_private_ip(instance):
     else:
         return interfaces[1].private_ip_address
 
+
 def format_listhosts_header(args, most):
     line = u"{0:<11} {1:<25} {2:<15}".format('ID', 'Hostclass', 'IP')
     if args.state or most:
@@ -253,6 +254,7 @@ def format_listhosts_header(args, most):
         line += u" {0:15}".format('Security Group')
 
     return line
+
 
 def run():
     """Parses command line and dispatches the commands"""
@@ -295,7 +297,7 @@ def run():
             now = datetime.utcnow()
 
         header = format_listhosts_header(args, most)
-        divider = '-'.ljust(len(header), '-');
+        divider = '-'.ljust(len(header), '-')
 
         print("\n" + header + "\n" + divider)
 
@@ -306,7 +308,8 @@ def run():
             if args.state or most:
                 line += u" {0:<10}".format(instance.state)
             if args.hostname or most:
-                line += u" {0:<30}".format("-" if instance.tags.get("hostname") is None else instance.tags.get("hostname"))
+                line += u" {0:<30}".format(
+                    "-" if instance.tags.get("hostname") is None else instance.tags.get("hostname"))
             if args.owner or most:
                 line += u" {0:<11}".format(instance.tags.get("owner", u"-"))
             if args.instance_type or most:
