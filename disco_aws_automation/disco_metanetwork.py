@@ -195,7 +195,7 @@ class DiscoMetaNetwork(object):
         EIP allocation ids provided or dynamic EIPs, but not both.
         :param allocation_ids: Allocation ids of the Elastic IPs that will be
                                associated with the NAT gateways
-        :param use_dyno_nat:   Indicates whether to dynamic EIPs for creating
+        :param use_dyno_nat:   Indicates whether to allocate dynamic EIPs for creating
                                the NATs.
         """
         if allocation_ids and not use_dyno_nat:
