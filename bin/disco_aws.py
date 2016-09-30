@@ -253,6 +253,7 @@ def get_preferred_private_ip(instance):
     else:
         return interfaces[1].private_ip_address
 
+
 def _read_pipeline(pipeline_file):
     """
     Open a file with a CSV reader, check it for a couple of required headers, and return its contents
@@ -268,6 +269,7 @@ def _read_pipeline(pipeline_file):
                                (pipeline_file, required_field, reader.fieldnames))
         hostclass_dicts = [line for line in reader]
     return hostclass_dicts
+
 
 def parse_ssm_parameters(parameters):
     # Borrow the AWS CLI syntax of splitting the name of the parameter and it's value on '='
