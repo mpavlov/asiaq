@@ -570,13 +570,23 @@ class DiscoAWS(object):
 
     def instances_from_hostclasses(self, hostclasses):
         """Returns a flat list of all instances for a list of hostclasses"""
-        return [instance
-                for instance in self.instances()
-                if instance.tags.get("hostclass", "-") in hostclasses]
+        return [
+            instance
+            for instance in self.instances()
+            if instance.tags.get("hostclass", "-") in hostclasses
+        ]
 
     def instances_from_amis(self, ami_ids):
         """Returns instances matching any of a list of AMI ids"""
         return self.instances(filters={"image_id": ami_ids})
+
+    def instances_from_asgs(self, asgs):
+        """Returns instances matching any of a list of autoscaling group names"""
+        return [
+            instance
+            for instance in self.instances()
+            if instance.tags.get("aws:autoscaling:groupName", "-") in asgs
+        ]
 
     def spindown(self, hostclasses):
         """
