@@ -14,8 +14,9 @@ from dateutil import parser as dateutil_parser
 from disco_aws_automation import DiscoAWS, DiscoBake, DiscoSSM, read_config
 from disco_aws_automation.resource_helper import TimeoutError
 from disco_aws_automation.disco_logging import configure_logging
-from disco_aws_automation.disco_aws_util import run_gracefully
+from disco_aws_automation.disco_aws_util import run_gracefully, EasyExit
 from disco_aws_automation.exceptions import SmokeTestError
+import logging
 
 
 # R0912 Allow more than 12 branches so we can parse a lot of commands..
@@ -252,6 +253,21 @@ def get_preferred_private_ip(instance):
     else:
         return interfaces[1].private_ip_address
 
+def _read_pipeline(pipeline_file):
+    """
+    Open a file with a CSV reader, check it for a couple of required headers, and return its contents
+    as a list of dictionaries.
+    """
+    required = ['hostclass']  # fields that must be present in the headers for the file to be valid
+    with open(pipeline_file, "r") as f:
+        reader = csv.DictReader(f)
+        logging.debug("pipeline headers: %s", reader.fieldnames)
+        for required_field in required:
+            if required_field not in reader.fieldnames:
+                raise EasyExit("Pipeline file %s is missing required header %s (found: %s)" %
+                               (pipeline_file, required_field, reader.fieldnames))
+        hostclass_dicts = [line for line in reader]
+    return hostclass_dicts
 
 def parse_ssm_parameters(parameters):
     # Borrow the AWS CLI syntax of splitting the name of the parameter and it's value on '='
@@ -385,20 +401,14 @@ def run():
             if args.value:
                 instance.add_tag(args.key, args.value)
     elif args.mode == "spinup":
-        with open(args.pipeline_definition_file, "r") as f:
-            reader = csv.DictReader(f)
-            hostclass_dicts = [line for line in reader]
+        hostclass_dicts = _read_pipeline(args.pipeline_definition_file)
         aws.spinup(hostclass_dicts, stage=args.stage, no_smoke=args.no_smoke, testing=args.testing)
     elif args.mode == "spindown":
-        with open(args.pipeline_definition_file, "r") as f:
-            reader = csv.DictReader(f)
-            hostclasses = [line["hostclass"] for line in reader]
+        hostclasses = [line["hostclass"] for line in _read_pipeline(args.pipeline_definition_file)]
         aws.spindown(hostclasses)
     elif args.mode == "spindownandup":
-        with open(args.pipeline_definition_file, "r") as f:
-            reader = csv.DictReader(f)
-            hostclass_dicts = [line for line in reader]
-            hostclasses = [d["hostclass"] for d in hostclass_dicts]
+        hostclass_dicts = _read_pipeline(args.pipeline_definition_file)
+        hostclasses = [d["hostclass"] for d in hostclass_dicts]
         aws.spindown(hostclasses)
         aws.spinup(hostclass_dicts)
     elif args.mode == "gethostclassoption":
