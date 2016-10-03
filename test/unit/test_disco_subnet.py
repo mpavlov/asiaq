@@ -256,7 +256,7 @@ class DiscoSubnetTests(TestCase):
 
     def test_create_dyno_nat_gateway(self):
         """ Verify creation of a new NAT gateway for the subnet """
-        self.subnet.create_nat_gateway(use_dyno_nat=True)
+        self.subnet.create_nat_gateway()
 
         self.mock_disco_eip.allocate.assert_called_once_with()
         self.assertEqual(self.subnet.nat_eip_allocation_id, MOCK_ALLOCATION_ID)
@@ -278,7 +278,7 @@ class DiscoSubnetTests(TestCase):
 
     def test_delete_dyno_nat_gateway(self):
         """ Verify that a NAT gateway created with a dynamic EIP can be properly deleted """
-        self.subnet.create_nat_gateway(use_dyno_nat=True)
+        self.subnet.create_nat_gateway()
         self.existing_subnet['Tags'].append({'Key': DYNO_NAT_TAG_KEY, 'Value': ''})
 
         self.subnet.delete_nat_gateway()
@@ -393,7 +393,7 @@ class DiscoSubnetTests(TestCase):
         new_mock_nat_gateway_id = 'new_mock_nat_gateway_id'
 
         # Calling method under test
-        self.subnet.create_nat_gateway(use_dyno_nat=True)
+        self.subnet.create_nat_gateway()
         self.subnet.upsert_route_to_nat_gateway('0.0.0.0/0', new_mock_nat_gateway_id)
 
         # Verification

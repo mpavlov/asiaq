@@ -127,23 +127,12 @@ class DiscoSubnet(object):
         self._associate_route_table(new_route_table)
         self._route_table = new_route_table
 
-    def create_nat_gateway(self, eip_allocation_id=None, use_dyno_nat=False):
+    def create_nat_gateway(self, eip_allocation_id=None):
         """
         Create a NAT gateway for the subnet using either the specified eip_allocation_id,
-        or using a generated EIP
+        or using an auto-generated EIP
         """
-        if use_dyno_nat and not eip_allocation_id:
-
-            if not self.nat_gateway or not self._is_using_dyno_nat():
-                # If we don't already have a NAT, calling delete_nat_gateway wouldn't do anything
-                # Otherwise, it's not a dyno NAT anyway, so we need to delete it first
-                self.delete_nat_gateway()
-
-                self.nat_eip_allocation_id = self.disco_eip.allocate().allocation_id
-                self._nat_gateway = self._create_nat_gateway()
-                self._create_dyno_nat_tag()
-
-        elif eip_allocation_id and not use_dyno_nat:
+        if eip_allocation_id:
             # If the subnet already has a dyno NAT or the current NAT is using a different EIP
             # than the one provided, destroy it first before recreating one
             if self._is_using_dyno_nat() or not self._nat_using_same_eip(eip_allocation_id):
@@ -152,9 +141,18 @@ class DiscoSubnet(object):
             self.nat_eip_allocation_id = eip_allocation_id
             # Using the nat_gateway property to create the NAT
             self._nat_gateway = self.nat_gateway
+
         else:
-            raise RuntimeError("Invalid arguments: eip_allocation_id ({0}), use_dyno_nat ({1})"
-                               .format(eip_allocation_id, use_dyno_nat))
+            # eip_allocation_id is not being passed in, assuming we want to allocate
+            # EIP dinamically
+            if not self.nat_gateway or not self._is_using_dyno_nat():
+                # If we don't already have a NAT, calling delete_nat_gateway wouldn't do anything
+                # Otherwise, it's not a dyno NAT anyway, so we need to delete it first
+                self.delete_nat_gateway()
+
+                self.nat_eip_allocation_id = self.disco_eip.allocate().allocation_id
+                self._nat_gateway = self._create_nat_gateway()
+                self._create_dyno_nat_tag()
 
     def delete_nat_gateway(self):
         """ Delete the NAT gateway that is currently associated with the subnet """
@@ -403,11 +401,7 @@ class DiscoSubnet(object):
         return False
 
     def _is_using_dyno_nat(self):
-        for tag in self.subnet_dict['Tags']:
-            if tag.get('Key') == DYNO_NAT_TAG_KEY:
-                return True
-
-        return False
+        return DYNO_NAT_TAG_KEY in [tag.get('Key') for tag in self.subnet_dict['Tags']]
 
     def _create_dyno_nat_tag(self):
         tag_params = {

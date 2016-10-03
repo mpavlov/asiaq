@@ -235,7 +235,7 @@ class DiscoVPCGateways(object):
                 logger.info("Setting up NAT gateways in meta network %s using dyno NATs.",
                             network.name)
                 if not dry_run:
-                    network.add_nat_gateways(use_dyno_nat=True)
+                    network.add_nat_gateways()
 
             else:
                 eips = [eip.strip() for eip in eips.split(",")]

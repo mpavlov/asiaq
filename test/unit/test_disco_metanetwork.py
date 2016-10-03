@@ -116,7 +116,7 @@ class DiscoMetaNetworkTests(TestCase):
         """ Verify that NAT gateways are properly created for a meta network using dynamic EIPs"""
 
         self.meta_network.create()
-        self.meta_network.add_nat_gateways(use_dyno_nat=True)
+        self.meta_network.add_nat_gateways()
 
         self.assertFalse(self.meta_network.centralized_route_table)
         self.mock_vpc_conn.delete_route_table.assert_called_once_with(MOCK_ROUTE_TABLE.id)
@@ -125,7 +125,7 @@ class DiscoMetaNetworkTests(TestCase):
         nat_gateway_calls = []
         for _ in range(len(MOCK_ZONES)):
             recreate_route_table_calls.append(call())
-            nat_gateway_calls.append(call(use_dyno_nat=True))
+            nat_gateway_calls.append(call())
 
         mock_recreate_route_table.assert_has_calls(recreate_route_table_calls)
         mock_create_nat_gateway.assert_has_calls(nat_gateway_calls)

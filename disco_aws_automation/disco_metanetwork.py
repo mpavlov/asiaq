@@ -189,16 +189,14 @@ class DiscoMetaNetwork(object):
             for subnet in self.disco_subnets.values()
         ]
 
-    def add_nat_gateways(self, allocation_ids=None, use_dyno_nat=False):
+    def add_nat_gateways(self, allocation_ids=None):
         """
         Creates a NAT gateway in each of the metanetwork's subnet, either using the
-        EIP allocation ids provided or dynamic EIPs, but not both.
+        EIP allocation ids provided, or dynamic EIPs if EIP allocation_ids are not passed in.
         :param allocation_ids: Allocation ids of the Elastic IPs that will be
-                               associated with the NAT gateways
-        :param use_dyno_nat:   Indicates whether to allocate dynamic EIPs for creating
-                               the NATs.
+                               associated with the NAT gateways.
         """
-        if allocation_ids and not use_dyno_nat:
+        if allocation_ids:
             if len(self.disco_subnets.values()) != len(allocation_ids):
                 raise EIPConfigError("The number of subnets does not match with the "
                                      "number of NAT gateway EIPs provided for {0}: "
@@ -212,15 +210,11 @@ class DiscoMetaNetwork(object):
             for disco_subnet, allocation_id in zip(self.disco_subnets.values(), allocation_ids):
                 disco_subnet.create_nat_gateway(eip_allocation_id=allocation_id)
 
-        elif use_dyno_nat and not allocation_ids:
+        else:
             self._create_route_table_per_subnet()
 
             for disco_subnet in self.disco_subnets.values():
-                disco_subnet.create_nat_gateway(use_dyno_nat=True)
-
-        else:
-            raise RuntimeError("Invalid arguments: allocation_ids ({0}), use_dyno_nat ({1})"
-                               .format(allocation_ids, use_dyno_nat))
+                disco_subnet.create_nat_gateway()
 
     def _create_route_table_per_subnet(self):
         if self.centralized_route_table:
