@@ -150,11 +150,12 @@ function check_rabbitmq()
 # get mongodb password
 function get_mongo_pass()
 {
+    local mongo_user="${MONGO_USER:-disco}"
     if [ -e "$MONGO_PASS_FILE" ];
     then
         # awk in English, Find the line contains db.addUser("disco" from /opt/wgen/discodb/configure_mongo.js
         # then pick the 2nd column, remove all ",),; and use the last one for disco user password
-        $AWK '/db.addUser\("disco",/ {pass = $2} END{gsub(/"|\)|;/, "", pass); print pass}' $MONGO_PASS_FILE
+        $AWK '/db.addUser\("'$mongo_user'",/ {pass = $2} END{gsub(/"|\)|;/, "", pass); print pass}' $MONGO_PASS_FILE
     else
         echo ""
     fi
