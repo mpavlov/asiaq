@@ -164,15 +164,24 @@ class RDS(threading.Thread):
         s3_password_new_key = 'rds/{0}/master_user_password'.format(database_name)
         return bucket.get_key(s3_password_new_key)
 
-    def get_final_snapshot(self, db_instance_identifier):
+    def get_latest_snapshot(self, db_instance_identifier):
         """
-        Returns the information on the Final DB Snapshot. This can be used to restore a deleted DB instance
+        Returns the information on the most recent DB Snapshot. This can be used to restore a deleted
+        DB instance
         """
-        db_snapshot_identifier = '{}-final-snapshot'.format(db_instance_identifier)
         try:
-            result_dict = self.client.describe_db_snapshots(DBSnapshotIdentifier=db_snapshot_identifier)
-            snapshots = result_dict["DBSnapshots"]
-            return snapshots[0] if snapshots else None
+            response = self.client.describe_db_snapshots(DBInstanceIdentifier=db_instance_identifier)
+            snapshots = sorted(
+                response.get('DBSnapshots', []),
+                key=lambda k: k['SnapshotCreateTime'],
+                reverse=True
+            )
+
+            if snapshots:
+                return snapshots[0]
+            else:
+                return None
+
         except botocore.exceptions.ClientError:
             return None
 
@@ -183,7 +192,7 @@ class RDS(threading.Thread):
         If one doesn't exist, we create a new DB Instance
         """
         instance_identifier = instance_params['DBInstanceIdentifier']
-        snapshot = custom_snapshot or self.get_final_snapshot(instance_identifier)
+        snapshot = custom_snapshot or self.get_latest_snapshot(instance_identifier)
 
         if not snapshot:
             # For Postgres, We dont need this parameter at creation
@@ -424,7 +433,7 @@ class RDS(threading.Thread):
         self.recreate_db_parameter_group(source_vpc, source_db, group_name, group_family)
 
         self.create_db_instance(instance_params,
-                                custom_snapshot=self.get_final_snapshot(source_db_identifier))
+                                custom_snapshot=self.get_latest_snapshot(source_db_identifier))
 
         # Create/Update CloudWatch Alarms for this instance
         self.spinup_alarms(source_db)
@@ -519,18 +528,6 @@ class DiscoRDS(object):
         # Wait for all threads to finish
         for rds in rds_list:
             rds.join()
-
-    def get_final_snapshot(self, db_instance_identifier):
-        """
-        Returns the information on the Final DB Snapshot. This can be used to restore a deleted DB instance
-        """
-        db_snapshot_identifier = '{}-final-snapshot'.format(db_instance_identifier)
-        try:
-            result_dict = self.client.describe_db_snapshots(DBSnapshotIdentifier=db_snapshot_identifier)
-            snapshots = result_dict["DBSnapshots"]
-            return snapshots[0] if snapshots else None
-        except botocore.exceptions.ClientError:
-            return None
 
     def get_db_instances(self, status=None):
         """
