@@ -22,7 +22,7 @@ from .disco_creds import DiscoS3Bucket
 from .disco_route53 import DiscoRoute53
 from .disco_vpc_sg_rules import DiscoVPCSecurityGroupRules
 from .exceptions import TimeoutError, RDSEnvironmentError
-from .resource_helper import keep_trying, tag2dict
+from .resource_helper import keep_trying, tag2dict, throttled_call
 
 logger = logging.getLogger(__name__)
 
@@ -170,7 +170,11 @@ class RDS(threading.Thread):
         DB instance
         """
         try:
-            response = self.client.describe_db_snapshots(DBInstanceIdentifier=db_instance_identifier)
+            response = throttled_call(
+                self.client.describe_db_snapshots,
+                DBInstanceIdentifier=db_instance_identifier
+            )
+
             snapshots = sorted(
                 response.get('DBSnapshots', []),
                 key=lambda k: k['SnapshotCreateTime'],
@@ -200,7 +204,7 @@ class RDS(threading.Thread):
                 instance_params = RDS.delete_keys(instance_params, ["CharacterSetName"])
 
             logger.info("Creating new RDS cluster %s", instance_identifier)
-            self.client.create_db_instance(**instance_params)
+            throttled_call(self.client.create_db_instance, **instance_params)
         else:
             logger.info("Restoring RDS cluster from snapshot: %s", snapshot["DBSnapshotIdentifier"])
             params = RDS.delete_keys(instance_params, [
@@ -208,7 +212,7 @@ class RDS(threading.Thread):
                 "EngineVersion", "MasterUsername", "MasterUserPassword", "VpcSecurityGroupIds",
                 "BackupRetentionPeriod", "PreferredMaintenanceWindow", "PreferredBackupWindow"])
             params["DBSnapshotIdentifier"] = snapshot["DBSnapshotIdentifier"]
-            self.client.restore_db_instance_from_db_snapshot(**params)
+            throttled_call(self.client.restore_db_instance_from_db_snapshot, **params)
             keep_trying(RDS_RESTORE_TIMEOUT, self.modify_db_instance, instance_params)
 
     def modify_db_instance(self, instance_params, apply_immediately=True):
@@ -220,7 +224,7 @@ class RDS(threading.Thread):
         params = RDS.delete_keys(instance_params, [
             "Engine", "LicenseModel", "DBSubnetGroupName", "PubliclyAccessible",
             "MasterUsername", "Port", "CharacterSetName", "StorageEncrypted"])
-        self.client.modify_db_instance(ApplyImmediately=apply_immediately, **params)
+        throttled_call(self.client.modify_db_instance, ApplyImmediately=apply_immediately, **params)
         logger.info("Rebooting cluster to apply Param group %s", instance_params["DBInstanceIdentifier"])
         keep_trying(RDS_STATE_POLL_INTERVAL,
                     self.client.reboot_db_instance,
@@ -236,15 +240,18 @@ class RDS(threading.Thread):
                                This value is stored as a lowercase string.
         """
         try:
-            self.client.delete_db_subnet_group(DBSubnetGroupName=db_subnet_group_name)
+            throttled_call(self.client.delete_db_subnet_group, DBSubnetGroupName=db_subnet_group_name)
         except Exception as err:
             logger.debug("Not deleting subnet group '%s': %s", db_subnet_group_name, repr(err))
 
         db_subnet_group_description = 'Subnet Group for VPC {0}'.format(self.vpc_name)
 
-        self.client.create_db_subnet_group(DBSubnetGroupName=db_subnet_group_name,
-                                           DBSubnetGroupDescription=db_subnet_group_description,
-                                           SubnetIds=self.subnet_ids)
+        throttled_call(
+            self.client.create_db_subnet_group,
+            DBSubnetGroupName=db_subnet_group_name,
+            DBSubnetGroupDescription=db_subnet_group_description,
+            SubnetIds=self.subnet_ids
+        )
 
     def get_instance_parameters(self, env_name, database_name):
         """Read the config file and extract the Instance related parameters"""
@@ -297,7 +304,7 @@ class RDS(threading.Thread):
 
     def _get_db_instance(self, instance_identifier):
         try:
-            return self.client.describe_db_instances(DBInstanceIdentifier=instance_identifier)
+            return throttled_call(self.client.describe_db_instances, DBInstanceIdentifier=instance_identifier)
         except botocore.exceptions.ClientError:
             return None
 
@@ -309,10 +316,12 @@ class RDS(threading.Thread):
         database engine used by the DB instance.
         To provide custom values for any of the parameters, you must modify the group after creating it.
         """
-        self.client.create_db_parameter_group(
+        throttled_call(
+            self.client.create_db_parameter_group,
             DBParameterGroupName=db_parameter_group_name,
             DBParameterGroupFamily=db_parameter_group_family,
-            Description='Custom params-{0}'.format(db_parameter_group_name))
+            Description='Custom params-{0}'.format(db_parameter_group_name)
+        )
 
     def modify_db_parameter_group(self, db_parameter_group_name, parameters):
         """
@@ -353,7 +362,10 @@ class RDS(threading.Thread):
             db_parameter_group_family (str): Parameter group family such as 'oracle-se2-12.1'
         """
         try:
-            self.client.delete_db_parameter_group(DBParameterGroupName=db_parameter_group_name)
+            throttled_call(
+                self.client.delete_db_parameter_group,
+                DBParameterGroupName=db_parameter_group_name
+            )
         except Exception as err:
             logger.debug("Not deleting DB parameter group '%s': %s", db_parameter_group_name, repr(err))
 
@@ -534,7 +546,7 @@ class DiscoRDS(object):
         Get all RDS clusters/instances in the current VPC.
         When status is not None, filter instances that are only in the specified status or list of states.
         """
-        response = self.client.describe_db_instances()  # filters are "not currently implemented"
+        response = throttled_call(self.client.describe_db_instances)  # filters are not currently implemented
         instances = response["DBInstances"]
         states = None if not status else status if isinstance(status, list) else [status]
         vpc_instances = [
@@ -571,16 +583,22 @@ class DiscoRDS(object):
         logger.info("Deleting RDS cluster %s", instance_identifier)
 
         if skip_final_snapshot:
-            allocated_storage = self.client.describe_db_instances(DBInstanceIdentifier=instance_identifier)[
-                "DBInstances"][0]["AllocatedStorage"]
+            allocated_storage = throttled_call(
+                self.client.describe_db_instances,
+                DBInstanceIdentifier=instance_identifier
+            )["DBInstances"][0]["AllocatedStorage"]
+
             ansi_color_red = "\033[91m"
             ansi_color_none = "\033[0m"
             print(ansi_color_red + "CAREFUL! All tables in " + instance_identifier +
                   " will be dropped and no backup taken. Data will be irrecoverable." + ansi_color_none)
             response = raw_input("Confirm by typing the amount of allocated storage that will be dropped: ")
             if response == str(allocated_storage):
-                self.client.delete_db_instance(DBInstanceIdentifier=instance_identifier,
-                                               SkipFinalSnapshot=True)
+                throttled_call(
+                    self.client.delete_db_instance,
+                    DBInstanceIdentifier=instance_identifier,
+                    SkipFinalSnapshot=True
+                )
                 print("Done")
             else:
                 print(("User input did not match the AllocatedStorage value for {}. Chickening out.".format(
@@ -589,7 +607,7 @@ class DiscoRDS(object):
         else:
             final_snapshot = "%s-final-snapshot" % instance_identifier
             try:
-                self.client.delete_db_snapshot(DBSnapshotIdentifier=final_snapshot)
+                throttled_call(self.client.delete_db_snapshot, DBSnapshotIdentifier=final_snapshot)
             except botocore.exceptions.ClientError:
                 pass
             keep_trying(
@@ -627,7 +645,7 @@ class DiscoRDS(object):
 
         Automated Snapshots are managed by RDS
         """
-        snapshots = self.client.describe_db_snapshots(SnapshotType='manual')
+        snapshots = throttled_call(self.client.describe_db_snapshots, SnapshotType='manual')
         for snapshot in snapshots['DBSnapshots']:
             snap_create_date = snapshot['SnapshotCreateTime']
             today = datetime.datetime.utcnow().replace(tzinfo=pytz.utc)
@@ -635,11 +653,11 @@ class DiscoRDS(object):
             if snapshot_age > days:
                 snapshot_id = snapshot['DBSnapshotIdentifier']
                 logger.info("Deleting Snapshot %s since its older than %d", snapshot_id, days)
-                self.client.delete_db_snapshot(DBSnapshotIdentifier=snapshot_id)
+                throttled_call(self.client.delete_db_snapshot, DBSnapshotIdentifier=snapshot_id)
 
     def _get_db_instance(self, instance_identifier):
         try:
-            return self.client.describe_db_instances(DBInstanceIdentifier=instance_identifier)
+            return throttled_call(self.client.describe_db_instances, DBInstanceIdentifier=instance_identifier)
         except botocore.exceptions.ClientError:
             return None
 
