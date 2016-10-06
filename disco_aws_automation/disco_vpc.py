@@ -47,7 +47,8 @@ class DiscoVPC(object):
     This class contains all our VPC orchestration code
     """
 
-    def __init__(self, environment_name, environment_type, vpc=None, config_file=None, boto3_ec2=None):
+    def __init__(self, environment_name, environment_type, vpc=None,
+                 config_file=None, boto3_ec2=None, defer_creation=False):
         self.config_file = config_file or VPC_CONFIG_FILE
 
         self.environment_name = environment_name
@@ -79,8 +80,8 @@ class DiscoVPC(object):
 
         if vpc:
             self.vpc = vpc
-        else:
-            self._create_environment()
+        elif not defer_creation:
+            self.create()
 
     @property
     def config(self):
@@ -88,7 +89,9 @@ class DiscoVPC(object):
         if not self._config:
             try:
                 config = ConfigParser()
-                config.read(normalize_path(self.config_file))
+                config_file = normalize_path(self.config_file)
+                logger.info("Reading VPC config %s", config_file)
+                config.read(config_file)
                 self._config = config
             except Exception:
                 return None
@@ -306,7 +309,7 @@ class DiscoVPC(object):
 
         return dhcp_options[0]
 
-    def _create_environment(self):
+    def create(self):
 
         """Create a new disco style environment VPC"""
         vpc_cidr = self.get_config("vpc_cidr")
@@ -385,6 +388,7 @@ class DiscoVPC(object):
     def vpc_filters(self):
         """Filters used to get only the current VPC when filtering an AWS reply by 'vpc-id'"""
         return create_filters({'vpc-id': [self.vpc['VpcId']]})
+
 
     def update(self, dry_run=False):
         """ Update the existing VPC """
